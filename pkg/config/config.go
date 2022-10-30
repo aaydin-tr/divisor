@@ -74,6 +74,11 @@ func PrepareConfig(config *Config) *Config {
 		b := &config.Backends[i]
 		b.URL = strings.ReplaceAll(b.URL, "http://", "")
 
+		if config.Type == "w-round-robin" && b.Weight <= 0 {
+			log.Fatal("When using the weighted-round-robin algorithm, a weight must be specified for each backend.")
+			return nil
+		}
+
 		if b.MaxConnection <= 0 {
 			b.MaxConnection = DefaultMaxConnection
 		}
@@ -93,6 +98,10 @@ func PrepareConfig(config *Config) *Config {
 		if b.MaxIdemponentCallAttempts <= 0 {
 			b.MaxIdemponentCallAttempts = DefaultMaxIdemponentCallAttempts
 		}
+	}
+
+	if config.Type == "w-round-robin" && len(config.Backends) == 1 {
+		config.Type = "round-robin"
 	}
 
 	return config
