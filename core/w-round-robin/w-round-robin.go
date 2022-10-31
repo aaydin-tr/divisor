@@ -13,7 +13,7 @@ import (
 
 type WRoundRobin struct {
 	tempList      w_list.List
-	orderedList   circular_list.List
+	sortedList    circular_list.List
 	totalBackends uint
 	round         uint
 
@@ -31,17 +31,18 @@ func NewWRoundRobin(config *config.Config) types.IBalancer {
 
 	for _, b := range config.Backends {
 		proxy := http.NewProxyClient(b)
-		newWRoundRobin.tempList.AddToTail(proxy, b.Weight, b.URL)
+		newWRoundRobin.tempList.AddToTail(proxy, b.Weight)
 		newWRoundRobin.totalWeight = newWRoundRobin.totalWeight + b.Weight
 		newWRoundRobin.totalBackends++
 	}
+	newWRoundRobin.tempList.Sort()
 	return newWRoundRobin
 }
 
 func (w *WRoundRobin) Serve() func(ctx *fasthttp.RequestCtx) {
 	startPoint := w.tempList.Head
-	w.orderedList.AddToTail(startPoint.Proxy)
-	orderedBackends := w.orderedList.Head
+	w.sortedList.AddToTail(startPoint.Proxy)
+	sortedBackends := w.sortedList.Head
 
 	return func(ctx *fasthttp.RequestCtx) {
 		w.mutex.Lock()
@@ -49,8 +50,8 @@ func (w *WRoundRobin) Serve() func(ctx *fasthttp.RequestCtx) {
 		w.roundLimit++
 
 		if w.totalReq >= w.totalWeight {
-			orderedBackends.Proxy.ReverseProxyHandler(ctx)
-			orderedBackends = orderedBackends.Next
+			sortedBackends.Proxy.ReverseProxyHandler(ctx)
+			sortedBackends = sortedBackends.Next
 			return
 		}
 
@@ -59,10 +60,10 @@ func (w *WRoundRobin) Serve() func(ctx *fasthttp.RequestCtx) {
 
 			if startPoint.Next != nil && w.round <= startPoint.Next.Weight {
 				startPoint = startPoint.Next
-				w.orderedList.AddToTail(startPoint.Proxy)
+				w.sortedList.AddToTail(startPoint.Proxy)
 			} else {
 				startPoint = w.tempList.Head
-				w.orderedList.AddToTail(startPoint.Proxy)
+				w.sortedList.AddToTail(startPoint.Proxy)
 			}
 		} else {
 			startPoint = w.tempList.Head

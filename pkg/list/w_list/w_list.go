@@ -1,11 +1,12 @@
 package w_list
 
-import "github.com/aaydin-tr/balancer/http"
+import (
+	"github.com/aaydin-tr/balancer/http"
+)
 
 type Node struct {
 	Proxy  *http.HTTPClient
 	Weight uint
-	Name   string
 	Next   *Node
 }
 
@@ -15,12 +16,12 @@ type List struct {
 	Tail *Node
 }
 
-func NewLinkedList() *List {
+func NewSortedLinkedList() *List {
 	return &List{}
 }
 
-func (l *List) AddToTail(proxy *http.HTTPClient, weight uint, name string) {
-	newNode := &Node{Proxy: proxy, Weight: weight, Name: name}
+func (l *List) AddToTail(proxy *http.HTTPClient, weight uint) {
+	newNode := &Node{Proxy: proxy, Weight: weight}
 
 	if l.Len == 0 {
 		l.Head = newNode
@@ -31,4 +32,23 @@ func (l *List) AddToTail(proxy *http.HTTPClient, weight uint, name string) {
 		l.Tail = newNode
 	}
 	l.Len++
+}
+
+func (l *List) Sort() {
+	prev := l.Head
+	curr := l.Head.Next
+
+	for curr != nil {
+		if prev.Weight < curr.Weight {
+			prev.Next = curr.Next
+			curr.Next = l.Head
+			l.Head = curr
+
+			curr = prev
+		} else {
+			prev = curr
+		}
+		curr = curr.Next
+	}
+
 }

@@ -13,7 +13,7 @@ type List struct {
 	Tail *Node
 }
 
-func NewLinkedList() *List {
+func NewCircularLinkedList() *List {
 	return &List{}
 }
 
