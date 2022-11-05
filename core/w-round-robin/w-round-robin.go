@@ -49,7 +49,7 @@ func (w *WRoundRobin) Serve() func(ctx *fasthttp.RequestCtx) {
 		defer w.mutex.Unlock()
 		w.roundLimit++
 
-		if w.totalReq >= w.totalWeight {
+		if w.totalReq == w.totalWeight {
 			sortedBackends.Proxy.ReverseProxyHandler(ctx)
 			sortedBackends = sortedBackends.Next
 			return

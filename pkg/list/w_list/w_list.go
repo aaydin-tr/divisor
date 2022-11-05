@@ -35,20 +35,59 @@ func (l *List) AddToTail(proxy *http.HTTPClient, weight uint) {
 }
 
 func (l *List) Sort() {
-	prev := l.Head
-	curr := l.Head.Next
-
-	for curr != nil {
-		if prev.Weight < curr.Weight {
-			prev.Next = curr.Next
-			curr.Next = l.Head
-			l.Head = curr
-
-			curr = prev
-		} else {
-			prev = curr
-		}
-		curr = curr.Next
+	if l.Head == nil {
+		return
 	}
 
+	l.Head = mergeSort(l.Head)
+}
+
+func getMid(head *Node) *Node {
+	slow, fast := head, head.Next
+
+	for fast != nil && fast.Next != nil {
+		slow = slow.Next
+		fast = fast.Next.Next
+	}
+	return slow
+}
+
+func mergeSort(head *Node) *Node {
+	if head == nil || head.Next == nil {
+		return head
+	}
+
+	left := head
+	right := getMid(head)
+
+	tmp := right.Next
+	right.Next = nil
+	right = tmp
+
+	left = mergeSort(left)
+	right = mergeSort(right)
+
+	return merge(left, right)
+}
+
+func merge(list1, list2 *Node) *Node {
+	var result = &Node{}
+
+	if list1 == nil {
+		return list2
+	}
+
+	if list2 == nil {
+		return list1
+	}
+
+	if list1.Weight >= list2.Weight {
+		result = list1
+		result.Next = merge(list1.Next, list2)
+	} else {
+		result = list2
+		result.Next = merge(list1, list2.Next)
+	}
+
+	return result
 }
