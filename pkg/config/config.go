@@ -10,12 +10,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var ValidTypes = []string{"round-robin", "w-round-robin"}
+var ValidTypes = []string{"round-robin", "w-round-robin", "ip-hash"}
 
 const DefaultMaxConnection = 512
 const DefaultMaxConnWaitTimeout = time.Second * 30
-const DefaultMaxConnDuration = time.Second * 30
-const DefaultMaxIdleConnDuration = time.Second * 30
+const DefaultMaxConnDuration = time.Minute * 5
+const DefaultMaxIdleConnDuration = time.Minute * 5
 const DefaultMaxIdemponentCallAttempts = 5
 
 type Backend struct {

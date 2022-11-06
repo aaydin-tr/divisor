@@ -1,6 +1,8 @@
 package helper
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"reflect"
 	"unsafe"
 )
@@ -26,4 +28,10 @@ func S2b(s string) (b []byte) {
 	bh.Cap = sh.Len
 	bh.Len = sh.Len
 	return b
+}
+
+func HashFunc(s string) string {
+	hasher := md5.New()
+	hasher.Write(S2b(s))
+	return hex.EncodeToString(hasher.Sum(nil))
 }
