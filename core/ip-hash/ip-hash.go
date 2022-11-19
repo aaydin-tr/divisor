@@ -32,13 +32,12 @@ func NewIPHash(config *config.Config) types.IBalancer {
 
 func (h *IPHash) Serve() func(ctx *fasthttp.RequestCtx) {
 	return func(ctx *fasthttp.RequestCtx) {
-		h.mutex.Lock()
-		defer h.mutex.Unlock()
-
 		hashCode := helper.HashFunc(ctx.RemoteIP().String())
 		proxy := h.get(hashCode)
 		if proxy == nil {
+			h.mutex.Lock()
 			proxy = h.set(hashCode)
+			h.mutex.Unlock()
 		}
 
 		proxy.ReverseProxyHandler(ctx)
