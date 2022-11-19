@@ -1,80 +1,70 @@
 package w_round_robin
 
 import (
-	"sync"
+	"sync/atomic"
 
 	types "github.com/aaydin-tr/balancer/core/types"
 	"github.com/aaydin-tr/balancer/http"
 	"github.com/aaydin-tr/balancer/pkg/config"
-	circular_list "github.com/aaydin-tr/balancer/pkg/list"
 	"github.com/aaydin-tr/balancer/pkg/list/w_list"
 	"github.com/valyala/fasthttp"
 )
 
 type WRoundRobin struct {
-	tempServerList   w_list.List
-	sortedServerList circular_list.List
-	totalBackends    uint
-	round            uint
-
-	mutex       sync.Mutex
-	roundLimit  uint
-	totalWeight uint
-	totalReq    uint
+	servers []*http.HTTPClient
+	len     uint64
+	i       uint64
 }
 
 func NewWRoundRobin(config *config.Config) types.IBalancer {
-	newWRoundRobin := &WRoundRobin{
-		mutex: sync.Mutex{},
-		round: 1,
-	}
+	newWRoundRobin := &WRoundRobin{}
+
+	tempServerList := w_list.NewLinkedList()
+	totalWeight := 0
+	totalBackends := len(config.Backends)
 
 	for _, b := range config.Backends {
 		proxy := http.NewProxyClient(b)
-		newWRoundRobin.tempServerList.AddToTail(proxy, b.Weight)
-		newWRoundRobin.totalWeight = newWRoundRobin.totalWeight + b.Weight
-		newWRoundRobin.totalBackends++
+		tempServerList.AddToTail(proxy, b.Weight)
+		totalWeight += int(b.Weight)
 	}
-	newWRoundRobin.tempServerList.Sort()
+	tempServerList.Sort()
+
+	startPoint := tempServerList.Head
+	round := 1
+	roundLimit := 0
+	for i := 0; i < totalWeight; i++ {
+
+		if startPoint.Weight >= uint(round) {
+			newWRoundRobin.servers = append(newWRoundRobin.servers, startPoint.Proxy)
+			if startPoint.Next != nil {
+				startPoint = startPoint.Next
+			} else {
+				startPoint = tempServerList.Head
+			}
+		} else {
+			startPoint = tempServerList.Head
+			newWRoundRobin.servers = append(newWRoundRobin.servers, startPoint.Proxy)
+		}
+
+		roundLimit++
+		if roundLimit == totalBackends {
+			round++
+			roundLimit = 0
+		}
+	}
+
+	newWRoundRobin.len = uint64(len(newWRoundRobin.servers))
 	return newWRoundRobin
 }
 
 func (w *WRoundRobin) Serve() func(ctx *fasthttp.RequestCtx) {
-	startPoint := w.tempServerList.Head
-	w.sortedServerList.AddToTail(startPoint.Proxy)
-	sortedBackends := w.sortedServerList.Head
-
 	return func(ctx *fasthttp.RequestCtx) {
-		w.mutex.Lock()
-		defer w.mutex.Unlock()
-
-		if w.totalReq == w.totalWeight {
-			sortedBackends.Proxy.ReverseProxyHandler(ctx)
-			sortedBackends = sortedBackends.Next
-			return
-		}
-
-		w.roundLimit++
-
-		if w.round <= startPoint.Weight {
-			startPoint.Proxy.ReverseProxyHandler(ctx)
-
-			if startPoint.Next != nil && w.round <= startPoint.Next.Weight {
-				startPoint = startPoint.Next
-				w.sortedServerList.AddToTail(startPoint.Proxy)
-			} else {
-				startPoint = w.tempServerList.Head
-				w.sortedServerList.AddToTail(startPoint.Proxy)
-			}
-		} else {
-			startPoint = w.tempServerList.Head
-			startPoint.Proxy.ReverseProxyHandler(ctx)
-		}
-
-		if w.roundLimit == w.totalBackends {
-			w.round++
-			w.roundLimit = 0
-		}
-		w.totalReq++
+		w.next().ReverseProxyHandler(ctx)
 	}
+}
+
+func (r *WRoundRobin) next() *http.HTTPClient {
+	v := atomic.AddUint64(&r.i, 1)
+	return r.servers[v%r.len]
 }
