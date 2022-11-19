@@ -1,41 +1,38 @@
 package round_robin
 
 import (
-	"sync"
+	"sync/atomic"
 
 	types "github.com/aaydin-tr/balancer/core/types"
 	"github.com/aaydin-tr/balancer/http"
 	"github.com/aaydin-tr/balancer/pkg/config"
-	circular_list "github.com/aaydin-tr/balancer/pkg/list"
 	"github.com/valyala/fasthttp"
 )
 
 type RoundRobin struct {
-	server *circular_list.Node
-	mutex  sync.Mutex
+	servers []*http.HTTPClient
+	len     uint64
+	i       uint64
 }
 
 func NewRoundRobin(config *config.Config) types.IBalancer {
-	serverList := circular_list.NewCircularLinkedList()
-
+	roundRobin := &RoundRobin{}
 	for _, b := range config.Backends {
 		proxy := http.NewProxyClient(b)
-		serverList.AddToTail(proxy)
+		roundRobin.servers = append(roundRobin.servers, proxy)
 	}
+	roundRobin.len = uint64(len(roundRobin.servers))
 
-	return &RoundRobin{mutex: sync.Mutex{}, server: serverList.Head}
+	return roundRobin
 }
 
 func (r *RoundRobin) Serve() func(ctx *fasthttp.RequestCtx) {
 	return func(ctx *fasthttp.RequestCtx) {
-		r.mutex.Lock()
-		defer r.mutex.Unlock()
-
-		r.server.Proxy.ReverseProxyHandler(ctx)
-		r.next()
+		r.next().ReverseProxyHandler(ctx)
 	}
 }
 
-func (r *RoundRobin) next() {
-	r.server = r.server.Next
+func (r *RoundRobin) next() *http.HTTPClient {
+	v := atomic.AddUint64(&r.i, 1)
+	return r.servers[v%r.len]
 }
