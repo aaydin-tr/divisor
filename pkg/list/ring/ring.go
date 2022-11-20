@@ -1,4 +1,4 @@
-package circular_list
+package ring
 
 import "github.com/aaydin-tr/balancer/http"
 
@@ -13,7 +13,7 @@ type List struct {
 	Tail *Node
 }
 
-func NewCircularLinkedList() *List {
+func NewRingLinkedList() *List {
 	return &List{}
 }
 

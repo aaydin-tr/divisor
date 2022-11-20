@@ -7,19 +7,19 @@ import (
 	"github.com/aaydin-tr/balancer/http"
 	"github.com/aaydin-tr/balancer/pkg/config"
 	"github.com/aaydin-tr/balancer/pkg/helper"
-	circular_list "github.com/aaydin-tr/balancer/pkg/list"
+	"github.com/aaydin-tr/balancer/pkg/list/ring"
 	"github.com/valyala/fasthttp"
 )
 
 type IPHash struct {
-	server *circular_list.Node
+	server *ring.Node
 	mutex  sync.Mutex
 
 	ipMap map[string]*http.HTTPClient
 }
 
 func NewIPHash(config *config.Config) types.IBalancer {
-	serverList := circular_list.NewCircularLinkedList()
+	serverList := ring.NewRingLinkedList()
 	ipMap := make(map[string]*http.HTTPClient)
 
 	for _, b := range config.Backends {

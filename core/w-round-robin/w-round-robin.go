@@ -19,7 +19,7 @@ type WRoundRobin struct {
 func NewWRoundRobin(config *config.Config) types.IBalancer {
 	newWRoundRobin := &WRoundRobin{}
 
-	tempServerList := w_list.NewLinkedList()
+	tempServerList := w_list.NewWLinkedList()
 	totalWeight := 0
 	totalBackends := len(config.Backends)
 

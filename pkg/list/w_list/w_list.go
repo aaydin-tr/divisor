@@ -16,7 +16,7 @@ type List struct {
 	Tail *Node
 }
 
-func NewLinkedList() *List {
+func NewWLinkedList() *List {
 	return &List{}
 }
 
