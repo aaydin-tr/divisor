@@ -3,20 +3,22 @@ package config
 import (
 	"log"
 	"os"
-	"strings"
+	"regexp"
 	"time"
 
 	"github.com/aaydin-tr/balancer/pkg/helper"
 	"gopkg.in/yaml.v3"
 )
 
-var ValidTypes = []string{"round-robin", "w-round-robin", "ip-hash"}
+var ValidTypes = []string{"round-robin", "w-round-robin", "ip-hash", "random"}
 
 const DefaultMaxConnection = 512
 const DefaultMaxConnWaitTimeout = time.Second * 30
 const DefaultMaxConnDuration = time.Minute * 5
 const DefaultMaxIdleConnDuration = time.Minute * 5
 const DefaultMaxIdemponentCallAttempts = 5
+
+var protocolRegex = regexp.MustCompile(`(^https?://)`)
 
 type Backend struct {
 	URL                       string        `yaml:"url"`
@@ -72,7 +74,7 @@ func PrepareConfig(config *Config) *Config {
 
 	for i := 0; i < len(config.Backends); i++ {
 		b := &config.Backends[i]
-		b.URL = strings.ReplaceAll(b.URL, "http://", "")
+		b.URL = protocolRegex.ReplaceAllString(b.URL, "")
 
 		if config.Type == "w-round-robin" && b.Weight <= 0 {
 			log.Fatal("When using the weighted-round-robin algorithm, a weight must be specified for each backend.")
