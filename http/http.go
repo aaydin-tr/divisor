@@ -48,10 +48,10 @@ func (h *HTTPClient) preReq(req *fasthttp.Request, clientIP net.IP, host []byte)
 	for _, h := range hopHeaders {
 		req.Header.Del(h)
 	}
-	req.SetHost(helper.B2s(host))
-	if ip, _, err := net.SplitHostPort(clientIP.String()); err == nil {
-		req.Header.Set("X-Forwarded-For", ip)
-	}
+	//TODO
+	// req.SetHost(helper.B2s(host))
+	// req.SetRequestURI(helper.B2s(req.RequestURI()))
+	req.Header.Set("X-Forwarded-For", clientIP.String())
 }
 
 func (h *HTTPClient) postRes(res *fasthttp.Response) {
