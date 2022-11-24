@@ -4,14 +4,14 @@ import (
 	"sync/atomic"
 
 	types "github.com/aaydin-tr/balancer/core/types"
-	"github.com/aaydin-tr/balancer/http"
 	"github.com/aaydin-tr/balancer/pkg/config"
 	"github.com/aaydin-tr/balancer/pkg/list/w_list"
+	"github.com/aaydin-tr/balancer/proxy"
 	"github.com/valyala/fasthttp"
 )
 
 type WRoundRobin struct {
-	servers []*http.HTTPClient
+	servers []*proxy.ProxyClient
 	len     uint64
 	i       uint64
 }
@@ -24,7 +24,7 @@ func NewWRoundRobin(config *config.Config) types.IBalancer {
 	totalBackends := len(config.Backends)
 
 	for _, b := range config.Backends {
-		proxy := http.NewProxyClient(b)
+		proxy := proxy.NewProxyClient(b)
 		tempServerList.AddToTail(proxy, b.Weight)
 		totalWeight += int(b.Weight)
 	}
@@ -64,7 +64,7 @@ func (w *WRoundRobin) Serve() func(ctx *fasthttp.RequestCtx) {
 	}
 }
 
-func (r *WRoundRobin) next() *http.HTTPClient {
+func (r *WRoundRobin) next() *proxy.ProxyClient {
 	v := atomic.AddUint64(&r.i, 1)
 	return r.servers[v%r.len]
 }

@@ -4,10 +4,10 @@ import (
 	"sync"
 
 	"github.com/aaydin-tr/balancer/core/types"
-	"github.com/aaydin-tr/balancer/http"
 	"github.com/aaydin-tr/balancer/pkg/config"
 	"github.com/aaydin-tr/balancer/pkg/helper"
 	"github.com/aaydin-tr/balancer/pkg/list/ring"
+	"github.com/aaydin-tr/balancer/proxy"
 	"github.com/valyala/fasthttp"
 )
 
@@ -15,15 +15,15 @@ type IPHash struct {
 	server *ring.Node
 	mutex  sync.Mutex
 
-	ipMap map[string]*http.HTTPClient
+	ipMap map[string]*proxy.ProxyClient
 }
 
 func NewIPHash(config *config.Config) types.IBalancer {
 	serverList := ring.NewRingLinkedList()
-	ipMap := make(map[string]*http.HTTPClient)
+	ipMap := make(map[string]*proxy.ProxyClient)
 
 	for _, b := range config.Backends {
-		proxy := http.NewProxyClient(b)
+		proxy := proxy.NewProxyClient(b)
 		serverList.AddToTail(proxy)
 	}
 
@@ -44,7 +44,7 @@ func (h *IPHash) Serve() func(ctx *fasthttp.RequestCtx) {
 	}
 }
 
-func (h *IPHash) get(hashCode string) *http.HTTPClient {
+func (h *IPHash) get(hashCode string) *proxy.ProxyClient {
 	if p, ok := h.ipMap[hashCode]; ok {
 		return p
 	}
@@ -52,7 +52,7 @@ func (h *IPHash) get(hashCode string) *http.HTTPClient {
 	return nil
 }
 
-func (h *IPHash) set(hashCode string) *http.HTTPClient {
+func (h *IPHash) set(hashCode string) *proxy.ProxyClient {
 	currServer := h.server
 	h.ipMap[hashCode] = currServer.Proxy
 	h.server = currServer.Next

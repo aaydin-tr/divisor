@@ -3,17 +3,17 @@ package w_list
 import (
 	"testing"
 
-	"github.com/aaydin-tr/balancer/http"
+	"github.com/aaydin-tr/balancer/proxy"
 )
 
 var cases = []struct {
-	proxy  *http.HTTPClient
+	proxy  *proxy.ProxyClient
 	weight uint
 }{
-	{&http.HTTPClient{}, 5},
-	{&http.HTTPClient{}, 3},
-	{&http.HTTPClient{}, 4},
-	{&http.HTTPClient{}, 7},
+	{&proxy.ProxyClient{}, 5},
+	{&proxy.ProxyClient{}, 3},
+	{&proxy.ProxyClient{}, 4},
+	{&proxy.ProxyClient{}, 7},
 }
 
 func emptyList() *List {

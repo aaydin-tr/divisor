@@ -3,7 +3,7 @@ package ring
 import (
 	"testing"
 
-	"github.com/aaydin-tr/balancer/http"
+	"github.com/aaydin-tr/balancer/proxy"
 )
 
 func emptyList() *List {
@@ -11,12 +11,12 @@ func emptyList() *List {
 }
 
 var cases = []struct {
-	value *http.HTTPClient
+	value *proxy.ProxyClient
 }{
-	{&http.HTTPClient{}},
-	{&http.HTTPClient{}},
-	{&http.HTTPClient{}},
-	{&http.HTTPClient{}},
+	{&proxy.ProxyClient{}},
+	{&proxy.ProxyClient{}},
+	{&proxy.ProxyClient{}},
+	{&proxy.ProxyClient{}},
 }
 
 func TestNewLinkedList(t *testing.T) {

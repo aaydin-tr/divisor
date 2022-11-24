@@ -1,11 +1,9 @@
 package w_list
 
-import (
-	"github.com/aaydin-tr/balancer/http"
-)
+import "github.com/aaydin-tr/balancer/proxy"
 
 type Node struct {
-	Proxy  *http.HTTPClient
+	Proxy  *proxy.ProxyClient
 	Weight uint
 	Next   *Node
 }
@@ -20,7 +18,7 @@ func NewWLinkedList() *List {
 	return &List{}
 }
 
-func (l *List) AddToTail(proxy *http.HTTPClient, weight uint) {
+func (l *List) AddToTail(proxy *proxy.ProxyClient, weight uint) {
 	newNode := &Node{Proxy: proxy, Weight: weight}
 
 	if l.Len == 0 {

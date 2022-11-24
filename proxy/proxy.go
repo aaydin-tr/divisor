@@ -1,4 +1,4 @@
-package http
+package proxy
 
 import (
 	"net"
@@ -25,11 +25,11 @@ var hopHeaders = []string{
 	"Upgrade",
 }
 
-type HTTPClient struct {
+type ProxyClient struct {
 	proxy *fasthttp.HostClient
 }
 
-func (h *HTTPClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) {
+func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 	req := &ctx.Request
 	res := &ctx.Response
 	clientIP := ctx.RemoteIP()
@@ -37,14 +37,16 @@ func (h *HTTPClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) {
 	h.preReq(req, clientIP, ctx.Host())
 
 	if err := h.proxy.Do(req, res); err != nil {
-		ctx.Logger().Printf("error when proxying the request: %s", err)
+		//ctx.Logger().Printf("error when proxying the request: %s", err)
 		h.serverError(res, err.Error())
-		return
+		return err
 	}
 	h.postRes(res)
+
+	return nil
 }
 
-func (h *HTTPClient) preReq(req *fasthttp.Request, clientIP net.IP, host []byte) {
+func (h *ProxyClient) preReq(req *fasthttp.Request, clientIP net.IP, host []byte) {
 	for _, h := range hopHeaders {
 		req.Header.Del(h)
 	}
@@ -54,13 +56,13 @@ func (h *HTTPClient) preReq(req *fasthttp.Request, clientIP net.IP, host []byte)
 	req.Header.Set("X-Forwarded-For", clientIP.String())
 }
 
-func (h *HTTPClient) postRes(res *fasthttp.Response) {
+func (h *ProxyClient) postRes(res *fasthttp.Response) {
 	for _, h := range hopHeaders {
 		res.Header.Del(h)
 	}
 }
 
-func (h *HTTPClient) serverError(res *fasthttp.Response, err string) {
+func (h *ProxyClient) serverError(res *fasthttp.Response, err string) {
 	for _, h := range hopHeaders {
 		res.Header.Del(h)
 	}
@@ -72,11 +74,11 @@ func (h *HTTPClient) serverError(res *fasthttp.Response, err string) {
 }
 
 // TODO
-func (h *HTTPClient) setCustomHeaders() {
+func (h *ProxyClient) setCustomHeaders() {
 
 }
 
-func NewProxyClient(backend config.Backend) *HTTPClient {
+func NewProxyClient(backend config.Backend) *ProxyClient {
 	proxyClient := &fasthttp.HostClient{
 		Addr:                      backend.URL,
 		MaxConns:                  backend.MaxConnection,
@@ -86,5 +88,5 @@ func NewProxyClient(backend config.Backend) *HTTPClient {
 		MaxConnWaitTimeout:        backend.MaxConnWaitTimeout,
 	}
 
-	return &HTTPClient{proxy: proxyClient}
+	return &ProxyClient{proxy: proxyClient}
 }

@@ -1,9 +1,9 @@
 package ring
 
-import "github.com/aaydin-tr/balancer/http"
+import "github.com/aaydin-tr/balancer/proxy"
 
 type Node struct {
-	Proxy *http.HTTPClient
+	Proxy *proxy.ProxyClient
 	Next  *Node
 }
 
@@ -17,7 +17,7 @@ func NewRingLinkedList() *List {
 	return &List{}
 }
 
-func (l *List) AddToTail(value *http.HTTPClient) {
+func (l *List) AddToTail(value *proxy.ProxyClient) {
 	newNode := &Node{Proxy: value}
 
 	if l.Len == 0 {
