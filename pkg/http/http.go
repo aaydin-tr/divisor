@@ -23,7 +23,7 @@ func NewHttpClient() *HttpClient {
 	}}
 }
 
-func (h *HttpClient) HealtChecker(url string) int {
+func (h *HttpClient) DefaultHealtChecker(url string) int {
 	req := fasthttp.AcquireRequest()
 	req.SetRequestURI(url)
 	req.Header.SetMethod(fasthttp.MethodGet)
