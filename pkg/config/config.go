@@ -18,10 +18,12 @@ const DefaultMaxConnDuration = time.Minute * 5
 const DefaultMaxIdleConnDuration = time.Minute * 5
 const DefaultMaxIdemponentCallAttempts = 5
 
+const DefaultHealtCheckerTime = time.Second * 30
+
 var protocolRegex = regexp.MustCompile(`(^https?://)`)
 
 type Backend struct {
-	URL                       string        `yaml:"url"`
+	Addr                      string        `yaml:"url"`
 	Weight                    uint          `yaml:"weight,omitempty"`
 	MaxConnection             int           `yaml:"max_conn,omitempty"`
 	MaxConnWaitTimeout        time.Duration `yaml:"max_conn_timeout,omitempty"`
@@ -30,10 +32,15 @@ type Backend struct {
 	MaxIdemponentCallAttempts int           `yaml:"max_idemponent_call_attempts,omitempty"`
 }
 
+func (b *Backend) GetURL() string {
+	return "http://" + b.Addr
+}
+
 type Config struct {
-	Type     string    `yaml:"type"`
-	Port     string    `yaml:"port"`
-	Backends []Backend `yaml:"backends"`
+	Type             string        `yaml:"type"`
+	Port             string        `yaml:"port"`
+	HealtCheckerTime time.Duration `yaml:"healt_checker_time"`
+	Backends         []Backend     `yaml:"backends"`
 }
 
 func ParseConfigFile(path string) *Config {
@@ -52,33 +59,45 @@ func ParseConfigFile(path string) *Config {
 	return &config
 }
 
-func PrepareConfig(config *Config) *Config {
-	if len(config.Backends) == 0 {
+func (c *Config) PrepareConfig() {
+	if len(c.Backends) == 0 {
 		log.Fatal("At least one backend must be set")
-		return nil
+		return
 	}
 
-	if config.Port == "" {
+	if c.Port == "" {
 		log.Fatal("Please choose valid port")
-		return nil
+		return
 	}
 
-	if config.Type == "" {
-		config.Type = "round-robin"
+	if c.Type == "" {
+		c.Type = "round-robin"
 	}
 
-	if !helper.Contains(ValidTypes, config.Type) {
+	if !helper.Contains(ValidTypes, c.Type) {
 		log.Fatal("Please choose valid load balancing type")
-		return nil
+		return
 	}
 
-	for i := 0; i < len(config.Backends); i++ {
-		b := &config.Backends[i]
-		b.URL = protocolRegex.ReplaceAllString(b.URL, "")
+	if c.Type == "w-round-robin" && len(c.Backends) == 1 {
+		c.Type = "round-robin"
+	}
 
-		if config.Type == "w-round-robin" && b.Weight <= 0 {
+	if c.HealtCheckerTime <= 0 {
+		c.HealtCheckerTime = DefaultHealtCheckerTime
+	}
+
+	c.prepareBackends()
+}
+
+func (c *Config) prepareBackends() {
+	for i := 0; i < len(c.Backends); i++ {
+		b := &c.Backends[i]
+		b.Addr = protocolRegex.ReplaceAllString(b.Addr, "")
+
+		if c.Type == "w-round-robin" && b.Weight <= 0 {
 			log.Fatal("When using the weighted-round-robin algorithm, a weight must be specified for each backend.")
-			return nil
+			return
 		}
 
 		if b.MaxConnection <= 0 {
@@ -101,10 +120,4 @@ func PrepareConfig(config *Config) *Config {
 			b.MaxIdemponentCallAttempts = DefaultMaxIdemponentCallAttempts
 		}
 	}
-
-	if config.Type == "w-round-robin" && len(config.Backends) == 1 {
-		config.Type = "round-robin"
-	}
-
-	return config
 }
