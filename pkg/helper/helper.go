@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"reflect"
 	"unsafe"
+
+	"github.com/aaydin-tr/balancer/pkg/http"
 )
 
 func Contains(s []string, str string) bool {
@@ -34,4 +36,12 @@ func HashFunc(s string) string {
 	hasher := md5.New()
 	hasher.Write(S2b(s))
 	return hex.EncodeToString(hasher.Sum(nil))
+}
+
+func Remove[T any](s []T, index int) []T {
+	return append(s[:index], s[index+1:]...)
+}
+
+func IsHostAlive(url string) bool {
+	return http.NewHttpClient().DefaultHealtChecker(url) == 200
 }
