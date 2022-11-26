@@ -37,6 +37,7 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 	h.preReq(req, clientIP, ctx.Host())
 
 	if err := h.proxy.Do(req, res); err != nil {
+		//TODO
 		//ctx.Logger().Printf("error when proxying the request: %s", err)
 		h.serverError(res, err.Error())
 		return err
@@ -80,7 +81,7 @@ func (h *ProxyClient) setCustomHeaders() {
 
 func NewProxyClient(backend config.Backend) *ProxyClient {
 	proxyClient := &fasthttp.HostClient{
-		Addr:                      backend.URL,
+		Addr:                      backend.Addr,
 		MaxConns:                  backend.MaxConnection,
 		MaxConnDuration:           backend.MaxConnDuration,
 		MaxIdleConnDuration:       backend.MaxConnDuration,
