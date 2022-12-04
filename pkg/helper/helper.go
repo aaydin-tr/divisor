@@ -3,6 +3,7 @@ package helper
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"errors"
 	"reflect"
 	"unsafe"
 
@@ -40,6 +41,16 @@ func HashFunc(s string) string {
 
 func Remove[T any](s []T, index int) []T {
 	return append(s[:index], s[index+1:]...)
+}
+
+func FindIndex[T comparable](s []T, value T) (int, error) {
+	for i, elem := range s {
+		if elem == value {
+			return i, nil
+		}
+	}
+
+	return 0, errors.New("not found in slice")
 }
 
 func IsHostAlive(url string) bool {
