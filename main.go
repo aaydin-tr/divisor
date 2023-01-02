@@ -7,6 +7,7 @@ import (
 
 	balancer "github.com/aaydin-tr/balancer/core"
 	"github.com/aaydin-tr/balancer/pkg/config"
+	healthchecker "github.com/aaydin-tr/balancer/pkg/health-checker"
 	"github.com/aaydin-tr/balancer/pkg/http"
 
 	"github.com/valyala/fasthttp"
@@ -29,7 +30,7 @@ func main() {
 		TCPKeepalivePeriod:    5 * time.Minute,
 		TCPKeepalive:          true,
 	}
-
+	healthchecker.HealthChecker()
 	if err := server.ListenAndServe(":8000"); err != nil {
 		log.Fatalf("error in fasthttp server: %s", err)
 	}
