@@ -4,18 +4,52 @@
     <meta charset="UTF-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Document</title>
-    <style></style>
+    <title>Monitor</title>
+    <link rel="stylesheet" href="./css/global.css" />
+    <link rel="stylesheet" href="./css/switch.css" />
   </head>
   <body>
+    <label class="switch">
+      <input
+        id="themeSwitch"
+        onchange="handleModeChange(this)"
+        type="checkbox"
+      />
+      <span class="slider"></span>
+      <div
+        id="box"
+        style="width: 200px; height: 200px; background-color: blue"
+      ></div>
+    </label>
+
     <div>
       <canvas id="lineChart"></canvas>
     </div>
   </body>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.1.2/chart.umd.js"></script>
-  <script src="./js/Helpers.js"></script>
+  <script src="./js/utils/Constants.js"></script>
+  <script src="./js/utils/Helpers.js"></script>
   <script src="./js/charts/ChartOneOptions.js"></script>
   <script>
+    const themeSwitch = document.querySelector("#themeSwitch");
+    const box = document.querySelector("#box");
+    let theme = "dark";
+
+    const getTheme = getLocalTheme("theme");
+    if (!getTheme) {
+      setLocalTheme("dark");
+    }
+
+    const handleModeChange = (e) => {
+      const checked = e.checked;
+      if (checked) {
+        setLocalTheme("dark");
+        theme = "dark";
+      } else {
+        setLocalTheme("light");
+        theme = "light";
+      }
+    };
     // Grid line color: Chart.defaults.borderColor = "#27ea09";
     // Bottom Text color: Chart.defaults.color = "#27ea09";
 

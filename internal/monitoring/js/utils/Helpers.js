@@ -5,3 +5,11 @@ const dateFormatter = (date) => {
 
   return hours + ":" + minute + ":" + second;
 };
+
+const setLocalTheme = (data) => {
+  return localStorage.setItem("theme", data);
+};
+
+const getLocalTheme = (key) => {
+  return localStorage.getItem(key);
+};
