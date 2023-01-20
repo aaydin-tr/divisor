@@ -10,16 +10,8 @@
   </head>
   <body>
     <label class="switch">
-      <input
-        id="themeSwitch"
-        onchange="handleModeChange(this)"
-        type="checkbox"
-      />
+      <input id="themeSwitch" type="checkbox" />
       <span class="slider"></span>
-      <div
-        id="box"
-        style="width: 200px; height: 200px; background-color: blue"
-      ></div>
     </label>
 
     <div>
@@ -31,25 +23,41 @@
   <script src="./js/utils/Helpers.js"></script>
   <script src="./js/charts/ChartOneOptions.js"></script>
   <script>
-    const themeSwitch = document.querySelector("#themeSwitch");
-    const box = document.querySelector("#box");
-    let theme = "dark";
+    const setTheme = (theme) => {
+      if (theme === "dark") {
+        lineChart.options = darkOption;
+      } else {
+        lineChart.options = lightOption;
+      }
 
+      lineChart.update();
+    };
+    const themeSwitch = document.querySelector("#themeSwitch");
     const getTheme = getLocalTheme("theme");
     if (!getTheme) {
+      setTheme("dark");
       setLocalTheme("dark");
+    } else {
+      setTheme(getTheme);
     }
 
-    const handleModeChange = (e) => {
-      const checked = e.checked;
+    if (getTheme && getTheme === "dark") {
+      themeSwitch.setAttribute("checked", "");
+    } else {
+      themeSwitch.removeAttribute("checked");
+    }
+
+    themeSwitch.addEventListener("change", (e) => {
+      const checked = e.target.checked;
       if (checked) {
+        setTheme("dark");
         setLocalTheme("dark");
-        theme = "dark";
       } else {
+        setTheme("light");
         setLocalTheme("light");
-        theme = "light";
       }
-    };
+    });
+
     // Grid line color: Chart.defaults.borderColor = "#27ea09";
     // Bottom Text color: Chart.defaults.color = "#27ea09";
 
