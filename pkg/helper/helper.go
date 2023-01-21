@@ -43,6 +43,16 @@ func Remove[T any](s []T, index int) []T {
 	return append(s[:index], s[index+1:]...)
 }
 
+func RemoveMultipleByValue[T comparable](s []T, value T) []T {
+	var temp []T
+	for _, elem := range s {
+		if elem != value {
+			temp = append(temp, elem)
+		}
+	}
+	return temp
+}
+
 func FindIndex[T comparable](s []T, value T) (int, error) {
 	for i, elem := range s {
 		if elem == value {
