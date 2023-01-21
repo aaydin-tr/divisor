@@ -1,23 +1,21 @@
 package w_round_robin
 
 import (
-	"sort"
-	"sync"
+	"math/rand"
 	"sync/atomic"
 	"time"
 
 	types "github.com/aaydin-tr/balancer/core/types"
 	"github.com/aaydin-tr/balancer/pkg/config"
 	"github.com/aaydin-tr/balancer/pkg/helper"
-	"github.com/aaydin-tr/balancer/pkg/list/w_list"
 	"github.com/aaydin-tr/balancer/proxy"
 	"github.com/valyala/fasthttp"
 )
 
 type serverMap struct {
-	proxy   *proxy.ProxyClient
-	indexes []int
-	status  bool
+	proxy       *proxy.ProxyClient
+	weight      uint
+	isHostAlive bool
 }
 
 type WRoundRobin struct {
@@ -28,15 +26,10 @@ type WRoundRobin struct {
 
 	healtCheckerFunc types.HealtCheckerType
 	healtCheckerTime time.Duration
-	mutex            sync.Mutex
 }
 
 func NewWRoundRobin(config *config.Config, healtCheckerFunc types.HealtCheckerType, healtCheckerTime time.Duration) types.IBalancer {
-	wRoundRobin := &WRoundRobin{healtCheckerFunc: healtCheckerFunc, healtCheckerTime: healtCheckerTime, mutex: sync.Mutex{}, serversMap: make(map[string]*serverMap)}
-
-	tempServerList := w_list.NewWLinkedList()
-	totalWeight := 0
-	totalBackends := len(config.Backends)
+	wRoundRobin := &WRoundRobin{healtCheckerFunc: healtCheckerFunc, healtCheckerTime: healtCheckerTime, serversMap: make(map[string]*serverMap)}
 
 	for _, b := range config.Backends {
 		if !helper.IsHostAlive(b.GetURL()) {
@@ -44,49 +37,23 @@ func NewWRoundRobin(config *config.Config, healtCheckerFunc types.HealtCheckerTy
 			continue
 		}
 		proxy := proxy.NewProxyClient(b)
-		tempServerList.AddToTail(proxy, b.Weight)
-		totalWeight += int(b.Weight)
+
+		for i := 0; i < int(b.Weight); i++ {
+			wRoundRobin.servers = append(wRoundRobin.servers, proxy)
+		}
+		wRoundRobin.serversMap[b.Addr] = &serverMap{proxy: proxy, weight: b.Weight, isHostAlive: true}
+
 	}
 
-	if tempServerList.Len <= 0 {
+	if len(wRoundRobin.servers) <= 0 {
 		return nil
 	}
-
-	tempServerList.Sort()
-
-	startPoint := tempServerList.Head
-	round := 1
-	roundLimit := 0
-	for i := 0; i < totalWeight; i++ {
-
-		if startPoint.Weight >= uint(round) {
-			wRoundRobin.servers = append(wRoundRobin.servers, startPoint.Proxy)
-			if startPoint.Next != nil {
-				startPoint = startPoint.Next
-			} else {
-				startPoint = tempServerList.Head
-			}
-		} else {
-			startPoint = tempServerList.Head
-			wRoundRobin.servers = append(wRoundRobin.servers, startPoint.Proxy)
-		}
-
-		roundLimit++
-		if roundLimit == totalBackends {
-			round++
-			roundLimit = 0
-		}
-	}
-
 	wRoundRobin.len = uint64(len(wRoundRobin.servers))
-	for i, p := range wRoundRobin.servers {
-		if sMap, ok := wRoundRobin.serversMap[p.Addr]; ok {
-			sMap.status = true
-			sMap.indexes = append(sMap.indexes, i)
-		} else {
-			wRoundRobin.serversMap[p.Addr] = &serverMap{status: true, indexes: []int{i}, proxy: p}
-		}
-	}
+
+	rand.Seed(time.Now().UnixNano())
+	rand.Shuffle(len(wRoundRobin.servers), func(i, j int) {
+		wRoundRobin.servers[i], wRoundRobin.servers[j] = wRoundRobin.servers[j], wRoundRobin.servers[i]
+	})
 
 	go wRoundRobin.healtChecker(config.Backends)
 
@@ -99,45 +66,43 @@ func (w *WRoundRobin) Serve() func(ctx *fasthttp.RequestCtx) {
 	}
 }
 
-func (r *WRoundRobin) next() *proxy.ProxyClient {
-	v := atomic.AddUint64(&r.i, 1)
-	return r.servers[v%r.len]
+func (w *WRoundRobin) next() *proxy.ProxyClient {
+	v := atomic.AddUint64(&w.i, 1)
+	return w.servers[v%w.len]
 }
 
-func (r *WRoundRobin) healtChecker(backends []config.Backend) {
+func (w *WRoundRobin) healtChecker(backends []config.Backend) {
 	for {
-		time.Sleep(r.healtCheckerTime)
+		time.Sleep(w.healtCheckerTime)
 		//TODO Log
 		for _, backend := range backends {
-			status := r.healtCheckerFunc(backend.GetURL())
-			serverMap := r.serversMap[backend.Addr]
+			status := w.healtCheckerFunc(backend.GetURL())
+			proxyMap := w.serversMap[backend.Addr]
 
-			if serverMap.status && status != 200 {
-				r.len = r.len - uint64(len(serverMap.indexes))
+			if status != 200 && proxyMap.isHostAlive {
+				w.servers = helper.RemoveMultipleByValue(w.servers, proxyMap.proxy)
 
-				sort.Slice(serverMap.indexes, func(i, j int) bool {
-					return serverMap.indexes[i] > serverMap.indexes[j]
-				})
+				w.len = w.len - uint64(proxyMap.weight)
+				proxyMap.isHostAlive = false
 
-				r.servers = helper.RemoveMultiple(r.servers, serverMap.indexes)
-				serverMap.status = false
-
-				if r.len == 0 {
+				if w.len == 0 {
 					panic("All backends are down")
 				}
 
-			} else if !serverMap.status && status == 200 {
-				r.len = r.len + uint64(len(serverMap.indexes))
-				serverMap.status = true
+			} else if status == 200 && !proxyMap.isHostAlive {
+				for i := 0; i < int(proxyMap.weight); i++ {
+					w.servers = append(w.servers, proxyMap.proxy)
+				}
 
-				sort.Slice(serverMap.indexes, func(i, j int) bool {
-					return serverMap.indexes[i] < serverMap.indexes[j]
+				rand.Seed(time.Now().UnixNano())
+				rand.Shuffle(len(w.servers), func(i, j int) {
+					w.servers[i], w.servers[j] = w.servers[j], w.servers[i]
 				})
 
-				for _, i := range serverMap.indexes {
-					r.servers = helper.Insert(r.servers, i, serverMap.proxy)
-				}
+				w.len = w.len + uint64(proxyMap.weight)
+				proxyMap.isHostAlive = true
 			}
+
 		}
 	}
 }
