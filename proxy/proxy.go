@@ -27,6 +27,7 @@ var hopHeaders = []string{
 
 type ProxyClient struct {
 	proxy *fasthttp.HostClient
+	Addr  string
 }
 
 func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
@@ -89,5 +90,5 @@ func NewProxyClient(backend config.Backend) *ProxyClient {
 		MaxConnWaitTimeout:        backend.MaxConnWaitTimeout,
 	}
 
-	return &ProxyClient{proxy: proxyClient}
+	return &ProxyClient{proxy: proxyClient, Addr: backend.Addr}
 }
