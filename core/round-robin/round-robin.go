@@ -12,9 +12,14 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
+type serverMap struct {
+	proxy       *proxy.ProxyClient
+	isHostAlive bool
+}
+
 type RoundRobin struct {
 	servers    []*proxy.ProxyClient
-	serversMap map[string]*proxy.ProxyClient
+	serversMap map[string]*serverMap
 	len        uint64
 	i          uint64
 
@@ -24,7 +29,7 @@ type RoundRobin struct {
 }
 
 func NewRoundRobin(config *config.Config, healtCheckerFunc types.HealtCheckerType, healtCheckerTime time.Duration) types.IBalancer {
-	roundRobin := &RoundRobin{serversMap: make(map[string]*proxy.ProxyClient), healtCheckerFunc: healtCheckerFunc, healtCheckerTime: healtCheckerTime, mutex: sync.Mutex{}}
+	roundRobin := &RoundRobin{serversMap: make(map[string]*serverMap), healtCheckerFunc: healtCheckerFunc, healtCheckerTime: healtCheckerTime, mutex: sync.Mutex{}}
 
 	for _, b := range config.Backends {
 		if !helper.IsHostAlive(b.GetURL()) {
@@ -33,7 +38,7 @@ func NewRoundRobin(config *config.Config, healtCheckerFunc types.HealtCheckerTyp
 		}
 		proxy := proxy.NewProxyClient(b)
 		roundRobin.servers = append(roundRobin.servers, proxy)
-		roundRobin.serversMap[b.Addr] = proxy
+		roundRobin.serversMap[b.Addr] = &serverMap{proxy: proxy, isHostAlive: true}
 	}
 
 	roundRobin.len = uint64(len(roundRobin.servers))
@@ -62,31 +67,26 @@ func (r *RoundRobin) healtChecker(backends []config.Backend) {
 		time.Sleep(r.healtCheckerTime)
 		//TODO Log
 		for _, backend := range backends {
-			go func(backend config.Backend) {
-				r.mutex.Lock()
-				defer r.mutex.Unlock()
-
-				status := r.healtCheckerFunc(backend.GetURL())
-				proxy, ok := r.serversMap[backend.Addr]
-				if ok && status != 200 {
-					index, err := helper.FindIndex(r.servers, proxy)
-					if err != nil {
-						//TODO log
-						return
-					}
-					r.servers = helper.Remove(r.servers, index)
-					r.len = r.len - 1
-					delete(r.serversMap, backend.Addr)
-
-					if r.len == 0 {
-						panic("All backends are down")
-					}
-				} else if !ok && status == 200 {
-					r.servers = append(r.servers, proxy)
-					r.len++
-					r.serversMap[backend.Addr] = proxy
+			status := r.healtCheckerFunc(backend.GetURL())
+			proxyMap := r.serversMap[backend.Addr]
+			if status != 200 && proxyMap.isHostAlive {
+				index, err := helper.FindIndex(r.servers, proxyMap.proxy)
+				if err != nil {
+					//TODO log
+					return
 				}
-			}(backend)
+				r.servers = helper.Remove(r.servers, index)
+				r.len = r.len - 1
+				proxyMap.isHostAlive = false
+
+				if r.len == 0 {
+					panic("All backends are down")
+				}
+			} else if status == 200 && !proxyMap.isHostAlive {
+				r.servers = append(r.servers, proxyMap.proxy)
+				r.len++
+				proxyMap.isHostAlive = true
+			}
 		}
 	}
 }
