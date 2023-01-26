@@ -13,9 +13,21 @@
       <input id="themeSwitch" type="checkbox" />
       <span class="slider"></span>
     </label>
+    <div
+      style="
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 0 10px;
+      "
+    >
+      <div style="width: 45%">
+        <canvas id="chartOne"></canvas>
+      </div>
 
-    <div>
-      <canvas id="lineChart"></canvas>
+      <div style="width: 45%">
+        <canvas id="chartTwo"></canvas>
+      </div>
     </div>
   </body>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.1.2/chart.umd.js"></script>
@@ -25,15 +37,20 @@
   <script>
     const setTheme = (theme) => {
       if (theme === "dark") {
-        lineChart.options = darkOption;
+        chartOne.options = darkOption;
+        chartTwo.options = darkOption;
       } else {
-        lineChart.options = lightOption;
+        chartOne.options = lightOption;
+        chartTwo.options = lightOption;
       }
 
-      lineChart.update();
+      chartOne.update();
+      chartTwo.update();
     };
     const themeSwitch = document.querySelector("#themeSwitch");
     const getTheme = getLocalTheme("theme");
+
+    // Default localstorage dark mode condition
     if (!getTheme) {
       setTheme("dark");
       setLocalTheme("dark");
@@ -41,12 +58,14 @@
       setTheme(getTheme);
     }
 
+    // Switch default on/off
     if (getTheme && getTheme === "dark") {
       themeSwitch.setAttribute("checked", "");
     } else {
       themeSwitch.removeAttribute("checked");
     }
 
+    // Switch onChange event
     themeSwitch.addEventListener("change", (e) => {
       const checked = e.target.checked;
       if (checked) {

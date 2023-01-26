@@ -1,4 +1,5 @@
-const ctx = document.getElementById("lineChart");
+const ctxChartOne = document.getElementById("chartOne");
+const ctxChartTwo = document.getElementById("chartTwo");
 
 const darkOption = {
   scales: {
@@ -8,17 +9,16 @@ const darkOption = {
       beginAtZero: true,
     },
   },
-
-  elements: {
-    point: {
-      radius: 0,
-      hitRadius: 20,
-    },
-    line: {
-      lineTension: 0.2,
-      backgroundColor: "black",
-    },
-  },
+  // elements: {
+  //   point: {
+  //     radius: 0,
+  //     hitRadius: 20,
+  //   },
+  //   line: {
+  //     lineTension: 0.2,
+  //     backgroundColor: "black",
+  //   },
+  // },
   animation: true,
 };
 
@@ -44,7 +44,7 @@ const lightOption = {
   animation: true,
 };
 
-const lineChart = new Chart(ctx, {
+const chartOne = new Chart(ctxChartOne, {
   type: "line",
   data: {
     labels: [],
@@ -58,19 +58,49 @@ const lineChart = new Chart(ctx, {
   },
   options: darkOption,
 });
+console.log(chartOne.options);
+setInterval(() => {
+  const timestamp = dateFormatter(new Date());
+  if (chartOne.data.labels.length > 10) {
+    chartOne.data.labels.shift();
+    chartOne.data.datasets[0].data.shift();
+  }
+  chartOne.data.datasets[0].data.push(getRandomInt(100));
+  chartOne.data.labels.push(timestamp);
 
-function getRandomInt(max) {
-  return Math.floor(Math.random() * max);
-}
+  chartOne.update();
+}, 1000);
+
+const chartTwo = new Chart(ctxChartTwo, {
+  type: "line",
+  data: {
+    labels: [],
+    datasets: [
+      {
+        label: "",
+        data: [],
+        fill: true,
+      },
+      {
+        label: "",
+        data: [],
+        fill: true,
+      },
+    ],
+  },
+  options: darkOption,
+});
 
 setInterval(() => {
   const timestamp = dateFormatter(new Date());
-  if (lineChart.data.labels.length > 10) {
-    lineChart.data.labels.shift();
-    lineChart.data.datasets[0].data.shift();
+  if (chartTwo.data.labels.length > 10) {
+    chartTwo.data.labels.shift();
+    chartTwo.data.datasets[0].data.shift();
+    chartTwo.data.datasets[1].data.shift();
   }
-  lineChart.data.datasets[0].data.push(getRandomInt(100));
-  lineChart.data.labels.push(timestamp);
+  chartTwo.data.datasets[0].data.push(getRandomInt(100));
+  chartTwo.data.datasets[1].data.push(getRandomInt(100));
+  chartTwo.data.labels.push(timestamp);
 
-  lineChart.update();
-}, 1000);
+  chartTwo.update();
+}, 500);

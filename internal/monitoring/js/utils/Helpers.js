@@ -13,3 +13,7 @@ const setLocalTheme = (data) => {
 const getLocalTheme = (key) => {
   return localStorage.getItem(key);
 };
+
+function getRandomInt(max) {
+  return Math.floor(Math.random() * max);
+}
