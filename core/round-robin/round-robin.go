@@ -1,7 +1,6 @@
 package round_robin
 
 import (
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -23,13 +22,16 @@ type RoundRobin struct {
 	len        uint64
 	i          uint64
 
-	healtCheckerFunc types.HealtCheckerType
+	healtCheckerFunc types.HealtCheckerFunc
 	healtCheckerTime time.Duration
-	mutex            sync.Mutex
 }
 
-func NewRoundRobin(config *config.Config, healtCheckerFunc types.HealtCheckerType, healtCheckerTime time.Duration) types.IBalancer {
-	roundRobin := &RoundRobin{serversMap: make(map[string]*serverMap), healtCheckerFunc: healtCheckerFunc, healtCheckerTime: healtCheckerTime, mutex: sync.Mutex{}}
+func NewRoundRobin(config *config.Config, healtCheckerFunc types.HealtCheckerFunc, healtCheckerTime time.Duration, hashFunc types.HashFunc) types.IBalancer {
+	roundRobin := &RoundRobin{
+		serversMap:       make(map[string]*serverMap),
+		healtCheckerFunc: healtCheckerFunc,
+		healtCheckerTime: healtCheckerTime,
+	}
 
 	for _, b := range config.Backends {
 		if !helper.IsHostAlive(b.GetURL()) {
@@ -68,8 +70,8 @@ func (r *RoundRobin) healtChecker(backends []config.Backend) {
 		//TODO Log
 		for _, backend := range backends {
 			status := r.healtCheckerFunc(backend.GetURL())
-			proxyMap := r.serversMap[backend.Addr]
-			if status != 200 && proxyMap.isHostAlive {
+			proxyMap, ok := r.serversMap[backend.Addr]
+			if ok && (status != 200 && proxyMap.isHostAlive) {
 				index, err := helper.FindIndex(r.servers, proxyMap.proxy)
 				if err != nil {
 					//TODO log
@@ -82,7 +84,7 @@ func (r *RoundRobin) healtChecker(backends []config.Backend) {
 				if r.len == 0 {
 					panic("All backends are down")
 				}
-			} else if status == 200 && !proxyMap.isHostAlive {
+			} else if ok && (status == 200 && !proxyMap.isHostAlive) {
 				r.servers = append(r.servers, proxyMap.proxy)
 				r.len++
 				proxyMap.isHostAlive = true

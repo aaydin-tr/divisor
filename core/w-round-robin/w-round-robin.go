@@ -24,12 +24,16 @@ type WRoundRobin struct {
 	len        uint64
 	i          uint64
 
-	healtCheckerFunc types.HealtCheckerType
+	healtCheckerFunc types.HealtCheckerFunc
 	healtCheckerTime time.Duration
 }
 
-func NewWRoundRobin(config *config.Config, healtCheckerFunc types.HealtCheckerType, healtCheckerTime time.Duration) types.IBalancer {
-	wRoundRobin := &WRoundRobin{healtCheckerFunc: healtCheckerFunc, healtCheckerTime: healtCheckerTime, serversMap: make(map[string]*serverMap)}
+func NewWRoundRobin(config *config.Config, healtCheckerFunc types.HealtCheckerFunc, healtCheckerTime time.Duration, hashFunc types.HashFunc) types.IBalancer {
+	wRoundRobin := &WRoundRobin{
+		healtCheckerFunc: healtCheckerFunc,
+		healtCheckerTime: healtCheckerTime,
+		serversMap:       make(map[string]*serverMap),
+	}
 
 	for _, b := range config.Backends {
 		if !helper.IsHostAlive(b.GetURL()) {
@@ -77,9 +81,9 @@ func (w *WRoundRobin) healtChecker(backends []config.Backend) {
 		//TODO Log
 		for _, backend := range backends {
 			status := w.healtCheckerFunc(backend.GetURL())
-			proxyMap := w.serversMap[backend.Addr]
+			proxyMap, ok := w.serversMap[backend.Addr]
 
-			if status != 200 && proxyMap.isHostAlive {
+			if ok && (status != 200 && proxyMap.isHostAlive) {
 				w.servers = helper.RemoveMultipleByValue(w.servers, proxyMap.proxy)
 
 				w.len = w.len - uint64(proxyMap.weight)
@@ -89,7 +93,7 @@ func (w *WRoundRobin) healtChecker(backends []config.Backend) {
 					panic("All backends are down")
 				}
 
-			} else if status == 200 && !proxyMap.isHostAlive {
+			} else if ok && (status == 200 && !proxyMap.isHostAlive) {
 				for i := 0; i < int(proxyMap.weight); i++ {
 					w.servers = append(w.servers, proxyMap.proxy)
 				}
