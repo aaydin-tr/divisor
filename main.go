@@ -7,8 +7,8 @@ import (
 
 	balancer "github.com/aaydin-tr/balancer/core"
 	"github.com/aaydin-tr/balancer/pkg/config"
+	"github.com/aaydin-tr/balancer/pkg/helper"
 	"github.com/aaydin-tr/balancer/pkg/http"
-
 	"github.com/valyala/fasthttp"
 )
 
@@ -16,7 +16,7 @@ func main() {
 	config := config.ParseConfigFile("./config.yaml")
 	config.PrepareConfig()
 
-	proxies := balancer.NewBalancer(config, http.NewHttpClient().DefaultHealtChecker, 5*time.Second)
+	proxies := balancer.NewBalancer(config, http.NewHttpClient().DefaultHealtChecker, 5*time.Second, helper.HashFunc)
 
 	if proxies == nil {
 		fmt.Println("No avaible serves")
@@ -33,4 +33,5 @@ func main() {
 	if err := server.ListenAndServe(":8000"); err != nil {
 		log.Fatalf("error in fasthttp server: %s", err)
 	}
+
 }
