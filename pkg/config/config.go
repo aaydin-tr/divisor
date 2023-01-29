@@ -39,8 +39,8 @@ func (b *Backend) GetURL() string {
 type Config struct {
 	Type             string        `yaml:"type"`
 	Port             string        `yaml:"port"`
-	HealtCheckerTime time.Duration `yaml:"healt_checker_time"`
 	Backends         []Backend     `yaml:"backends"`
+	HealtCheckerTime time.Duration `yaml:"healt_checker_time"`
 }
 
 func ParseConfigFile(path string) *Config {

@@ -17,11 +17,10 @@ type serverMap struct {
 }
 
 type Random struct {
-	servers    []*proxy.ProxyClient
-	serversMap map[string]*serverMap
-	len        int
-
+	serversMap       map[string]*serverMap
 	healtCheckerFunc types.HealtCheckerFunc
+	servers          []*proxy.ProxyClient
+	len              int
 	healtCheckerTime time.Duration
 }
 

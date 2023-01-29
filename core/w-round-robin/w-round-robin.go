@@ -19,12 +19,11 @@ type serverMap struct {
 }
 
 type WRoundRobin struct {
-	servers    []*proxy.ProxyClient
-	serversMap map[string]*serverMap
-	len        uint64
-	i          uint64
-
+	serversMap       map[string]*serverMap
 	healtCheckerFunc types.HealtCheckerFunc
+	servers          []*proxy.ProxyClient
+	len              uint64
+	i                uint64
 	healtCheckerTime time.Duration
 }
 

@@ -18,13 +18,12 @@ type serverMap struct {
 }
 
 type IPHash struct {
-	servers   consistent.ConsistentHash
-	serverMap map[string]*serverMap
-	len       int
-
+	serverMap        map[string]*serverMap
 	healtCheckerFunc types.HealtCheckerFunc
-	healtCheckerTime time.Duration
 	hashFunc         types.HashFunc
+	servers          consistent.ConsistentHash
+	len              int
+	healtCheckerTime time.Duration
 }
 
 func NewIPHash(config *config.Config, healtCheckerFunc types.HealtCheckerFunc, healtCheckerTime time.Duration, hashFunc types.HashFunc) types.IBalancer {
