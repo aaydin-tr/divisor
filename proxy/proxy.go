@@ -13,20 +13,22 @@ import (
 // Connection header field. These are the headers defined by the
 // obsoleted RFC 2616 (section 13.5.1) and are used for backward
 // compatibility.
-var hopHeaders = []string{
-	"Connection",
-	"Proxy-Connection", // non-standard but still sent by libcurl and rejected by e.g. google
-	"Keep-Alive",
-	"Proxy-Authenticate",
-	"Proxy-Authorization",
-	"Te",      // canonicalized version of "TE"
-	"Trailer", // not Trailers per URL above; https://www.rfc-editor.org/errata_search.php?eid=4522
-	"Transfer-Encoding",
-	"Upgrade",
+var hopHeaders = [][]byte{
+	[]byte("Connection"),
+	[]byte("Proxy-Connection"), // non-standard but still sent by libcurl and rejected by e.g. google
+	[]byte("Keep-Alive"),
+	[]byte("Proxy-Authenticate"),
+	[]byte("Proxy-Authorization"),
+	[]byte("Te"),      // canonicalized version of "TE"
+	[]byte("Trailer"), // not Trailers per URL above; https://www.rfc-editor.org/errata_search.php?eid=4522
+	[]byte("Transfer-Encoding"),
+	[]byte("Upgrade"),
 }
+var XForwardedFor = []byte("X-Forwarded-For")
 
 type ProxyClient struct {
 	proxy *fasthttp.HostClient
+	Addr  string
 }
 
 func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
@@ -49,23 +51,23 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 
 func (h *ProxyClient) preReq(req *fasthttp.Request, clientIP net.IP, host []byte) {
 	for _, h := range hopHeaders {
-		req.Header.Del(h)
+		req.Header.DelBytes(h)
 	}
 	//TODO
 	// req.SetHost(helper.B2s(host))
 	// req.SetRequestURI(helper.B2s(req.RequestURI()))
-	req.Header.Set("X-Forwarded-For", clientIP.String())
+	req.Header.SetBytesK(XForwardedFor, clientIP.String())
 }
 
 func (h *ProxyClient) postRes(res *fasthttp.Response) {
 	for _, h := range hopHeaders {
-		res.Header.Del(h)
+		res.Header.DelBytes(h)
 	}
 }
 
 func (h *ProxyClient) serverError(res *fasthttp.Response, err string) {
 	for _, h := range hopHeaders {
-		res.Header.Del(h)
+		res.Header.DelBytes(h)
 	}
 
 	res.SetStatusCode(fasthttp.StatusInternalServerError)
@@ -89,5 +91,5 @@ func NewProxyClient(backend config.Backend) *ProxyClient {
 		MaxConnWaitTimeout:        backend.MaxConnWaitTimeout,
 	}
 
-	return &ProxyClient{proxy: proxyClient}
+	return &ProxyClient{proxy: proxyClient, Addr: backend.Addr}
 }

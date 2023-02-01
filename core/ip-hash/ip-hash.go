@@ -1,60 +1,98 @@
 package ip_hash
 
 import (
-	"sync"
+	"math"
+	"time"
 
 	"github.com/aaydin-tr/balancer/core/types"
 	"github.com/aaydin-tr/balancer/pkg/config"
+	"github.com/aaydin-tr/balancer/pkg/consistent"
 	"github.com/aaydin-tr/balancer/pkg/helper"
-	"github.com/aaydin-tr/balancer/pkg/list/ring"
 	"github.com/aaydin-tr/balancer/proxy"
 	"github.com/valyala/fasthttp"
 )
 
-type IPHash struct {
-	server *ring.Node
-	mutex  sync.Mutex
-
-	ipMap map[string]*proxy.ProxyClient
+type serverMap struct {
+	node        *consistent.Node
+	isHostAlive bool
 }
 
-func NewIPHash(config *config.Config) types.IBalancer {
-	serverList := ring.NewRingLinkedList()
-	ipMap := make(map[string]*proxy.ProxyClient)
+type IPHash struct {
+	serverMap        map[string]*serverMap
+	healtCheckerFunc types.HealtCheckerFunc
+	hashFunc         types.HashFunc
+	servers          consistent.ConsistentHash
+	len              int
+	healtCheckerTime time.Duration
+}
 
-	for _, b := range config.Backends {
-		proxy := proxy.NewProxyClient(b)
-		serverList.AddToTail(proxy)
+func NewIPHash(config *config.Config, healtCheckerFunc types.HealtCheckerFunc, healtCheckerTime time.Duration, hashFunc types.HashFunc) types.IBalancer {
+	ipHash := &IPHash{
+		servers: *consistent.NewConsistentHash(
+			int(math.Pow(float64(len(config.Backends)), float64(2))),
+			hashFunc,
+		),
+		serverMap:        make(map[string]*serverMap),
+		healtCheckerFunc: healtCheckerFunc,
+		healtCheckerTime: healtCheckerTime,
+		hashFunc:         hashFunc,
 	}
 
-	return &IPHash{server: serverList.Head, ipMap: ipMap, mutex: sync.Mutex{}}
+	for i, b := range config.Backends {
+		if !helper.IsHostAlive(b.GetURL()) {
+			//TODO Log
+			continue
+		}
+		proxy := proxy.NewProxyClient(b)
+		node := &consistent.Node{Id: i, Proxy: proxy}
+		ipHash.servers.AddNode(node)
+		ipHash.serverMap[proxy.Addr] = &serverMap{node: node, isHostAlive: true}
+	}
+
+	ipHash.len = len(config.Backends)
+	if ipHash.len <= 0 {
+		return nil
+	}
+
+	go ipHash.healtChecker(config.Backends)
+
+	return ipHash
 }
 
 func (h *IPHash) Serve() func(ctx *fasthttp.RequestCtx) {
 	return func(ctx *fasthttp.RequestCtx) {
-		hashCode := helper.HashFunc(ctx.RemoteIP().String())
+		hashCode := h.hashFunc(helper.S2b(ctx.RemoteIP().String()))
 		proxy := h.get(hashCode)
-		if proxy == nil {
-			h.mutex.Lock()
-			proxy = h.set(hashCode)
-			h.mutex.Unlock()
-		}
-
 		proxy.ReverseProxyHandler(ctx)
 	}
 }
 
-func (h *IPHash) get(hashCode string) *proxy.ProxyClient {
-	if p, ok := h.ipMap[hashCode]; ok {
-		return p
-	}
-
-	return nil
+func (h *IPHash) get(hashCode uint32) *proxy.ProxyClient {
+	node := h.servers.GetNode(hashCode)
+	return node.Proxy
 }
 
-func (h *IPHash) set(hashCode string) *proxy.ProxyClient {
-	currServer := h.server
-	h.ipMap[hashCode] = currServer.Proxy
-	h.server = currServer.Next
-	return currServer.Proxy
+func (h *IPHash) healtChecker(backends []config.Backend) {
+	for {
+		time.Sleep(h.healtCheckerTime)
+		//TODO Log
+		for _, backend := range backends {
+			status := h.healtCheckerFunc(backend.GetURL())
+			proxyMap, ok := h.serverMap[backend.Addr]
+
+			if ok && (status != 200 && proxyMap.isHostAlive) {
+				h.servers.RemoveNode(proxyMap.node)
+				proxyMap.isHostAlive = false
+				h.len = h.len - 1
+
+				if h.len == 0 {
+					panic("All backends are down")
+				}
+			} else if ok && (status == 200 && !proxyMap.isHostAlive) {
+				h.servers.AddNode(proxyMap.node)
+				proxyMap.isHostAlive = true
+				h.len = h.len + 1
+			}
+		}
+	}
 }

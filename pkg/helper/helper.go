@@ -1,9 +1,8 @@
 package helper
 
 import (
-	"crypto/md5"
-	"encoding/hex"
 	"errors"
+	"hash/crc32"
 	"reflect"
 	"unsafe"
 
@@ -33,14 +32,22 @@ func S2b(s string) (b []byte) {
 	return b
 }
 
-func HashFunc(s string) string {
-	hasher := md5.New()
-	hasher.Write(S2b(s))
-	return hex.EncodeToString(hasher.Sum(nil))
+func HashFunc(b []byte) uint32 {
+	return crc32.ChecksumIEEE(b)
 }
 
 func Remove[T any](s []T, index int) []T {
 	return append(s[:index], s[index+1:]...)
+}
+
+func RemoveMultipleByValue[T comparable](s []T, value T) []T {
+	var temp []T
+	for _, elem := range s {
+		if elem != value {
+			temp = append(temp, elem)
+		}
+	}
+	return temp
 }
 
 func FindIndex[T comparable](s []T, value T) (int, error) {
@@ -53,6 +60,7 @@ func FindIndex[T comparable](s []T, value T) (int, error) {
 	return 0, errors.New("not found in slice")
 }
 
+// TODO
 func IsHostAlive(url string) bool {
 	return http.NewHttpClient().DefaultHealtChecker(url) == 200
 }
