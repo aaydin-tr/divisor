@@ -3,6 +3,8 @@ package monitoring
 import (
 	"fmt"
 	"os"
+	"runtime"
+	"sync"
 
 	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/mem"
@@ -10,30 +12,37 @@ import (
 )
 
 type Monitoring struct {
-	Cpu    CPUStats
-	Memory MemStats
+	Cpu            CPUStats `json:"cpu"`
+	Memory         MemStats `json:"memory"`
+	TotalGoroutine int      `json:"total_goroutine"`
 }
 
 type CPUStats struct {
-	ProcessPercent float64
-	TotalPercent   float64
+	ProcessPercent float64 `json:"process_percent"`
+	TotalPercent   float64 `json:"total_percent"`
 }
 
 type MemStats struct {
-	ProcessUsageMB float64
-	TotalUsageMB   float64
-	TotalMB        float64
+	ProcessPercent float64 `json:"process_percent"`
+	TotalPercent   float64 `json:"total_percent"`
+	TotalMB        float64 `json:"total_mb"`
 }
 
-func HealthChecker() {
-	var monitoring = Monitoring{}
+var once sync.Once
+var pid int
+
+func HealthChecker() Monitoring {
+	once.Do(func() {
+		pid = os.Getpid()
+	})
+
+	monitoring := Monitoring{}
 	// Get the process ID of the Go program
-	pid := os.Getpid()
 	// Get the Process object for the Go program
 	process, err := process.NewProcess(int32(pid))
 	if err != nil {
 		fmt.Println(err)
-		return
+		return Monitoring{}
 	}
 
 	processCpuUsage, _ := process.CPUPercent()
@@ -42,17 +51,19 @@ func HealthChecker() {
 	totalCpuUsage, err := cpu.Percent(0, false)
 	if err != nil {
 		fmt.Println(err)
-		return
+		return Monitoring{}
 	}
+
 	monitoring.Cpu.TotalPercent = totalCpuUsage[0]
 
 	me, _ := mem.VirtualMemory()
 	monitoring.Memory.TotalMB = float64(ByteToMB(me.Total))
 	a, _ := process.MemoryPercent()
-	monitoring.Memory.ProcessUsageMB = float64(a * float32(ByteToMB(me.Total)) / 100)
-	monitoring.Memory.TotalUsageMB = float64(ByteToMB(me.Used))
+	monitoring.Memory.ProcessPercent = float64(a * float32(ByteToMB(me.Total)) / 100)
+	monitoring.Memory.TotalPercent = (float64(me.Used) / float64((me.Total))) * 100
+	monitoring.TotalGoroutine = runtime.NumGoroutine()
 
-	fmt.Printf("%+v\n", monitoring)
+	return monitoring
 }
 
 func ByteToMB(b uint64) uint64 {

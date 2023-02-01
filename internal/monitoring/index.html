@@ -1,87 +1,40 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Monitor</title>
-    <link rel="stylesheet" href="./css/global.css" />
-    <link rel="stylesheet" href="./css/switch.css" />
-  </head>
-  <body>
-    <label class="switch">
-      <input id="themeSwitch" type="checkbox" />
-      <span class="slider"></span>
-    </label>
-    <div
-      style="
+
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Monitor</title>
+
+</head>
+<style>
+  * {
+    margin: 0;
+    padding: 0;
+    background-color: white;
+    height: 100%;
+  }
+</style>
+
+<body>
+
+  <div style="
         display: flex;
         justify-content: center;
         align-items: center;
         padding: 0 10px;
-      "
-    >
-      <div style="width: 45%">
-        <canvas id="chartOne"></canvas>
-      </div>
-
-      <div style="width: 45%">
-        <canvas id="chartTwo"></canvas>
-      </div>
+      ">
+    <div style="width: 45%">
+      <canvas id="cpu"></canvas>
     </div>
-  </body>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.1.2/chart.umd.js"></script>
-  <script src="./js/utils/Constants.js"></script>
-  <script src="./js/utils/Helpers.js"></script>
-  <script src="./js/charts/ChartOneOptions.js"></script>
-  <script>
-    const setTheme = (theme) => {
-      if (theme === "dark") {
-        chartOne.options = darkOption;
-        chartTwo.options = darkOption;
-      } else {
-        chartOne.options = lightOption;
-        chartTwo.options = lightOption;
-      }
 
-      chartOne.update();
-      chartTwo.update();
-    };
-    const themeSwitch = document.querySelector("#themeSwitch");
-    const getTheme = getLocalTheme("theme");
+    <div style="width: 45%">
+      <canvas id="ram"></canvas>
+    </div>
+  </div>
+</body>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.1.2/chart.umd.js"></script>
+<script src="./js/charts.js"></script>
 
-    // Default localstorage dark mode condition
-    if (!getTheme) {
-      setTheme("dark");
-      setLocalTheme("dark");
-    } else {
-      setTheme(getTheme);
-    }
-
-    // Switch default on/off
-    if (getTheme && getTheme === "dark") {
-      themeSwitch.setAttribute("checked", "");
-    } else {
-      themeSwitch.removeAttribute("checked");
-    }
-
-    // Switch onChange event
-    themeSwitch.addEventListener("change", (e) => {
-      const checked = e.target.checked;
-      if (checked) {
-        setTheme("dark");
-        setLocalTheme("dark");
-      } else {
-        setTheme("light");
-        setLocalTheme("light");
-      }
-    });
-
-    // Grid line color: Chart.defaults.borderColor = "#27ea09";
-    // Bottom Text color: Chart.defaults.color = "#27ea09";
-
-    // Chart.defaults.backgroundColor = "#FF0000";
-    // Chart.defaults.borderColor = "#FF0000";
-    // Chart.defaults.color = "#27ea09";
-  </script>
 </html>
