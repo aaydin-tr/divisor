@@ -15,10 +15,11 @@ import (
 type serverMap struct {
 	node        *consistent.Node
 	isHostAlive bool
+	i           int
 }
 
 type IPHash struct {
-	serverMap        map[string]*serverMap
+	serversMap       map[string]*serverMap
 	healtCheckerFunc types.HealtCheckerFunc
 	hashFunc         types.HashFunc
 	servers          consistent.ConsistentHash
@@ -32,7 +33,7 @@ func NewIPHash(config *config.Config, healtCheckerFunc types.HealtCheckerFunc, h
 			int(math.Pow(float64(len(config.Backends)), float64(2))),
 			hashFunc,
 		),
-		serverMap:        make(map[string]*serverMap),
+		serversMap:       make(map[string]*serverMap),
 		healtCheckerFunc: healtCheckerFunc,
 		healtCheckerTime: healtCheckerTime,
 		hashFunc:         hashFunc,
@@ -46,7 +47,7 @@ func NewIPHash(config *config.Config, healtCheckerFunc types.HealtCheckerFunc, h
 		proxy := proxy.NewProxyClient(b)
 		node := &consistent.Node{Id: i, Proxy: proxy}
 		ipHash.servers.AddNode(node)
-		ipHash.serverMap[proxy.Addr] = &serverMap{node: node, isHostAlive: true}
+		ipHash.serversMap[proxy.Addr] = &serverMap{node: node, isHostAlive: true, i: i}
 	}
 
 	ipHash.len = len(config.Backends)
@@ -57,10 +58,6 @@ func NewIPHash(config *config.Config, healtCheckerFunc types.HealtCheckerFunc, h
 	go ipHash.healtChecker(config.Backends)
 
 	return ipHash
-}
-
-func (i *IPHash) Stats() []types.ProxyStat {
-	return nil
 }
 
 func (h *IPHash) Serve() func(ctx *fasthttp.RequestCtx) {
@@ -82,7 +79,7 @@ func (h *IPHash) healtChecker(backends []config.Backend) {
 		//TODO Log
 		for _, backend := range backends {
 			status := h.healtCheckerFunc(backend.GetURL())
-			proxyMap, ok := h.serverMap[backend.Addr]
+			proxyMap, ok := h.serversMap[backend.Addr]
 
 			if ok && (status != 200 && proxyMap.isHostAlive) {
 				h.servers.RemoveNode(proxyMap.node)
@@ -99,4 +96,21 @@ func (h *IPHash) healtChecker(backends []config.Backend) {
 			}
 		}
 	}
+}
+
+func (h *IPHash) Stats() []types.ProxyStat {
+	stats := make([]types.ProxyStat, len(h.serversMap))
+	for _, p := range h.serversMap {
+		s := p.node.Proxy.Stat()
+		stats[p.i] = types.ProxyStat{
+			Addr:          s.Addr,
+			TotalReqCount: s.TotalReqCount,
+			AvgResTime:    s.AvgResTime,
+			LastUseTime:   s.LastUseTime,
+			ConnsCount:    s.ConnsCount,
+			IsHostAlive:   p.isHostAlive,
+		}
+	}
+
+	return stats
 }

@@ -16,6 +16,7 @@ type serverMap struct {
 	proxy       *proxy.ProxyClient
 	weight      uint
 	isHostAlive bool
+	i           int
 }
 
 type WRoundRobin struct {
@@ -34,7 +35,7 @@ func NewWRoundRobin(config *config.Config, healtCheckerFunc types.HealtCheckerFu
 		serversMap:       make(map[string]*serverMap),
 	}
 
-	for _, b := range config.Backends {
+	for i, b := range config.Backends {
 		if !helper.IsHostAlive(b.GetURL()) {
 			//TODO Log
 			continue
@@ -44,7 +45,7 @@ func NewWRoundRobin(config *config.Config, healtCheckerFunc types.HealtCheckerFu
 		for i := 0; i < int(b.Weight); i++ {
 			wRoundRobin.servers = append(wRoundRobin.servers, proxy)
 		}
-		wRoundRobin.serversMap[b.Addr] = &serverMap{proxy: proxy, weight: b.Weight, isHostAlive: true}
+		wRoundRobin.serversMap[b.Addr] = &serverMap{proxy: proxy, weight: b.Weight, isHostAlive: true, i: i}
 
 	}
 
@@ -61,10 +62,6 @@ func NewWRoundRobin(config *config.Config, healtCheckerFunc types.HealtCheckerFu
 	go wRoundRobin.healtChecker(config.Backends)
 
 	return wRoundRobin
-}
-
-func (w *WRoundRobin) Stats() []types.ProxyStat {
-	return nil
 }
 
 func (w *WRoundRobin) Serve() func(ctx *fasthttp.RequestCtx) {
@@ -112,4 +109,21 @@ func (w *WRoundRobin) healtChecker(backends []config.Backend) {
 
 		}
 	}
+}
+
+func (w *WRoundRobin) Stats() []types.ProxyStat {
+	stats := make([]types.ProxyStat, len(w.serversMap))
+	for _, p := range w.serversMap {
+		s := p.proxy.Stat()
+		stats[p.i] = types.ProxyStat{
+			Addr:          s.Addr,
+			TotalReqCount: s.TotalReqCount,
+			AvgResTime:    s.AvgResTime,
+			LastUseTime:   s.LastUseTime,
+			ConnsCount:    s.ConnsCount,
+			IsHostAlive:   p.isHostAlive,
+		}
+	}
+
+	return stats
 }
