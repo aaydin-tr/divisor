@@ -1,20 +1,26 @@
 package monitoring
 
 import (
-	"fmt"
+	"encoding/json"
+	"log"
 	"os"
 	"runtime"
 	"sync"
+	"time"
 
+	"github.com/aaydin-tr/balancer/core/types"
 	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/mem"
 	"github.com/shirou/gopsutil/process"
+	"github.com/valyala/fasthttp"
 )
 
 type Monitoring struct {
-	Cpu            CPUStats `json:"cpu"`
-	Memory         MemStats `json:"memory"`
-	TotalGoroutine int      `json:"total_goroutine"`
+	Backends            []types.ProxyStat `json:"backends"`
+	Memory              MemStats          `json:"memory"`
+	Cpu                 CPUStats          `json:"cpu"`
+	TotalGoroutine      int               `json:"total_goroutine"`
+	OpenConnectionCount int32             `json:"open_conn_count"`
 }
 
 type CPUStats struct {
@@ -31,17 +37,15 @@ type MemStats struct {
 var once sync.Once
 var pid int
 
-func HealthChecker() Monitoring {
+func HealthChecker(server *fasthttp.Server, proxiesStats []types.ProxyStat) Monitoring {
 	once.Do(func() {
 		pid = os.Getpid()
 	})
 
 	monitoring := Monitoring{}
-	// Get the process ID of the Go program
-	// Get the Process object for the Go program
 	process, err := process.NewProcess(int32(pid))
 	if err != nil {
-		fmt.Println(err)
+		//TODO log
 		return Monitoring{}
 	}
 
@@ -50,20 +54,66 @@ func HealthChecker() Monitoring {
 
 	totalCpuUsage, err := cpu.Percent(0, false)
 	if err != nil {
-		fmt.Println(err)
+		//TODO log
 		return Monitoring{}
 	}
 
 	monitoring.Cpu.TotalPercent = totalCpuUsage[0]
 
-	me, _ := mem.VirtualMemory()
-	monitoring.Memory.TotalMB = float64(ByteToMB(me.Total))
-	a, _ := process.MemoryPercent()
-	monitoring.Memory.ProcessPercent = float64(a * float32(ByteToMB(me.Total)) / 100)
-	monitoring.Memory.TotalPercent = (float64(me.Used) / float64((me.Total))) * 100
+	vm, err := mem.VirtualMemory()
+	if err != nil {
+		//TODO log
+		return Monitoring{}
+	}
+
+	monitoring.Memory.TotalMB = float64(ByteToMB(vm.Total))
+	per, err := process.MemoryPercent()
+	if err != nil {
+		//TODO log
+		return Monitoring{}
+	}
+
+	monitoring.Memory.ProcessPercent = float64(per * float32(ByteToMB(vm.Total)) / 100)
+	monitoring.Memory.TotalPercent = (float64(vm.Used) / float64((vm.Total))) * 100
 	monitoring.TotalGoroutine = runtime.NumGoroutine()
+	monitoring.OpenConnectionCount = server.GetOpenConnectionsCount()
+	monitoring.Backends = proxiesStats
 
 	return monitoring
+}
+
+func StartMonitoringServer(server *fasthttp.Server, proxies types.IBalancer) {
+	monitoringServer := fasthttp.Server{
+		Handler: func(ctx *fasthttp.RequestCtx) {
+			path, method := string(ctx.Request.URI().Path()), string(ctx.Request.Header.Method())
+
+			if path == "/" && method == "GET" {
+				ctx.Response.Header.Set("Access-Control-Allow-Credentials", "true")
+				ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
+				ctx.Response.Header.Set("Content-Type", "application/json")
+
+				m := HealthChecker(server, proxies.Stats())
+				by, err := json.Marshal(m)
+				if err != nil {
+					//TODO log
+					return
+				}
+
+				ctx.Response.SetBodyRaw(by)
+				return
+			}
+
+			ctx.Response.SetStatusCode(fasthttp.StatusNotFound)
+
+		},
+		MaxIdleWorkerDuration: 15 * time.Second,
+		TCPKeepalivePeriod:    15 * time.Second,
+		TCPKeepalive:          true,
+	}
+
+	if err := monitoringServer.ListenAndServe(":8001"); err != nil {
+		log.Fatalf("error in fasthttp server: %s", err)
+	}
 }
 
 func ByteToMB(b uint64) uint64 {
