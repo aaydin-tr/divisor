@@ -59,6 +59,10 @@ func NewIPHash(config *config.Config, healtCheckerFunc types.HealtCheckerFunc, h
 	return ipHash
 }
 
+func (i *IPHash) Stats() []types.ProxyStat {
+	return nil
+}
+
 func (h *IPHash) Serve() func(ctx *fasthttp.RequestCtx) {
 	return func(ctx *fasthttp.RequestCtx) {
 		hashCode := h.hashFunc(helper.S2b(ctx.RemoteIP().String()))

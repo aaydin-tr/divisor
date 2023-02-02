@@ -14,6 +14,7 @@ import (
 type serverMap struct {
 	proxy       *proxy.ProxyClient
 	isHostAlive bool
+	i           int
 }
 
 type RoundRobin struct {
@@ -32,14 +33,14 @@ func NewRoundRobin(config *config.Config, healtCheckerFunc types.HealtCheckerFun
 		healtCheckerTime: healtCheckerTime,
 	}
 
-	for _, b := range config.Backends {
+	for i, b := range config.Backends {
 		if !helper.IsHostAlive(b.GetURL()) {
 			//TODO Log
 			continue
 		}
 		proxy := proxy.NewProxyClient(b)
 		roundRobin.servers = append(roundRobin.servers, proxy)
-		roundRobin.serversMap[b.Addr] = &serverMap{proxy: proxy, isHostAlive: true}
+		roundRobin.serversMap[b.Addr] = &serverMap{proxy: proxy, isHostAlive: true, i: i}
 	}
 
 	roundRobin.len = uint64(len(roundRobin.servers))
@@ -90,4 +91,21 @@ func (r *RoundRobin) healtChecker(backends []config.Backend) {
 			}
 		}
 	}
+}
+
+func (r *RoundRobin) Stats() []types.ProxyStat {
+	stats := make([]types.ProxyStat, len(r.serversMap))
+	for _, p := range r.serversMap {
+		s := p.proxy.Stat()
+		stats[p.i] = types.ProxyStat{
+			Addr:          s.Addr,
+			TotalReqCount: s.TotalReqCount,
+			AvgResTime:    s.AvgResTime,
+			LastUseTime:   s.LastUseTime,
+			ConnsCount:    s.ConnsCount,
+			IsHostAlive:   p.isHostAlive,
+		}
+	}
+
+	return stats
 }

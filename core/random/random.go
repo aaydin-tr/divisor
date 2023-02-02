@@ -51,6 +51,9 @@ func NewRandom(config *config.Config, healtCheckerFunc types.HealtCheckerFunc, h
 	return random
 }
 
+func (r *Random) Stats() []types.ProxyStat {
+	return nil
+}
 func (r *Random) Serve() func(ctx *fasthttp.RequestCtx) {
 	return func(ctx *fasthttp.RequestCtx) {
 		r.next().ReverseProxyHandler(ctx)

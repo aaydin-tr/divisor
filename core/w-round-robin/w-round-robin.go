@@ -63,6 +63,10 @@ func NewWRoundRobin(config *config.Config, healtCheckerFunc types.HealtCheckerFu
 	return wRoundRobin
 }
 
+func (w *WRoundRobin) Stats() []types.ProxyStat {
+	return nil
+}
+
 func (w *WRoundRobin) Serve() func(ctx *fasthttp.RequestCtx) {
 	return func(ctx *fasthttp.RequestCtx) {
 		w.next().ReverseProxyHandler(ctx)
