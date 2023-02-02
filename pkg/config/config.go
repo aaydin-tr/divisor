@@ -14,8 +14,8 @@ var ValidTypes = []string{"round-robin", "w-round-robin", "ip-hash", "random"}
 
 const DefaultMaxConnection = 512
 const DefaultMaxConnWaitTimeout = time.Second * 30
-const DefaultMaxConnDuration = time.Minute * 5
-const DefaultMaxIdleConnDuration = time.Minute * 5
+const DefaultMaxConnDuration = time.Second * 10
+const DefaultMaxIdleConnDuration = time.Second * 10
 const DefaultMaxIdemponentCallAttempts = 5
 
 const DefaultHealtCheckerTime = time.Second * 30
