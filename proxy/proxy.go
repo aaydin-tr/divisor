@@ -2,7 +2,10 @@ package proxy
 
 import (
 	"net"
+	"sync/atomic"
+	"time"
 
+	"github.com/aaydin-tr/balancer/core/types"
 	"github.com/aaydin-tr/balancer/pkg/config"
 	"github.com/aaydin-tr/balancer/pkg/helper"
 	"github.com/valyala/fasthttp"
@@ -27,11 +30,16 @@ var hopHeaders = [][]byte{
 var XForwardedFor = []byte("X-Forwarded-For")
 
 type ProxyClient struct {
-	proxy *fasthttp.HostClient
-	Addr  string
+	proxy             *fasthttp.HostClient
+	totalRequestCount *uint64
+	totalResTime      *uint64
+	Addr              string
 }
 
 func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
+	atomic.AddUint64(h.totalRequestCount, 1)
+	s := time.Now()
+
 	req := &ctx.Request
 	res := &ctx.Response
 	clientIP := ctx.RemoteIP()
@@ -46,6 +54,7 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 	}
 	h.postRes(res)
 
+	atomic.AddUint64(h.totalResTime, uint64(time.Since(s).Milliseconds()))
 	return nil
 }
 
@@ -78,7 +87,23 @@ func (h *ProxyClient) serverError(res *fasthttp.Response, err string) {
 
 // TODO
 func (h *ProxyClient) setCustomHeaders() {
+}
 
+func (h *ProxyClient) Stat() types.ProxyStat {
+	rc := atomic.LoadUint64(h.totalRequestCount)
+	rt := atomic.LoadUint64(h.totalResTime)
+	avg := float64(0)
+	if rc != 0 && rt != 0 {
+		avg = float64(rt) / float64(rc)
+	}
+
+	return types.ProxyStat{
+		TotalReqCount: rc,
+		AvgResTime:    avg,
+		Addr:          h.Addr,
+		LastUseTime:   h.proxy.LastUseTime(),
+		ConnsCount:    h.proxy.ConnsCount(),
+	}
 }
 
 func NewProxyClient(backend config.Backend) *ProxyClient {
@@ -91,5 +116,5 @@ func NewProxyClient(backend config.Backend) *ProxyClient {
 		MaxConnWaitTimeout:        backend.MaxConnWaitTimeout,
 	}
 
-	return &ProxyClient{proxy: proxyClient, Addr: backend.Addr}
+	return &ProxyClient{proxy: proxyClient, Addr: backend.Addr, totalRequestCount: new(uint64), totalResTime: new(uint64)}
 }
