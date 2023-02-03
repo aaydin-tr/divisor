@@ -29,15 +29,15 @@ type CPUStats struct {
 }
 
 type MemStats struct {
-	ProcessPercent float64 `json:"process_percent"`
+	ProcessPercent float32 `json:"process_percent"`
 	TotalPercent   float64 `json:"total_percent"`
-	TotalMB        float64 `json:"total_mb"`
+	ProcessMB      float64 `json:"process_mb"`
 }
 
 var once sync.Once
 var pid int
 
-func HealthChecker(server *fasthttp.Server, proxiesStats []types.ProxyStat) Monitoring {
+func healthChecker(server *fasthttp.Server, proxiesStats []types.ProxyStat) Monitoring {
 	once.Do(func() {
 		pid = os.Getpid()
 	})
@@ -66,15 +66,15 @@ func HealthChecker(server *fasthttp.Server, proxiesStats []types.ProxyStat) Moni
 		return Monitoring{}
 	}
 
-	monitoring.Memory.TotalMB = float64(ByteToMB(vm.Total))
 	per, err := process.MemoryPercent()
 	if err != nil {
 		//TODO log
 		return Monitoring{}
 	}
 
-	monitoring.Memory.ProcessPercent = float64(per * float32(ByteToMB(vm.Total)) / 100)
-	monitoring.Memory.TotalPercent = (float64(vm.Used) / float64((vm.Total))) * 100
+	monitoring.Memory.ProcessMB = float64(per * float32(ByteToMB(vm.Total)) / 100)
+	monitoring.Memory.ProcessPercent = per
+	monitoring.Memory.TotalPercent = vm.UsedPercent
 	monitoring.TotalGoroutine = runtime.NumGoroutine()
 	monitoring.OpenConnectionCount = server.GetOpenConnectionsCount()
 	monitoring.Backends = proxiesStats
@@ -92,7 +92,7 @@ func StartMonitoringServer(server *fasthttp.Server, proxies types.IBalancer) {
 				ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
 				ctx.Response.Header.Set("Content-Type", "application/json")
 
-				m := HealthChecker(server, proxies.Stats())
+				m := healthChecker(server, proxies.Stats())
 				by, err := json.Marshal(m)
 				if err != nil {
 					//TODO log
