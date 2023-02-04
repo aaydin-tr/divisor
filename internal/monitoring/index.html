@@ -1,40 +1,74 @@
 <!DOCTYPE html>
 <html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=PT+Serif&display=swap"
+      rel="stylesheet"
+    />
+    <title>Monitor</title>
+  </head>
+  <style>
+    * {
+      font-family: "PT Serif", serif;
+    }
+    body {
+      margin: 20px 0;
+      padding: 0;
+      background-color: #f7f7f7;
+      height: 100%;
+      box-sizing: border-box;
+    }
+    .box-container {
+      background-color: white;
+      width: 24%;
+      border-radius: 10px;
+      border: 1px solid #e4e4e4;
+      margin-right: 10px;
+      padding: 16px 2px;
+    }
+    .box-container > .title {
+      width: 100%;
+      text-align: center;
+      font-size: 20px;
+      margin-bottom: 20px;
+    }
+  </style>
 
-<head>
-  <meta charset="UTF-8" />
-  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Monitor</title>
-
-</head>
-<style>
-  * {
-    margin: 0;
-    padding: 0;
-    background-color: white;
-    height: 100%;
-  }
-</style>
-
-<body>
-
-  <div style="
+  <body>
+    <div
+      style="
+        width: 100%;
         display: flex;
         justify-content: center;
         align-items: center;
-        padding: 0 10px;
-      ">
-    <div style="width: 45%">
-      <canvas id="cpu"></canvas>
-    </div>
+        flex-wrap: wrap;
+      "
+    >
+      <div id="box-container" class="box-container">
+        <div class="title">Cpu</div>
+        <canvas id="cpu"></canvas>
+      </div>
 
-    <div style="width: 45%">
-      <canvas id="ram"></canvas>
-    </div>
-  </div>
-</body>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.1.2/chart.umd.js"></script>
-<script src="./js/charts.js"></script>
+      <div id="box-container" class="box-container">
+        <div class="title">Memory</div>
+        <canvas id="ram"></canvas>
+      </div>
 
+      <div id="box-container" class="box-container">
+        <div class="title">Total Goroutine</div>
+        <canvas id="total_goroutine"></canvas>
+      </div>
+      <div id="box-container" class="box-container">
+        <div class="title">Open Conn Count</div>
+        <canvas id="open_conn_count"></canvas>
+      </div>
+    </div>
+  </body>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.1.2/chart.umd.js"></script>
+  <script src="./js/charts.js"></script>
 </html>
