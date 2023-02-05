@@ -1,6 +1,7 @@
 package round_robin
 
 import (
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -18,19 +19,21 @@ type serverMap struct {
 }
 
 type RoundRobin struct {
-	serversMap       map[string]*serverMap
+	serversMap       map[uint32]*serverMap
 	healtCheckerFunc types.HealtCheckerFunc
 	servers          []*proxy.ProxyClient
 	len              uint64
 	i                uint64
 	healtCheckerTime time.Duration
+	hashFunc         types.HashFunc
 }
 
 func NewRoundRobin(config *config.Config, healtCheckerFunc types.HealtCheckerFunc, healtCheckerTime time.Duration, hashFunc types.HashFunc) types.IBalancer {
 	roundRobin := &RoundRobin{
-		serversMap:       make(map[string]*serverMap),
+		serversMap:       make(map[uint32]*serverMap),
 		healtCheckerFunc: healtCheckerFunc,
 		healtCheckerTime: healtCheckerTime,
+		hashFunc:         hashFunc,
 	}
 
 	for i, b := range config.Backends {
@@ -40,7 +43,7 @@ func NewRoundRobin(config *config.Config, healtCheckerFunc types.HealtCheckerFun
 		}
 		proxy := proxy.NewProxyClient(b)
 		roundRobin.servers = append(roundRobin.servers, proxy)
-		roundRobin.serversMap[b.Addr] = &serverMap{proxy: proxy, isHostAlive: true, i: i}
+		roundRobin.serversMap[roundRobin.hashFunc(helper.S2b(b.Addr+strconv.Itoa(i)))] = &serverMap{proxy: proxy, isHostAlive: true, i: i}
 	}
 
 	roundRobin.len = uint64(len(roundRobin.servers))
@@ -68,9 +71,10 @@ func (r *RoundRobin) healtChecker(backends []config.Backend) {
 	for {
 		time.Sleep(r.healtCheckerTime)
 		//TODO Log
-		for _, backend := range backends {
+		for i, backend := range backends {
 			status := r.healtCheckerFunc(backend.GetURL())
-			proxyMap, ok := r.serversMap[backend.Addr]
+			backendHash := r.hashFunc(helper.S2b(backend.Addr + strconv.Itoa(i)))
+			proxyMap, ok := r.serversMap[backendHash]
 			if ok && (status != 200 && proxyMap.isHostAlive) {
 				index, err := helper.FindIndex(r.servers, proxyMap.proxy)
 				if err != nil {
@@ -95,7 +99,7 @@ func (r *RoundRobin) healtChecker(backends []config.Backend) {
 
 func (r *RoundRobin) Stats() []types.ProxyStat {
 	stats := make([]types.ProxyStat, len(r.serversMap))
-	for _, p := range r.serversMap {
+	for hash, p := range r.serversMap {
 		s := p.proxy.Stat()
 		stats[p.i] = types.ProxyStat{
 			Addr:          s.Addr,
@@ -104,6 +108,7 @@ func (r *RoundRobin) Stats() []types.ProxyStat {
 			LastUseTime:   s.LastUseTime,
 			ConnsCount:    s.ConnsCount,
 			IsHostAlive:   p.isHostAlive,
+			BackendHash:   hash,
 		}
 	}
 

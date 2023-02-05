@@ -22,4 +22,5 @@ type ProxyStat struct {
 	LastUseTime   time.Time `json:"last_use_time"`
 	ConnsCount    int       `json:"conns_count"`
 	IsHostAlive   bool      `json:"is_host_alive"`
+	BackendHash   uint32    `json:"backend_hash"`
 }
