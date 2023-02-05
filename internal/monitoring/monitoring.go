@@ -82,7 +82,7 @@ func healthChecker(server *fasthttp.Server, proxiesStats []types.ProxyStat) Moni
 	return monitoring
 }
 
-func StartMonitoringServer(server *fasthttp.Server, proxies types.IBalancer) {
+func StartMonitoringServer(server *fasthttp.Server, proxies types.IBalancer, addr string) {
 	monitoringServer := fasthttp.Server{
 		Handler: func(ctx *fasthttp.RequestCtx) {
 			path, method := string(ctx.Request.URI().Path()), string(ctx.Request.Header.Method())
@@ -115,7 +115,7 @@ func StartMonitoringServer(server *fasthttp.Server, proxies types.IBalancer) {
 		TCPKeepalive:          true,
 	}
 
-	if err := monitoringServer.ListenAndServe(":8001"); err != nil {
+	if err := monitoringServer.ListenAndServe(addr); err != nil {
 		log.Fatalf("error in fasthttp server: %s", err)
 	}
 }

@@ -31,9 +31,9 @@ func main() {
 		TCPKeepalive:          true,
 	}
 
-	go monitoring.StartMonitoringServer(&server, proxies)
+	go monitoring.StartMonitoringServer(&server, proxies, config.GetMonitoringAddr())
 
-	if err := server.ListenAndServe(":8000"); err != nil {
+	if err := server.ListenAndServe(config.GetAddr()); err != nil {
 		log.Fatalf("error in fasthttp server: %s", err)
 	}
 

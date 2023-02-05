@@ -48,7 +48,7 @@ func NewIPHash(config *config.Config, healtCheckerFunc types.HealtCheckerFunc, h
 		proxy := proxy.NewProxyClient(b)
 		node := &consistent.Node{Id: i, Proxy: proxy}
 		ipHash.servers.AddNode(node)
-		ipHash.serversMap[ipHash.hashFunc(helper.S2b(b.Addr+strconv.Itoa(i)))] = &serverMap{node: node, isHostAlive: true, i: i}
+		ipHash.serversMap[ipHash.hashFunc(helper.S2b(b.Url+strconv.Itoa(i)))] = &serverMap{node: node, isHostAlive: true, i: i}
 	}
 
 	ipHash.len = len(config.Backends)
@@ -80,7 +80,7 @@ func (h *IPHash) healtChecker(backends []config.Backend) {
 		//TODO Log
 		for i, backend := range backends {
 			status := h.healtCheckerFunc(backend.GetURL())
-			backendHash := h.hashFunc(helper.S2b(backend.Addr + strconv.Itoa(i)))
+			backendHash := h.hashFunc(helper.S2b(backend.Url + strconv.Itoa(i)))
 			proxyMap, ok := h.serversMap[backendHash]
 
 			if ok && (status != 200 && proxyMap.isHostAlive) {

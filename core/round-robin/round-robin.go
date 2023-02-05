@@ -43,7 +43,7 @@ func NewRoundRobin(config *config.Config, healtCheckerFunc types.HealtCheckerFun
 		}
 		proxy := proxy.NewProxyClient(b)
 		roundRobin.servers = append(roundRobin.servers, proxy)
-		roundRobin.serversMap[roundRobin.hashFunc(helper.S2b(b.Addr+strconv.Itoa(i)))] = &serverMap{proxy: proxy, isHostAlive: true, i: i}
+		roundRobin.serversMap[roundRobin.hashFunc(helper.S2b(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxy, isHostAlive: true, i: i}
 	}
 
 	roundRobin.len = uint64(len(roundRobin.servers))
@@ -73,7 +73,7 @@ func (r *RoundRobin) healtChecker(backends []config.Backend) {
 		//TODO Log
 		for i, backend := range backends {
 			status := r.healtCheckerFunc(backend.GetURL())
-			backendHash := r.hashFunc(helper.S2b(backend.Addr + strconv.Itoa(i)))
+			backendHash := r.hashFunc(helper.S2b(backend.Url + strconv.Itoa(i)))
 			proxyMap, ok := r.serversMap[backendHash]
 			if ok && (status != 200 && proxyMap.isHostAlive) {
 				index, err := helper.FindIndex(r.servers, proxyMap.proxy)
