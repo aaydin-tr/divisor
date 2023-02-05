@@ -17,7 +17,7 @@ func main() {
 	config := config.ParseConfigFile("./config.yaml")
 	config.PrepareConfig()
 
-	proxies := balancer.NewBalancer(config, http.NewHttpClient().DefaultHealtChecker, 5*time.Second, helper.HashFunc)
+	proxies := balancer.NewBalancer(config, http.NewHttpClient().DefaultHealtChecker, config.HealtCheckerTime, helper.HashFunc)
 
 	if proxies == nil {
 		fmt.Println("No avaible serves")
