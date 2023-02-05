@@ -86,10 +86,14 @@ func StartMonitoringServer(server *fasthttp.Server, proxies types.IBalancer) {
 	monitoringServer := fasthttp.Server{
 		Handler: func(ctx *fasthttp.RequestCtx) {
 			path, method := string(ctx.Request.URI().Path()), string(ctx.Request.Header.Method())
+			ctx.Response.Header.Set("Access-Control-Allow-Credentials", "true")
+			ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
 
 			if path == "/" && method == "GET" {
-				ctx.Response.Header.Set("Access-Control-Allow-Credentials", "true")
-				ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
+				ctx.Response.Header.Set("Content-Type", "text/html")
+				ctx.Response.SetBodyString(index)
+				return
+			} else if path == "/stats" && method == "GET" {
 				ctx.Response.Header.Set("Content-Type", "application/json")
 
 				m := healthChecker(server, proxies.Stats())
