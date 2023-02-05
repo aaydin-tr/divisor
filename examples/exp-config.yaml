@@ -10,6 +10,6 @@ backends:
     max_idle_conn_duration: 10s # Idle keep-alive connections are closed after this duration. default: 10 seconds
     max_idemponent_call_attempts: 5 # Maximum number of attempts for idempotent calls. default: 5
 monitoring:
-  host: 8001 # Monitoring server port
+  host: 8001 # Monitoring server port , default: 8001
   port: localhost # Monitoring server host, default: localhost
 
