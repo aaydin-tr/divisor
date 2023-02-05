@@ -113,6 +113,7 @@ func StartMonitoringServer(server *fasthttp.Server, proxies types.IBalancer, add
 		MaxIdleWorkerDuration: 15 * time.Second,
 		TCPKeepalivePeriod:    15 * time.Second,
 		TCPKeepalive:          true,
+		NoDefaultServerHeader: true,
 	}
 
 	if err := monitoringServer.ListenAndServe(addr); err != nil {

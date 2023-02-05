@@ -29,6 +29,7 @@ func main() {
 		MaxIdleWorkerDuration: 5 * time.Second,
 		TCPKeepalivePeriod:    5 * time.Second,
 		TCPKeepalive:          true,
+		NoDefaultServerHeader: true,
 	}
 
 	go monitoring.StartMonitoringServer(&server, proxies, config.GetMonitoringAddr())
