@@ -14,8 +14,8 @@ var ValidTypes = []string{"round-robin", "w-round-robin", "ip-hash", "random"}
 
 const DefaultMaxConnection = 512
 const DefaultMaxConnWaitTimeout = time.Second * 30
-const DefaultMaxConnDuration = time.Minute * 5
-const DefaultMaxIdleConnDuration = time.Minute * 5
+const DefaultMaxConnDuration = time.Second * 10
+const DefaultMaxIdleConnDuration = time.Second * 10
 const DefaultMaxIdemponentCallAttempts = 5
 
 const DefaultHealtCheckerTime = time.Second * 30
@@ -23,7 +23,7 @@ const DefaultHealtCheckerTime = time.Second * 30
 var protocolRegex = regexp.MustCompile(`(^https?://)`)
 
 type Backend struct {
-	Addr                      string        `yaml:"url"`
+	Url                       string        `yaml:"url"`
 	Weight                    uint          `yaml:"weight,omitempty"`
 	MaxConnection             int           `yaml:"max_conn,omitempty"`
 	MaxConnWaitTimeout        time.Duration `yaml:"max_conn_timeout,omitempty"`
@@ -33,14 +33,29 @@ type Backend struct {
 }
 
 func (b *Backend) GetURL() string {
-	return "http://" + b.Addr
+	return "http://" + b.Url
+}
+
+type Monitoring struct {
+	Host string `yaml:"host,omitempty"`
+	Port string `yaml:"port,omitempty"`
 }
 
 type Config struct {
 	Type             string        `yaml:"type"`
+	Host             string        `yaml:"host"`
 	Port             string        `yaml:"port"`
 	Backends         []Backend     `yaml:"backends"`
 	HealtCheckerTime time.Duration `yaml:"healt_checker_time"`
+	Monitoring       Monitoring    `yaml:"monitoring"`
+}
+
+func (c *Config) GetAddr() string {
+	return c.Host + ":" + c.Port
+}
+
+func (c *Config) GetMonitoringAddr() string {
+	return c.Monitoring.Host + ":" + c.Monitoring.Port
 }
 
 func ParseConfigFile(path string) *Config {
@@ -65,6 +80,10 @@ func (c *Config) PrepareConfig() {
 		return
 	}
 
+	if c.Host == "" {
+		c.Host = "localhost"
+	}
+
 	if c.Port == "" {
 		log.Fatal("Please choose valid port")
 		return
@@ -87,13 +106,21 @@ func (c *Config) PrepareConfig() {
 		c.HealtCheckerTime = DefaultHealtCheckerTime
 	}
 
+	if c.Monitoring.Host == "" {
+		c.Monitoring.Host = "localhost"
+	}
+
+	if c.Monitoring.Port == "" {
+		c.Monitoring.Port = "8001"
+	}
+
 	c.prepareBackends()
 }
 
 func (c *Config) prepareBackends() {
 	for i := 0; i < len(c.Backends); i++ {
 		b := &c.Backends[i]
-		b.Addr = protocolRegex.ReplaceAllString(b.Addr, "")
+		b.Url = protocolRegex.ReplaceAllString(b.Url, "")
 
 		if c.Type == "w-round-robin" && b.Weight <= 0 {
 			log.Fatal("When using the weighted-round-robin algorithm, a weight must be specified for each backend.")

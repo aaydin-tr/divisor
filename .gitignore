@@ -15,3 +15,4 @@
 # vendor/
 
 config.yaml
+.vscode/settings.json

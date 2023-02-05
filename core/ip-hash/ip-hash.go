@@ -2,6 +2,7 @@ package ip_hash
 
 import (
 	"math"
+	"strconv"
 	"time"
 
 	"github.com/aaydin-tr/balancer/core/types"
@@ -15,10 +16,11 @@ import (
 type serverMap struct {
 	node        *consistent.Node
 	isHostAlive bool
+	i           int
 }
 
 type IPHash struct {
-	serverMap        map[string]*serverMap
+	serversMap       map[uint32]*serverMap
 	healtCheckerFunc types.HealtCheckerFunc
 	hashFunc         types.HashFunc
 	servers          consistent.ConsistentHash
@@ -32,7 +34,7 @@ func NewIPHash(config *config.Config, healtCheckerFunc types.HealtCheckerFunc, h
 			int(math.Pow(float64(len(config.Backends)), float64(2))),
 			hashFunc,
 		),
-		serverMap:        make(map[string]*serverMap),
+		serversMap:       make(map[uint32]*serverMap),
 		healtCheckerFunc: healtCheckerFunc,
 		healtCheckerTime: healtCheckerTime,
 		hashFunc:         hashFunc,
@@ -46,7 +48,7 @@ func NewIPHash(config *config.Config, healtCheckerFunc types.HealtCheckerFunc, h
 		proxy := proxy.NewProxyClient(b)
 		node := &consistent.Node{Id: i, Proxy: proxy}
 		ipHash.servers.AddNode(node)
-		ipHash.serverMap[proxy.Addr] = &serverMap{node: node, isHostAlive: true}
+		ipHash.serversMap[ipHash.hashFunc(helper.S2b(b.Url+strconv.Itoa(i)))] = &serverMap{node: node, isHostAlive: true, i: i}
 	}
 
 	ipHash.len = len(config.Backends)
@@ -76,9 +78,10 @@ func (h *IPHash) healtChecker(backends []config.Backend) {
 	for {
 		time.Sleep(h.healtCheckerTime)
 		//TODO Log
-		for _, backend := range backends {
+		for i, backend := range backends {
 			status := h.healtCheckerFunc(backend.GetURL())
-			proxyMap, ok := h.serverMap[backend.Addr]
+			backendHash := h.hashFunc(helper.S2b(backend.Url + strconv.Itoa(i)))
+			proxyMap, ok := h.serversMap[backendHash]
 
 			if ok && (status != 200 && proxyMap.isHostAlive) {
 				h.servers.RemoveNode(proxyMap.node)
@@ -95,4 +98,22 @@ func (h *IPHash) healtChecker(backends []config.Backend) {
 			}
 		}
 	}
+}
+
+func (h *IPHash) Stats() []types.ProxyStat {
+	stats := make([]types.ProxyStat, len(h.serversMap))
+	for hash, p := range h.serversMap {
+		s := p.node.Proxy.Stat()
+		stats[p.i] = types.ProxyStat{
+			Addr:          s.Addr,
+			TotalReqCount: s.TotalReqCount,
+			AvgResTime:    s.AvgResTime,
+			LastUseTime:   s.LastUseTime,
+			ConnsCount:    s.ConnsCount,
+			IsHostAlive:   p.isHostAlive,
+			BackendHash:   hash,
+		}
+	}
+
+	return stats
 }

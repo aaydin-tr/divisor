@@ -6,6 +6,7 @@ import (
 	"time"
 
 	balancer "github.com/aaydin-tr/balancer/core"
+	"github.com/aaydin-tr/balancer/internal/monitoring"
 	"github.com/aaydin-tr/balancer/pkg/config"
 	"github.com/aaydin-tr/balancer/pkg/helper"
 	"github.com/aaydin-tr/balancer/pkg/http"
@@ -25,12 +26,15 @@ func main() {
 
 	server := fasthttp.Server{
 		Handler:               proxies.Serve(),
-		MaxIdleWorkerDuration: 5 * time.Minute,
-		TCPKeepalivePeriod:    5 * time.Minute,
+		MaxIdleWorkerDuration: 5 * time.Second,
+		TCPKeepalivePeriod:    5 * time.Second,
 		TCPKeepalive:          true,
+		NoDefaultServerHeader: true,
 	}
 
-	if err := server.ListenAndServe(":8000"); err != nil {
+	go monitoring.StartMonitoringServer(&server, proxies, config.GetMonitoringAddr())
+
+	if err := server.ListenAndServe(config.GetAddr()); err != nil {
 		log.Fatalf("error in fasthttp server: %s", err)
 	}
 
