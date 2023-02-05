@@ -108,7 +108,7 @@ func (h *ProxyClient) Stat() types.ProxyStat {
 
 func NewProxyClient(backend config.Backend) *ProxyClient {
 	proxyClient := &fasthttp.HostClient{
-		Addr:                      backend.Addr,
+		Addr:                      backend.Url,
 		MaxConns:                  backend.MaxConnection,
 		MaxConnDuration:           backend.MaxConnDuration,
 		MaxIdleConnDuration:       backend.MaxConnDuration,
@@ -116,5 +116,5 @@ func NewProxyClient(backend config.Backend) *ProxyClient {
 		MaxConnWaitTimeout:        backend.MaxConnWaitTimeout,
 	}
 
-	return &ProxyClient{proxy: proxyClient, Addr: backend.Addr, totalRequestCount: new(uint64), totalResTime: new(uint64)}
+	return &ProxyClient{proxy: proxyClient, Addr: backend.Url, totalRequestCount: new(uint64), totalResTime: new(uint64)}
 }
