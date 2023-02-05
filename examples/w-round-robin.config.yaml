@@ -1,0 +1,11 @@
+type: w-round-robin
+port: 8000
+backends:
+  - url: localhost:8080
+    weight: 2
+  - url: localhost:7070
+    weight: 3
+  - url: localhost:6060
+    weight: 5
+  - url: localhost:5050
+    weight: 7

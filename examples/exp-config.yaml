@@ -1,0 +1,15 @@
+type: round-robin # Load balancing algorithm; e.g round-robin, w-round-robin, ip-hash and random
+port: 8000 # Server port
+host: localhost # Server host, default: localhost
+backends:
+  - url: localhost:8080 # Backend url, do not present protocol
+    weight: 2 # Only mandatory for w-round-robin algorithm
+    max_conn: 512 # Maximum number of connections which may be established to host listed in Addr. default: 512
+    max_conn_timeout: 30s # Maximum duration for waiting for a free connection. default: 30 seconds
+    max_conn_duration: 10s # Keep-alive connections are closed after this duration. default: 10 seconds
+    max_idle_conn_duration: 10s # Idle keep-alive connections are closed after this duration. default: 10 seconds
+    max_idemponent_call_attempts: 5 # Maximum number of attempts for idempotent calls. default: 5
+monitoring:
+  host: 8001 # Monitoring server port
+  port: localhost # Monitoring server host, default: localhost
+

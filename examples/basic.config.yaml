@@ -1,0 +1,7 @@
+type: round-robin
+port: 8000
+backends:
+  - url: localhost:8080
+  - url: localhost:7070
+  - url: localhost:6060
+  - url: localhost:5050
