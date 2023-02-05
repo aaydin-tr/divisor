@@ -25,6 +25,7 @@ func main() {
 	}
 
 	server := fasthttp.Server{
+		// TODO must be editable by config
 		Handler:               proxies.Serve(),
 		MaxIdleWorkerDuration: 5 * time.Second,
 		TCPKeepalivePeriod:    5 * time.Second,

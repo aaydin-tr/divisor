@@ -111,7 +111,7 @@ func NewProxyClient(backend config.Backend) *ProxyClient {
 		Addr:                      backend.Url,
 		MaxConns:                  backend.MaxConnection,
 		MaxConnDuration:           backend.MaxConnDuration,
-		MaxIdleConnDuration:       backend.MaxConnDuration,
+		MaxIdleConnDuration:       backend.MaxIdleConnDuration,
 		MaxIdemponentCallAttempts: backend.MaxIdemponentCallAttempts,
 		MaxConnWaitTimeout:        backend.MaxConnWaitTimeout,
 	}
