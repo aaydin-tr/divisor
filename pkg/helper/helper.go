@@ -3,6 +3,7 @@ package helper
 import (
 	"errors"
 	"hash/crc32"
+	"os"
 	"reflect"
 	"unsafe"
 
@@ -63,4 +64,30 @@ func FindIndex[T comparable](s []T, value T) (int, error) {
 // TODO
 func IsHostAlive(url string) bool {
 	return http.NewHttpClient().DefaultHealtChecker(url) == 200
+}
+
+func GetLogFile() string {
+	logDir := GetLogFolder()
+	err := CreateLogDirIfNotExist(logDir)
+	if err != nil {
+		return "./balancer.log"
+	}
+
+	return logDir + "Balancer/balancer.log"
+}
+
+func GetLogFolder() string {
+	logDir, err := os.UserCacheDir()
+	if err != nil {
+		logDir = "./"
+	}
+	return logDir + "/"
+}
+
+func CreateLogDirIfNotExist(logDir string) error {
+	baseDir := logDir + "Balancer"
+	if _, err := os.Stat(baseDir); os.IsNotExist(err) {
+		return os.Mkdir(logDir+"Balancer", os.ModeAppend)
+	}
+	return nil
 }

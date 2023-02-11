@@ -10,6 +10,7 @@ import (
 	"github.com/aaydin-tr/balancer/pkg/helper"
 	"github.com/aaydin-tr/balancer/proxy"
 	"github.com/valyala/fasthttp"
+	"go.uber.org/zap"
 )
 
 type serverMap struct {
@@ -38,12 +39,13 @@ func NewRoundRobin(config *config.Config, healtCheckerFunc types.HealtCheckerFun
 
 	for i, b := range config.Backends {
 		if !helper.IsHostAlive(b.GetURL()) {
-			//TODO Log
+			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
 		proxy := proxy.NewProxyClient(b, config.CustomHeaders)
 		roundRobin.servers = append(roundRobin.servers, proxy)
 		roundRobin.serversMap[roundRobin.hashFunc(helper.S2b(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxy, isHostAlive: true, i: i}
+		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
 	}
 
 	roundRobin.len = uint64(len(roundRobin.servers))
@@ -70,7 +72,6 @@ func (r *RoundRobin) next() *proxy.ProxyClient {
 func (r *RoundRobin) healtChecker(backends []config.Backend) {
 	for {
 		time.Sleep(r.healtCheckerTime)
-		//TODO Log
 		for i, backend := range backends {
 			status := r.healtCheckerFunc(backend.GetURL())
 			backendHash := r.hashFunc(helper.S2b(backend.Url + strconv.Itoa(i)))
@@ -78,13 +79,14 @@ func (r *RoundRobin) healtChecker(backends []config.Backend) {
 			if ok && (status != 200 && proxyMap.isHostAlive) {
 				index, err := helper.FindIndex(r.servers, proxyMap.proxy)
 				if err != nil {
-					//TODO log
 					return
 				}
+
 				r.servers = helper.Remove(r.servers, index)
 				r.len = r.len - 1
 				proxyMap.isHostAlive = false
 
+				zap.S().Infof("Server is down, removing from load balancer, Addr: %s Healt Check Status: %d ", backend.Url, status)
 				if r.len == 0 {
 					panic("All backends are down")
 				}
@@ -92,6 +94,7 @@ func (r *RoundRobin) healtChecker(backends []config.Backend) {
 				r.servers = append(r.servers, proxyMap.proxy)
 				r.len++
 				proxyMap.isHostAlive = true
+				zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s Healt Check Status: %d ", backend.Url, status)
 			}
 		}
 	}

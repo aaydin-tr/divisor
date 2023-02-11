@@ -11,6 +11,7 @@ import (
 	"github.com/aaydin-tr/balancer/pkg/helper"
 	"github.com/aaydin-tr/balancer/proxy"
 	"github.com/valyala/fasthttp"
+	"go.uber.org/zap"
 )
 
 type serverMap struct {
@@ -42,13 +43,14 @@ func NewIPHash(config *config.Config, healtCheckerFunc types.HealtCheckerFunc, h
 
 	for i, b := range config.Backends {
 		if !helper.IsHostAlive(b.GetURL()) {
-			//TODO Log
+			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
 		proxy := proxy.NewProxyClient(b, config.CustomHeaders)
 		node := &consistent.Node{Id: i, Proxy: proxy}
 		ipHash.servers.AddNode(node)
 		ipHash.serversMap[ipHash.hashFunc(helper.S2b(b.Url+strconv.Itoa(i)))] = &serverMap{node: node, isHostAlive: true, i: i}
+		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
 	}
 
 	ipHash.len = len(config.Backends)
@@ -77,7 +79,6 @@ func (h *IPHash) get(hashCode uint32) *proxy.ProxyClient {
 func (h *IPHash) healtChecker(backends []config.Backend) {
 	for {
 		time.Sleep(h.healtCheckerTime)
-		//TODO Log
 		for i, backend := range backends {
 			status := h.healtCheckerFunc(backend.GetURL())
 			backendHash := h.hashFunc(helper.S2b(backend.Url + strconv.Itoa(i)))
@@ -88,6 +89,7 @@ func (h *IPHash) healtChecker(backends []config.Backend) {
 				proxyMap.isHostAlive = false
 				h.len = h.len - 1
 
+				zap.S().Infof("Server is down, removing from load balancer, Addr: %s Healt Check Status: %d ", backend.Url, status)
 				if h.len == 0 {
 					panic("All backends are down")
 				}
@@ -95,6 +97,7 @@ func (h *IPHash) healtChecker(backends []config.Backend) {
 				h.servers.AddNode(proxyMap.node)
 				proxyMap.isHostAlive = true
 				h.len = h.len + 1
+				zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s Healt Check Status: %d ", backend.Url, status)
 			}
 		}
 	}

@@ -14,7 +14,7 @@ func NewHttpClient() *HttpClient {
 	return &HttpClient{client: &fasthttp.Client{
 		ReadTimeout:         5 * time.Second,
 		WriteTimeout:        5 * time.Second,
-		MaxIdleConnDuration: 1 * time.Hour,
+		MaxIdleConnDuration: 5 * time.Second,
 		MaxConnWaitTimeout:  30 * time.Second,
 		Dial: (&fasthttp.TCPDialer{
 			Concurrency:      4096,

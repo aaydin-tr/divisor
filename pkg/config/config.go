@@ -1,12 +1,12 @@
 package config
 
 import (
-	"log"
 	"os"
 	"regexp"
 	"time"
 
 	"github.com/aaydin-tr/balancer/pkg/helper"
+	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
 
@@ -63,22 +63,24 @@ func (c *Config) GetMonitoringAddr() string {
 func ParseConfigFile(path string) *Config {
 	configFile, err := os.ReadFile(path)
 	if err != nil {
-		log.Fatal(err)
+		zap.S().Error(err)
 	}
 
 	var config Config
 	err = yaml.Unmarshal(configFile, &config)
 
 	if err != nil {
-		log.Fatal(err)
+		zap.S().Error(err)
 	}
 
 	return &config
 }
 
 func (c *Config) PrepareConfig() {
+	zap.S().Info("Parsing config file")
+
 	if len(c.Backends) == 0 {
-		log.Fatal("At least one backend must be set")
+		zap.S().Error("At least one backend must be set")
 		return
 	}
 
@@ -87,7 +89,7 @@ func (c *Config) PrepareConfig() {
 	}
 
 	if c.Port == "" {
-		log.Fatal("Please choose valid port")
+		zap.S().Error("Please choose valid port")
 		return
 	}
 
@@ -96,7 +98,7 @@ func (c *Config) PrepareConfig() {
 	}
 
 	if !helper.Contains(ValidTypes, c.Type) {
-		log.Fatal("Please choose valid load balancing type")
+		zap.S().Error("Please choose valid load balancing type")
 		return
 	}
 
@@ -118,12 +120,14 @@ func (c *Config) PrepareConfig() {
 
 	for _, value := range c.CustomHeaders {
 		if !helper.Contains(ValidCustomHeaders, value) {
-			log.Fatal("Please choose valid custom header, e.g ", ValidCustomHeaders)
+			zap.S().Error("Please choose valid custom header, e.g ", ValidCustomHeaders)
 		}
 		return
 	}
 
+	zap.S().Info("Config file parse successfully")
 	c.prepareBackends()
+	zap.S().Info("Default configurations applied")
 }
 
 func (c *Config) prepareBackends() {
@@ -132,7 +136,7 @@ func (c *Config) prepareBackends() {
 		b.Url = protocolRegex.ReplaceAllString(b.Url, "")
 
 		if c.Type == "w-round-robin" && b.Weight <= 0 {
-			log.Fatal("When using the weighted-round-robin algorithm, a weight must be specified for each backend.")
+			zap.S().Error("When using the weighted-round-robin algorithm, a weight must be specified for each backend.")
 			return
 		}
 

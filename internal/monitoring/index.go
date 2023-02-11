@@ -123,28 +123,6 @@ var index = `
     },
   };
 
-  const backendChartOptions = {
-    type: "line",
-    data: {
-      labels: [],
-      datasets: [
-        {
-          label: "Connection Count",
-          data: [],
-          fill: true,
-        },
-      ],
-    },
-    options: {
-      ...generalOption,
-      scales: {
-        y: {
-          beginAtZero: true,
-        },
-      },
-    },
-  }
-
   const cpuChart = new Chart(cpu, {
     type: "line",
     data: {
@@ -356,7 +334,27 @@ var index = `
   }
 
   const createBackendChart = (backendCanvas) => {
-    const backendChart = new Chart(backendCanvas, backendChartOptions)
+    const backendChart = new Chart(backendCanvas, {
+      type: "line",
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: "Connection Count",
+            data: [],
+            fill: true,
+          },
+        ],
+      },
+      options: {
+        ...generalOption,
+        scales: {
+          y: {
+            beginAtZero: true,
+          },
+        },
+      },
+    })
     charts.push(backendChart)
     return charts.length - 1
   }

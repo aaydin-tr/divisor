@@ -11,6 +11,7 @@ import (
 	"github.com/aaydin-tr/balancer/pkg/helper"
 	"github.com/google/uuid"
 	"github.com/valyala/fasthttp"
+	"go.uber.org/zap"
 )
 
 // Hop-by-hop headers. These are removed when sent to the backend.
@@ -50,8 +51,6 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 	h.preReq(req, clientIP, ctx.Host())
 
 	if err := h.proxy.Do(req, res); err != nil {
-		//TODO
-		//ctx.Logger().Printf("error when proxying the request: %s", err)
 		h.serverError(res, err.Error())
 		return err
 	}
@@ -79,6 +78,7 @@ func (h *ProxyClient) serverError(res *fasthttp.Response, err string) {
 		res.Header.DelBytes(h)
 	}
 
+	zap.S().Infof("error when proxying the request: %s", err)
 	res.SetStatusCode(fasthttp.StatusInternalServerError)
 	res.SetConnectionClose()
 	res.Header.Set("Content-Type", "application/json")
