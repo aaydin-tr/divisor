@@ -40,7 +40,7 @@ func NewRandom(config *config.Config, healtCheckerFunc types.HealtCheckerFunc, h
 			//TODO Log
 			continue
 		}
-		proxy := proxy.NewProxyClient(b)
+		proxy := proxy.NewProxyClient(b, config.CustomHeaders)
 		random.servers = append(random.servers, proxy)
 		random.serversMap[random.hashFunc(helper.S2b(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxy, isHostAlive: true, i: i}
 	}

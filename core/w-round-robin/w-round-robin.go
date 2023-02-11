@@ -43,7 +43,7 @@ func NewWRoundRobin(config *config.Config, healtCheckerFunc types.HealtCheckerFu
 			//TODO Log
 			continue
 		}
-		proxy := proxy.NewProxyClient(b)
+		proxy := proxy.NewProxyClient(b, config.CustomHeaders)
 
 		for i := 0; i < int(b.Weight); i++ {
 			wRoundRobin.servers = append(wRoundRobin.servers, proxy)

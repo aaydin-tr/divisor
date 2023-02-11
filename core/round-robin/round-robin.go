@@ -41,7 +41,7 @@ func NewRoundRobin(config *config.Config, healtCheckerFunc types.HealtCheckerFun
 			//TODO Log
 			continue
 		}
-		proxy := proxy.NewProxyClient(b)
+		proxy := proxy.NewProxyClient(b, config.CustomHeaders)
 		roundRobin.servers = append(roundRobin.servers, proxy)
 		roundRobin.serversMap[roundRobin.hashFunc(helper.S2b(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxy, isHostAlive: true, i: i}
 	}

@@ -2,12 +2,14 @@ package proxy
 
 import (
 	"net"
+	"strconv"
 	"sync/atomic"
 	"time"
 
 	"github.com/aaydin-tr/balancer/core/types"
 	"github.com/aaydin-tr/balancer/pkg/config"
 	"github.com/aaydin-tr/balancer/pkg/helper"
+	"github.com/google/uuid"
 	"github.com/valyala/fasthttp"
 )
 
@@ -33,6 +35,7 @@ type ProxyClient struct {
 	proxy             *fasthttp.HostClient
 	totalRequestCount *uint64
 	totalResTime      *uint64
+	customHeaders     map[string]string
 	Addr              string
 }
 
@@ -62,10 +65,7 @@ func (h *ProxyClient) preReq(req *fasthttp.Request, clientIP net.IP, host []byte
 	for _, h := range hopHeaders {
 		req.Header.DelBytes(h)
 	}
-	//TODO
-	// req.SetHost(helper.B2s(host))
-	// req.SetRequestURI(helper.B2s(req.RequestURI()))
-	req.Header.SetBytesK(XForwardedFor, clientIP.String())
+	h.setCustomHeaders(req, clientIP.String())
 }
 
 func (h *ProxyClient) postRes(res *fasthttp.Response) {
@@ -85,8 +85,18 @@ func (h *ProxyClient) serverError(res *fasthttp.Response, err string) {
 	res.SetBody(helper.S2b(`{"message":"` + err + `"}`))
 }
 
-// TODO
-func (h *ProxyClient) setCustomHeaders() {
+func (h *ProxyClient) setCustomHeaders(req *fasthttp.Request, clientIP string) {
+	for k, v := range h.customHeaders {
+		if v == "$remote_addr" {
+			req.Header.Set(k, clientIP)
+		} else if v == "$time" {
+			req.Header.Set(k, time.Now().Local().Format("2006-01-02T15:04:05.000Z"))
+		} else if v == "$incremental" {
+			req.Header.Set(k, strconv.FormatUint(atomic.LoadUint64(h.totalRequestCount), 10))
+		} else if v == "$uuid" {
+			req.Header.Set(k, uuid.New().String())
+		}
+	}
 }
 
 func (h *ProxyClient) Stat() types.ProxyStat {
@@ -106,7 +116,7 @@ func (h *ProxyClient) Stat() types.ProxyStat {
 	}
 }
 
-func NewProxyClient(backend config.Backend) *ProxyClient {
+func NewProxyClient(backend config.Backend, customHeaders map[string]string) *ProxyClient {
 	proxyClient := &fasthttp.HostClient{
 		Addr:                      backend.Url,
 		MaxConns:                  backend.MaxConnection,
@@ -116,5 +126,11 @@ func NewProxyClient(backend config.Backend) *ProxyClient {
 		MaxConnWaitTimeout:        backend.MaxConnWaitTimeout,
 	}
 
-	return &ProxyClient{proxy: proxyClient, Addr: backend.Url, totalRequestCount: new(uint64), totalResTime: new(uint64)}
+	return &ProxyClient{
+		proxy:             proxyClient,
+		Addr:              backend.Url,
+		totalRequestCount: new(uint64),
+		totalResTime:      new(uint64),
+		customHeaders:     customHeaders,
+	}
 }

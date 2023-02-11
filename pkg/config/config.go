@@ -11,6 +11,7 @@ import (
 )
 
 var ValidTypes = []string{"round-robin", "w-round-robin", "ip-hash", "random"}
+var ValidCustomHeaders = []string{"$remote_addr", "$time", "$uuid", "$incremental"}
 
 const DefaultMaxConnection = 512
 const DefaultMaxConnWaitTimeout = time.Second * 30
@@ -42,12 +43,13 @@ type Monitoring struct {
 }
 
 type Config struct {
-	Type             string        `yaml:"type"`
-	Host             string        `yaml:"host"`
-	Port             string        `yaml:"port"`
-	Backends         []Backend     `yaml:"backends"`
-	HealtCheckerTime time.Duration `yaml:"healt_checker_time"`
-	Monitoring       Monitoring    `yaml:"monitoring"`
+	CustomHeaders    map[string]string `yaml:"custom_headers"`
+	Monitoring       Monitoring        `yaml:"monitoring"`
+	Type             string            `yaml:"type"`
+	Host             string            `yaml:"host"`
+	Port             string            `yaml:"port"`
+	Backends         []Backend         `yaml:"backends"`
+	HealtCheckerTime time.Duration     `yaml:"healt_checker_time"`
 }
 
 func (c *Config) GetAddr() string {
@@ -112,6 +114,13 @@ func (c *Config) PrepareConfig() {
 
 	if c.Monitoring.Port == "" {
 		c.Monitoring.Port = "8001"
+	}
+
+	for _, value := range c.CustomHeaders {
+		if !helper.Contains(ValidCustomHeaders, value) {
+			log.Fatal("Please choose valid custom header, e.g ", ValidCustomHeaders)
+		}
+		return
 	}
 
 	c.prepareBackends()

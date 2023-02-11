@@ -45,7 +45,7 @@ func NewIPHash(config *config.Config, healtCheckerFunc types.HealtCheckerFunc, h
 			//TODO Log
 			continue
 		}
-		proxy := proxy.NewProxyClient(b)
+		proxy := proxy.NewProxyClient(b, config.CustomHeaders)
 		node := &consistent.Node{Id: i, Proxy: proxy}
 		ipHash.servers.AddNode(node)
 		ipHash.serversMap[ipHash.hashFunc(helper.S2b(b.Url+strconv.Itoa(i)))] = &serverMap{node: node, isHostAlive: true, i: i}
