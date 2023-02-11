@@ -13,4 +13,8 @@ backends:
 monitoring:
   port: 8001 # Monitoring server port , default: 8001
   host: localhost # Monitoring server host, default: localhost
-
+custom_headers: # Custom headers will be set on request sent to backend.
+  x-client-ip: $remote_addr # Client remote addr
+  x-req-time: $time # Request time
+  x-incremental-id: $incremental # Request incremental id for per backend
+  x-uuid: $uuid # Request uuid 
