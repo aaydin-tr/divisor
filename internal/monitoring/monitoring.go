@@ -2,7 +2,7 @@ package monitoring
 
 import (
 	"encoding/json"
-	"log"
+	"net"
 	"os"
 	"runtime"
 	"sync"
@@ -13,6 +13,7 @@ import (
 	"github.com/shirou/gopsutil/mem"
 	"github.com/shirou/gopsutil/process"
 	"github.com/valyala/fasthttp"
+	"go.uber.org/zap"
 )
 
 type Monitoring struct {
@@ -45,7 +46,7 @@ func healthChecker(server *fasthttp.Server, proxiesStats []types.ProxyStat) Moni
 	monitoring := Monitoring{}
 	process, err := process.NewProcess(int32(pid))
 	if err != nil {
-		//TODO log
+		zap.S().Errorf("Error while getting process, err: %v", err)
 		return Monitoring{}
 	}
 
@@ -54,21 +55,20 @@ func healthChecker(server *fasthttp.Server, proxiesStats []types.ProxyStat) Moni
 
 	totalCpuUsage, err := cpu.Percent(0, false)
 	if err != nil {
-		//TODO log
+		zap.S().Errorf("Error while getting total cpu usage, err: %v", err)
 		return Monitoring{}
 	}
 
 	monitoring.Cpu.TotalPercent = totalCpuUsage[0]
-
 	vm, err := mem.VirtualMemory()
 	if err != nil {
-		//TODO log
+		zap.S().Errorf("Error while getting virtual memory stat, err: %v", err)
 		return Monitoring{}
 	}
 
 	per, err := process.MemoryPercent()
 	if err != nil {
-		//TODO log
+		zap.S().Errorf("Error while getting process memory percent, err: %v", err)
 		return Monitoring{}
 	}
 
@@ -99,7 +99,7 @@ func StartMonitoringServer(server *fasthttp.Server, proxies types.IBalancer, add
 				m := healthChecker(server, proxies.Stats())
 				by, err := json.Marshal(m)
 				if err != nil {
-					//TODO log
+					zap.S().Errorf("Error while parsing json, err: %v", err)
 					return
 				}
 
@@ -116,9 +116,14 @@ func StartMonitoringServer(server *fasthttp.Server, proxies types.IBalancer, add
 		NoDefaultServerHeader: true,
 	}
 
-	if err := monitoringServer.ListenAndServe(addr); err != nil {
-		log.Fatalf("error in fasthttp server: %s", err)
+	ln, err := net.Listen("tcp4", addr)
+	if err != nil {
+		zap.S().Errorf("Error while starting monitoring server %s", err)
+		return
 	}
+
+	zap.S().Infof("Monitoring server started successfully -> %s", addr)
+	monitoringServer.Serve(ln)
 }
 
 func ByteToMB(b uint64) uint64 {
