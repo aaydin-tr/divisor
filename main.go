@@ -8,9 +8,8 @@ import (
 	balancer "github.com/aaydin-tr/balancer/core"
 	"github.com/aaydin-tr/balancer/internal/monitoring"
 	"github.com/aaydin-tr/balancer/pkg/config"
-	"github.com/aaydin-tr/balancer/pkg/helper"
-	"github.com/aaydin-tr/balancer/pkg/http"
 	"github.com/aaydin-tr/balancer/pkg/logger"
+	"github.com/aaydin-tr/balancer/proxy"
 	"github.com/valyala/fasthttp"
 	"go.uber.org/zap"
 )
@@ -22,7 +21,7 @@ func main() {
 	config.PrepareConfig()
 
 	zap.S().Infof("Proxies are being prepared.")
-	proxies := balancer.NewBalancer(config, http.NewHttpClient().DefaultHealtChecker, config.HealtCheckerTime, helper.HashFunc)
+	proxies := balancer.NewBalancer(config, proxy.NewProxyClient)
 
 	if proxies == nil {
 		fmt.Println("No avaible serves")
@@ -49,4 +48,5 @@ func main() {
 
 	zap.S().Infof("divisor server started successfully -> %s", config.GetAddr())
 	server.Serve(ln)
+
 }
