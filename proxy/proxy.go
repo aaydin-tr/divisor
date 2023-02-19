@@ -14,6 +14,13 @@ import (
 	"go.uber.org/zap"
 )
 
+type ProxyFunc func(config.Backend, map[string]string) IProxyClient
+
+type IProxyClient interface {
+	ReverseProxyHandler(ctx *fasthttp.RequestCtx) error
+	Stat() types.ProxyStat
+}
+
 // Hop-by-hop headers. These are removed when sent to the backend.
 // As of RFC 7230, hop-by-hop headers are required to appear in the
 // Connection header field. These are the headers defined by the
@@ -116,7 +123,7 @@ func (h *ProxyClient) Stat() types.ProxyStat {
 	}
 }
 
-func NewProxyClient(backend config.Backend, customHeaders map[string]string) *ProxyClient {
+func NewProxyClient(backend config.Backend, customHeaders map[string]string) IProxyClient {
 	proxyClient := &fasthttp.HostClient{
 		Addr:                      backend.Url,
 		MaxConns:                  backend.MaxConnection,
