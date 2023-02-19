@@ -5,7 +5,9 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/aaydin-tr/balancer/core/types"
 	"github.com/aaydin-tr/balancer/pkg/helper"
+	"github.com/aaydin-tr/balancer/pkg/http"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
@@ -50,6 +52,8 @@ type Config struct {
 	Port             string            `yaml:"port"`
 	Backends         []Backend         `yaml:"backends"`
 	HealtCheckerTime time.Duration     `yaml:"healt_checker_time"`
+	HealtCheckerFunc types.HealtCheckerFunc
+	HashFunc         types.HashFunc
 }
 
 func (c *Config) GetAddr() string {
@@ -124,6 +128,11 @@ func (c *Config) PrepareConfig() {
 		}
 		return
 	}
+
+	// Default funcs
+	// TODO make more flexible
+	c.HashFunc = helper.HashFunc
+	c.HealtCheckerFunc = http.NewHttpClient().DefaultHealtChecker
 
 	zap.S().Info("Config file parse successfully")
 	c.prepareBackends()
