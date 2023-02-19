@@ -15,7 +15,7 @@ import (
 )
 
 type serverMap struct {
-	proxy       *proxy.ProxyClient
+	proxy       proxy.IProxyClient
 	weight      uint
 	isHostAlive bool
 	i           int
@@ -24,19 +24,19 @@ type serverMap struct {
 type WRoundRobin struct {
 	serversMap       map[uint32]*serverMap
 	healtCheckerFunc types.HealtCheckerFunc
-	servers          []*proxy.ProxyClient
+	servers          []proxy.IProxyClient
 	len              uint64
 	i                uint64
 	healtCheckerTime time.Duration
 	hashFunc         types.HashFunc
 }
 
-func NewWRoundRobin(config *config.Config, healtCheckerFunc types.HealtCheckerFunc, healtCheckerTime time.Duration, hashFunc types.HashFunc) types.IBalancer {
+func NewWRoundRobin(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBalancer {
 	wRoundRobin := &WRoundRobin{
-		healtCheckerFunc: healtCheckerFunc,
-		healtCheckerTime: healtCheckerTime,
+		healtCheckerFunc: config.HealtCheckerFunc,
+		healtCheckerTime: config.HealtCheckerTime,
 		serversMap:       make(map[uint32]*serverMap),
-		hashFunc:         hashFunc,
+		hashFunc:         config.HashFunc,
 	}
 
 	for i, b := range config.Backends {
@@ -44,8 +44,8 @@ func NewWRoundRobin(config *config.Config, healtCheckerFunc types.HealtCheckerFu
 			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
-		proxy := proxy.NewProxyClient(b, config.CustomHeaders)
 
+		proxy := proxyFunc(b, config.CustomHeaders)
 		for i := 0; i < int(b.Weight); i++ {
 			wRoundRobin.servers = append(wRoundRobin.servers, proxy)
 		}
@@ -75,7 +75,7 @@ func (w *WRoundRobin) Serve() func(ctx *fasthttp.RequestCtx) {
 	}
 }
 
-func (w *WRoundRobin) next() *proxy.ProxyClient {
+func (w *WRoundRobin) next() proxy.IProxyClient {
 	v := atomic.AddUint64(&w.i, 1)
 	return w.servers[v%w.len]
 }

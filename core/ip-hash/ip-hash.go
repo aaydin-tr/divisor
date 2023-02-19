@@ -29,25 +29,25 @@ type IPHash struct {
 	healtCheckerTime time.Duration
 }
 
-func NewIPHash(config *config.Config, healtCheckerFunc types.HealtCheckerFunc, healtCheckerTime time.Duration, hashFunc types.HashFunc) types.IBalancer {
+func NewIPHash(config *config.Config, ProxyFunc proxy.ProxyFunc) types.IBalancer {
 	ipHash := &IPHash{
 		servers: *consistent.NewConsistentHash(
 			int(math.Pow(float64(len(config.Backends)), float64(2))),
-			hashFunc,
+			config.HashFunc,
 		),
 		serversMap:       make(map[uint32]*serverMap),
-		healtCheckerFunc: healtCheckerFunc,
-		healtCheckerTime: healtCheckerTime,
-		hashFunc:         hashFunc,
+		healtCheckerFunc: config.HealtCheckerFunc,
+		healtCheckerTime: config.HealtCheckerTime,
+		hashFunc:         config.HashFunc,
 	}
 
 	for i, b := range config.Backends {
-		if !helper.IsHostAlive(b.GetURL()) {
+		if ipHash.healtCheckerFunc(b.GetURL()) != 200 {
 			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
-		proxy := proxy.NewProxyClient(b, config.CustomHeaders)
-		node := &consistent.Node{Id: i, Proxy: proxy}
+		proxy := ProxyFunc(b, config.CustomHeaders)
+		node := &consistent.Node{Id: i, Proxy: proxy, Addr: b.GetURL()}
 		ipHash.servers.AddNode(node)
 		ipHash.serversMap[ipHash.hashFunc(helper.S2b(b.Url+strconv.Itoa(i)))] = &serverMap{node: node, isHostAlive: true, i: i}
 		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
@@ -71,7 +71,7 @@ func (h *IPHash) Serve() func(ctx *fasthttp.RequestCtx) {
 	}
 }
 
-func (h *IPHash) get(hashCode uint32) *proxy.ProxyClient {
+func (h *IPHash) get(hashCode uint32) proxy.IProxyClient {
 	node := h.servers.GetNode(hashCode)
 	return node.Proxy
 }
