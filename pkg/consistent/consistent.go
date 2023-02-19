@@ -23,7 +23,8 @@ func (h hashRing) Swap(i, j int) {
 }
 
 type Node struct {
-	Proxy *proxy.ProxyClient
+	Proxy proxy.IProxyClient
+	Addr  string
 	Id    int
 }
 
@@ -44,7 +45,7 @@ func NewConsistentHash(replicas int, hashFunc func([]byte) uint32) *ConsistentHa
 
 func (c *ConsistentHash) AddNode(node *Node) {
 	for i := 0; i < c.virtualRepl; i++ {
-		hash := c.hashFunc([]byte(string(rune(node.Id+i)) + node.Proxy.Addr))
+		hash := c.hashFunc([]byte(string(rune(node.Id+i)) + node.Addr))
 		c.nodes.Store(hash, node)
 		c.numbers = append(c.numbers, hash)
 	}
@@ -53,7 +54,7 @@ func (c *ConsistentHash) AddNode(node *Node) {
 
 func (c *ConsistentHash) RemoveNode(node *Node) {
 	for i := 0; i < c.virtualRepl; i++ {
-		hash := c.hashFunc([]byte(string(rune(node.Id+i)) + node.Proxy.Addr))
+		hash := c.hashFunc([]byte(string(rune(node.Id+i)) + node.Addr))
 		c.nodes.Delete(hash)
 		index, err := helper.FindIndex(c.numbers, hash)
 		if err == nil {
