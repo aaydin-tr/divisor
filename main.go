@@ -27,7 +27,7 @@ func main() {
 		fmt.Println("No avaible serves")
 		return
 	}
-	zap.S().Infof("All proxies are ready, divisor will use `%s` algorithm healt checker func will triger every %v", config.Type, config.HealtCheckerTime)
+	zap.S().Infof("All proxies are ready, divisor will use `%s` algorithm healt checker func will triger every %v", config.Type, config.HealthCheckerTime)
 
 	server := fasthttp.Server{
 		// TODO must be editable by config
@@ -48,5 +48,4 @@ func main() {
 
 	zap.S().Infof("divisor server started successfully -> %s", config.GetAddr())
 	server.Serve(ln)
-
 }
