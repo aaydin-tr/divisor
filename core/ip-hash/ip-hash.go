@@ -24,10 +24,10 @@ type IPHash struct {
 	serversMap        map[uint32]*serverMap
 	isHostAliveFunc   types.IsHostAlive
 	hashFunc          types.HashFunc
+	stopHealthChecker chan bool
 	servers           consistent.ConsistentHash
 	len               int
 	healthCheckerTime time.Duration
-	stopHealthChecker chan bool
 }
 
 func NewIPHash(config *config.Config, ProxyFunc proxy.ProxyFunc) types.IBalancer {
