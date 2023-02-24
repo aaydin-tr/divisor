@@ -6,7 +6,7 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-type HealtCheckerFunc func(string) int
+type IsHostAlive func(string) bool
 
 type HashFunc func([]byte) uint32
 

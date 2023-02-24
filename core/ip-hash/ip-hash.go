@@ -21,12 +21,13 @@ type serverMap struct {
 }
 
 type IPHash struct {
-	serversMap       map[uint32]*serverMap
-	healtCheckerFunc types.HealtCheckerFunc
-	hashFunc         types.HashFunc
-	servers          consistent.ConsistentHash
-	len              int
-	healtCheckerTime time.Duration
+	serversMap        map[uint32]*serverMap
+	isHostAliveFunc   types.IsHostAlive
+	hashFunc          types.HashFunc
+	servers           consistent.ConsistentHash
+	len               int
+	healthCheckerTime time.Duration
+	stopHealthChecker chan bool
 }
 
 func NewIPHash(config *config.Config, ProxyFunc proxy.ProxyFunc) types.IBalancer {
@@ -35,30 +36,31 @@ func NewIPHash(config *config.Config, ProxyFunc proxy.ProxyFunc) types.IBalancer
 			int(math.Pow(float64(len(config.Backends)), float64(2))),
 			config.HashFunc,
 		),
-		serversMap:       make(map[uint32]*serverMap),
-		healtCheckerFunc: config.HealtCheckerFunc,
-		healtCheckerTime: config.HealtCheckerTime,
-		hashFunc:         config.HashFunc,
+		serversMap:        make(map[uint32]*serverMap),
+		isHostAliveFunc:   config.HealthCheckerFunc,
+		healthCheckerTime: config.HealthCheckerTime,
+		hashFunc:          config.HashFunc,
+		stopHealthChecker: make(chan bool),
 	}
 
 	for i, b := range config.Backends {
-		if ipHash.healtCheckerFunc(b.GetURL()) != 200 {
+		if !ipHash.isHostAliveFunc(b.GetURL()) {
 			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
 		proxy := ProxyFunc(b, config.CustomHeaders)
-		node := &consistent.Node{Id: i, Proxy: proxy, Addr: b.GetURL()}
+		node := &consistent.Node{Id: i, Proxy: proxy, Addr: b.Url}
 		ipHash.servers.AddNode(node)
 		ipHash.serversMap[ipHash.hashFunc(helper.S2b(b.Url+strconv.Itoa(i)))] = &serverMap{node: node, isHostAlive: true, i: i}
+		ipHash.len++
 		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
 	}
 
-	ipHash.len = len(config.Backends)
 	if ipHash.len <= 0 {
 		return nil
 	}
 
-	go ipHash.healtChecker(config.Backends)
+	go ipHash.healthChecker(config.Backends)
 
 	return ipHash
 }
@@ -76,30 +78,39 @@ func (h *IPHash) get(hashCode uint32) proxy.IProxyClient {
 	return node.Proxy
 }
 
-func (h *IPHash) healtChecker(backends []config.Backend) {
+func (h *IPHash) healthChecker(backends []config.Backend) {
 	for {
-		time.Sleep(h.healtCheckerTime)
-		for i, backend := range backends {
-			status := h.healtCheckerFunc(backend.GetURL())
-			backendHash := h.hashFunc(helper.S2b(backend.Url + strconv.Itoa(i)))
-			proxyMap, ok := h.serversMap[backendHash]
-
-			if ok && (status != 200 && proxyMap.isHostAlive) {
-				h.servers.RemoveNode(proxyMap.node)
-				proxyMap.isHostAlive = false
-				h.len = h.len - 1
-
-				zap.S().Infof("Server is down, removing from load balancer, Addr: %s Healt Check Status: %d ", backend.Url, status)
-				if h.len == 0 {
-					panic("All backends are down")
-				}
-			} else if ok && (status == 200 && !proxyMap.isHostAlive) {
-				h.servers.AddNode(proxyMap.node)
-				proxyMap.isHostAlive = true
-				h.len = h.len + 1
-				zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s Healt Check Status: %d ", backend.Url, status)
+		select {
+		case <-h.stopHealthChecker:
+			return
+		default:
+			time.Sleep(h.healthCheckerTime)
+			for i, backend := range backends {
+				h.healthCheck(backend, i)
 			}
 		}
+	}
+}
+
+func (h *IPHash) healthCheck(backend config.Backend, i int) {
+	status := h.isHostAliveFunc(backend.GetURL())
+	backendHash := h.hashFunc(helper.S2b(backend.Url + strconv.Itoa(i)))
+	proxyMap, ok := h.serversMap[backendHash]
+
+	if ok && (!status && proxyMap.isHostAlive) {
+		h.servers.RemoveNode(proxyMap.node)
+		proxyMap.isHostAlive = false
+		h.len = h.len - 1
+
+		zap.S().Infof("Server is down, removing from load balancer, Addr: %s health Check Status: %d ", backend.Url, status)
+		if h.len == 0 {
+			panic("All backends are down")
+		}
+	} else if ok && (status && !proxyMap.isHostAlive) {
+		h.servers.AddNode(proxyMap.node)
+		proxyMap.isHostAlive = true
+		h.len = h.len + 1
+		zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s health Check Status: %d ", backend.Url, status)
 	}
 }
 

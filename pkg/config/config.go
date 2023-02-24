@@ -45,15 +45,15 @@ type Monitoring struct {
 }
 
 type Config struct {
-	CustomHeaders    map[string]string `yaml:"custom_headers"`
-	Monitoring       Monitoring        `yaml:"monitoring"`
-	Type             string            `yaml:"type"`
-	Host             string            `yaml:"host"`
-	Port             string            `yaml:"port"`
-	Backends         []Backend         `yaml:"backends"`
-	HealtCheckerTime time.Duration     `yaml:"healt_checker_time"`
-	HealtCheckerFunc types.HealtCheckerFunc
-	HashFunc         types.HashFunc
+	CustomHeaders     map[string]string `yaml:"custom_headers"`
+	Monitoring        Monitoring        `yaml:"monitoring"`
+	Type              string            `yaml:"type"`
+	Host              string            `yaml:"host"`
+	Port              string            `yaml:"port"`
+	Backends          []Backend         `yaml:"backends"`
+	HealthCheckerTime time.Duration     `yaml:"healt_checker_time"`
+	HealthCheckerFunc types.IsHostAlive
+	HashFunc          types.HashFunc
 }
 
 func (c *Config) GetAddr() string {
@@ -110,8 +110,8 @@ func (c *Config) PrepareConfig() {
 		c.Type = "round-robin"
 	}
 
-	if c.HealtCheckerTime <= 0 {
-		c.HealtCheckerTime = DefaultHealtCheckerTime
+	if c.HealthCheckerTime <= 0 {
+		c.HealthCheckerTime = DefaultHealtCheckerTime
 	}
 
 	if c.Monitoring.Host == "" {
@@ -132,7 +132,7 @@ func (c *Config) PrepareConfig() {
 	// Default funcs
 	// TODO make more flexible
 	c.HashFunc = helper.HashFunc
-	c.HealtCheckerFunc = http.NewHttpClient().DefaultHealtChecker
+	c.HealthCheckerFunc = http.NewHttpClient().IsHostAlive
 
 	zap.S().Info("Config file parse successfully")
 	c.prepareBackends()

@@ -6,8 +6,6 @@ import (
 	"os"
 	"reflect"
 	"unsafe"
-
-	"github.com/aaydin-tr/balancer/pkg/http"
 )
 
 func Contains(s []string, str string) bool {
@@ -59,11 +57,6 @@ func FindIndex[T comparable](s []T, value T) (int, error) {
 	}
 
 	return 0, errors.New("not found in slice")
-}
-
-// TODO
-func IsHostAlive(url string) bool {
-	return http.NewHttpClient().DefaultHealtChecker(url) == 200
 }
 
 func GetLogFile() string {

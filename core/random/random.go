@@ -21,7 +21,7 @@ type serverMap struct {
 
 type Random struct {
 	serversMap       map[uint32]*serverMap
-	healtCheckerFunc types.HealtCheckerFunc
+	healtCheckerFunc types.IsHostAlive
 	servers          []proxy.IProxyClient
 	len              int
 	healtCheckerTime time.Duration
@@ -31,13 +31,13 @@ type Random struct {
 func NewRandom(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBalancer {
 	random := &Random{
 		serversMap:       make(map[uint32]*serverMap),
-		healtCheckerFunc: config.HealtCheckerFunc,
-		healtCheckerTime: config.HealtCheckerTime,
+		healtCheckerFunc: config.HealthCheckerFunc,
+		healtCheckerTime: config.HealthCheckerTime,
 		hashFunc:         config.HashFunc,
 	}
 
 	for i, b := range config.Backends {
-		if !helper.IsHostAlive(b.GetURL()) {
+		if !random.healtCheckerFunc(b.GetURL()) {
 			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
@@ -74,7 +74,7 @@ func (r *Random) healtChecker(backends []config.Backend) {
 			status := r.healtCheckerFunc(backend.GetURL())
 			backendHash := r.hashFunc(helper.S2b(backend.Url + strconv.Itoa(i)))
 			proxyMap, ok := r.serversMap[backendHash]
-			if ok && (status != 200 && proxyMap.isHostAlive) {
+			if ok && (!status && proxyMap.isHostAlive) {
 				r.servers = helper.Remove(r.servers, proxyMap.i)
 				r.len = r.len - 1
 				proxyMap.isHostAlive = false
@@ -83,7 +83,7 @@ func (r *Random) healtChecker(backends []config.Backend) {
 				if r.len == 0 {
 					panic("All backends are down")
 				}
-			} else if ok && (status == 200 && !proxyMap.isHostAlive) {
+			} else if ok && (status && !proxyMap.isHostAlive) {
 				r.servers = append(r.servers, proxyMap.proxy)
 				r.len++
 				proxyMap.isHostAlive = true
@@ -92,6 +92,7 @@ func (r *Random) healtChecker(backends []config.Backend) {
 			}
 		}
 	}
+
 }
 
 func (r *Random) Stats() []types.ProxyStat {

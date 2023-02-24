@@ -23,7 +23,7 @@ type serverMap struct {
 
 type WRoundRobin struct {
 	serversMap       map[uint32]*serverMap
-	healtCheckerFunc types.HealtCheckerFunc
+	healtCheckerFunc types.IsHostAlive
 	servers          []proxy.IProxyClient
 	len              uint64
 	i                uint64
@@ -33,14 +33,14 @@ type WRoundRobin struct {
 
 func NewWRoundRobin(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBalancer {
 	wRoundRobin := &WRoundRobin{
-		healtCheckerFunc: config.HealtCheckerFunc,
-		healtCheckerTime: config.HealtCheckerTime,
+		healtCheckerFunc: config.HealthCheckerFunc,
+		healtCheckerTime: config.HealthCheckerTime,
 		serversMap:       make(map[uint32]*serverMap),
 		hashFunc:         config.HashFunc,
 	}
 
 	for i, b := range config.Backends {
-		if !helper.IsHostAlive(b.GetURL()) {
+		if !wRoundRobin.healtCheckerFunc(b.GetURL()) {
 			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
@@ -88,7 +88,7 @@ func (w *WRoundRobin) healtChecker(backends []config.Backend) {
 			backendHash := w.hashFunc(helper.S2b(backend.Url + strconv.Itoa(i)))
 			proxyMap, ok := w.serversMap[backendHash]
 
-			if ok && (status != 200 && proxyMap.isHostAlive) {
+			if ok && (!status && proxyMap.isHostAlive) {
 				w.servers = helper.RemoveMultipleByValue(w.servers, proxyMap.proxy)
 
 				w.len = w.len - uint64(proxyMap.weight)
@@ -98,7 +98,7 @@ func (w *WRoundRobin) healtChecker(backends []config.Backend) {
 				if w.len == 0 {
 					panic("All backends are down")
 				}
-			} else if ok && (status == 200 && !proxyMap.isHostAlive) {
+			} else if ok && (status && !proxyMap.isHostAlive) {
 				for i := 0; i < int(proxyMap.weight); i++ {
 					w.servers = append(w.servers, proxyMap.proxy)
 				}

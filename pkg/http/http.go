@@ -23,7 +23,7 @@ func NewHttpClient() *HttpClient {
 	}}
 }
 
-func (h *HttpClient) DefaultHealtChecker(url string) int {
+func (h *HttpClient) IsHostAlive(url string) bool {
 	req := fasthttp.AcquireRequest()
 	req.SetRequestURI(url)
 	req.Header.SetMethod(fasthttp.MethodGet)
@@ -34,7 +34,7 @@ func (h *HttpClient) DefaultHealtChecker(url string) int {
 	defer fasthttp.ReleaseResponse(resp)
 
 	if err != nil {
-		return 0
+		return false
 	}
-	return resp.StatusCode()
+	return resp.StatusCode() == 200
 }
