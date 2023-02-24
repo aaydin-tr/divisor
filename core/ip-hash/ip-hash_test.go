@@ -172,60 +172,58 @@ func TestServer(t *testing.T) {
 }
 
 func TestHealthCheck(t *testing.T) {
-	for _, ip := range testCases {
-		if ip.expectedServerCount > 1 {
-			ipHash := NewIPHash(&ip.config, ip.proxyFunc).(*IPHash)
-			assert.Equal(t, ip.expectedServerCount, len(ipHash.serversMap))
+	caseOne := testCases[0]
+	ipHash := NewIPHash(&caseOne.config, caseOne.proxyFunc).(*IPHash)
+	assert.Equal(t, caseOne.expectedServerCount, len(ipHash.serversMap))
 
-			// Remove one server
-			backend := ip.config.Backends[0]
-			if b, ok := ipHash.serversMap[ipHash.hashFunc([]byte(backend.Url+strconv.Itoa(0)))]; ok {
-				ipHash.isHostAliveFunc = func(s string) bool {
-					return false
-				}
-				oldServerCount := ipHash.len
-				ipHash.healthCheck(backend, 0)
+	// Remove one server
+	backend := caseOne.config.Backends[0]
+	if b, ok := ipHash.serversMap[ipHash.hashFunc([]byte(backend.Url+strconv.Itoa(0)))]; ok {
+		ipHash.isHostAlive = func(s string) bool {
+			return false
+		}
+		oldServerCount := ipHash.len
+		ipHash.healthCheck(backend, 0)
 
-				assert.False(t, b.isHostAlive, "expected isHostAlive equal to false, but got %v", b.isHostAlive)
+		assert.False(t, b.isHostAlive, "expected isHostAlive equal to false, but got %v", b.isHostAlive)
+		assert.GreaterOrEqual(t, oldServerCount, ipHash.len, "expected server to be removed after health check, but it did not.")
+	}
+
+	// Add one server
+	if b, ok := ipHash.serversMap[ipHash.hashFunc([]byte(backend.Url+strconv.Itoa(0)))]; ok {
+		b.isHostAlive = false
+		ipHash.isHostAlive = func(s string) bool {
+			return true
+		}
+
+		oldServerCount := ipHash.len
+		ipHash.healthCheck(backend, 0)
+
+		assert.True(t, b.isHostAlive, "expected isHostAlive equal to true, but got %v", b.isHostAlive)
+		assert.GreaterOrEqual(t, ipHash.len, oldServerCount, "expected server to be added after health check, but it did not.")
+
+	}
+
+	// Remove All
+	for i, backend := range caseOne.config.Backends {
+		if _, ok := ipHash.serversMap[ipHash.hashFunc([]byte(backend.Url+strconv.Itoa(i)))]; ok {
+			ipHash.isHostAlive = func(s string) bool {
+				return false
+			}
+
+			oldServerCount := ipHash.len
+			if oldServerCount == 1 {
+				assert.Panics(t, func() {
+					ipHash.healthCheck(backend, i)
+				}, "expected panic after remove all servers")
+
+			} else {
+				ipHash.healthCheck(backend, i)
 				assert.GreaterOrEqual(t, oldServerCount, ipHash.len, "expected server to be removed after health check, but it did not.")
-			}
-
-			// Add one server
-			if b, ok := ipHash.serversMap[ipHash.hashFunc([]byte(backend.Url+strconv.Itoa(0)))]; ok {
-				b.isHostAlive = false
-				ipHash.isHostAliveFunc = func(s string) bool {
-					return true
-				}
-
-				oldServerCount := ipHash.len
-				ipHash.healthCheck(backend, 0)
-
-				assert.True(t, b.isHostAlive, "expected isHostAlive equal to true, but got %v", b.isHostAlive)
-				assert.GreaterOrEqual(t, ipHash.len, oldServerCount, "expected server to be added after health check, but it did not.")
-
-			}
-
-			// Remove All
-			for i, backend := range ip.config.Backends {
-				if _, ok := ipHash.serversMap[ipHash.hashFunc([]byte(backend.Url+strconv.Itoa(i)))]; ok {
-					ipHash.isHostAliveFunc = func(s string) bool {
-						return false
-					}
-
-					oldServerCount := ipHash.len
-					if oldServerCount == 1 {
-						assert.Panics(t, func() {
-							ipHash.healthCheck(backend, i)
-						}, "expected panic after remove all servers")
-
-					} else {
-						ipHash.healthCheck(backend, i)
-						assert.GreaterOrEqual(t, oldServerCount, ipHash.len, "expected server to be removed after health check, but it did not.")
-					}
-				}
 			}
 		}
 	}
+
 }
 
 func TestStats(t *testing.T) {
@@ -249,7 +247,7 @@ func TestHealthChecker(t *testing.T) {
 	caseOne := testCases[0]
 	ipHash := &IPHash{stopHealthChecker: make(chan bool)}
 
-	ipHash.isHostAliveFunc = func(s string) bool {
+	ipHash.isHostAlive = func(s string) bool {
 		go func() {
 			ipHash.stopHealthChecker <- true
 		}()
