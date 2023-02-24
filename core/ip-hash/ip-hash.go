@@ -22,7 +22,7 @@ type serverMap struct {
 
 type IPHash struct {
 	serversMap        map[uint32]*serverMap
-	isHostAliveFunc   types.IsHostAlive
+	isHostAlive       types.IsHostAlive
 	hashFunc          types.HashFunc
 	stopHealthChecker chan bool
 	servers           consistent.ConsistentHash
@@ -37,14 +37,14 @@ func NewIPHash(config *config.Config, ProxyFunc proxy.ProxyFunc) types.IBalancer
 			config.HashFunc,
 		),
 		serversMap:        make(map[uint32]*serverMap),
-		isHostAliveFunc:   config.HealthCheckerFunc,
+		isHostAlive:       config.HealthCheckerFunc,
 		healthCheckerTime: config.HealthCheckerTime,
 		hashFunc:          config.HashFunc,
 		stopHealthChecker: make(chan bool),
 	}
 
 	for i, b := range config.Backends {
-		if !ipHash.isHostAliveFunc(b.GetURL()) {
+		if !ipHash.isHostAlive(b.GetURL()) {
 			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
@@ -92,9 +92,9 @@ func (h *IPHash) healthChecker(backends []config.Backend) {
 	}
 }
 
-func (h *IPHash) healthCheck(backend config.Backend, i int) {
-	status := h.isHostAliveFunc(backend.GetURL())
-	backendHash := h.hashFunc(helper.S2b(backend.Url + strconv.Itoa(i)))
+func (h *IPHash) healthCheck(backend config.Backend, index int) {
+	status := h.isHostAlive(backend.GetURL())
+	backendHash := h.hashFunc(helper.S2b(backend.Url + strconv.Itoa(index)))
 	proxyMap, ok := h.serversMap[backendHash]
 
 	if ok && (!status && proxyMap.isHostAlive) {
