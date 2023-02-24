@@ -40,7 +40,7 @@ func Remove[T any](s []T, index int) []T {
 }
 
 func RemoveMultipleByValue[T comparable](s []T, value T) []T {
-	var temp []T
+	temp := make([]T, 0, len(s))
 	for _, elem := range s {
 		if elem != value {
 			temp = append(temp, elem)
