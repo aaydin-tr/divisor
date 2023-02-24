@@ -22,11 +22,11 @@ type serverMap struct {
 type Random struct {
 	serversMap        map[uint32]*serverMap
 	isHostAlive       types.IsHostAlive
+	hashFunc          types.HashFunc
+	stopHealthChecker chan bool
 	servers           []proxy.IProxyClient
 	len               int
 	healthCheckerTime time.Duration
-	hashFunc          types.HashFunc
-	stopHealthChecker chan bool
 }
 
 func NewRandom(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBalancer {
