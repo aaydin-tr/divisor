@@ -20,24 +20,26 @@ type serverMap struct {
 }
 
 type Random struct {
-	serversMap       map[uint32]*serverMap
-	healtCheckerFunc types.IsHostAlive
-	servers          []proxy.IProxyClient
-	len              int
-	healtCheckerTime time.Duration
-	hashFunc         types.HashFunc
+	serversMap        map[uint32]*serverMap
+	isHostAlive       types.IsHostAlive
+	servers           []proxy.IProxyClient
+	len               int
+	healthCheckerTime time.Duration
+	hashFunc          types.HashFunc
+	stopHealthChecker chan bool
 }
 
 func NewRandom(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBalancer {
 	random := &Random{
-		serversMap:       make(map[uint32]*serverMap),
-		healtCheckerFunc: config.HealthCheckerFunc,
-		healtCheckerTime: config.HealthCheckerTime,
-		hashFunc:         config.HashFunc,
+		serversMap:        make(map[uint32]*serverMap),
+		isHostAlive:       config.HealthCheckerFunc,
+		healthCheckerTime: config.HealthCheckerTime,
+		hashFunc:          config.HashFunc,
+		stopHealthChecker: make(chan bool),
 	}
 
 	for i, b := range config.Backends {
-		if !random.healtCheckerFunc(b.GetURL()) {
+		if !random.isHostAlive(b.GetURL()) {
 			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
@@ -45,14 +47,14 @@ func NewRandom(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBalancer
 		random.servers = append(random.servers, proxy)
 		random.serversMap[random.hashFunc(helper.S2b(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxy, isHostAlive: true, i: i}
 		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
+		random.len++
 	}
 
-	random.len = len(random.servers)
 	if random.len <= 0 {
 		return nil
 	}
 
-	go random.healtChecker(config.Backends)
+	go random.healthChecker(config.Backends)
 
 	return random
 }
@@ -67,32 +69,40 @@ func (r *Random) next() proxy.IProxyClient {
 	return r.servers[rand.Intn(r.len)]
 }
 
-func (r *Random) healtChecker(backends []config.Backend) {
+func (r *Random) healthChecker(backends []config.Backend) {
 	for {
-		time.Sleep(r.healtCheckerTime)
-		for i, backend := range backends {
-			status := r.healtCheckerFunc(backend.GetURL())
-			backendHash := r.hashFunc(helper.S2b(backend.Url + strconv.Itoa(i)))
-			proxyMap, ok := r.serversMap[backendHash]
-			if ok && (!status && proxyMap.isHostAlive) {
-				r.servers = helper.Remove(r.servers, proxyMap.i)
-				r.len = r.len - 1
-				proxyMap.isHostAlive = false
-
-				zap.S().Infof("Server is down, removing from load balancer, Addr: %s Healt Check Status: %d ", backend.Url, status)
-				if r.len == 0 {
-					panic("All backends are down")
-				}
-			} else if ok && (status && !proxyMap.isHostAlive) {
-				r.servers = append(r.servers, proxyMap.proxy)
-				r.len++
-				proxyMap.isHostAlive = true
-				proxyMap.i = r.len
-				zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s Healt Check Status: %d ", backend.Url, status)
+		select {
+		case <-r.stopHealthChecker:
+			return
+		default:
+			time.Sleep(r.healthCheckerTime)
+			for i, backend := range backends {
+				r.healthCheck(backend, i)
 			}
 		}
 	}
+}
 
+func (r *Random) healthCheck(backend config.Backend, index int) {
+	status := r.isHostAlive(backend.GetURL())
+	backendHash := r.hashFunc(helper.S2b(backend.Url + strconv.Itoa(index)))
+	proxyMap, ok := r.serversMap[backendHash]
+	if ok && (!status && proxyMap.isHostAlive) {
+		r.servers = helper.RemoveMultipleByValue(r.servers, proxyMap.proxy)
+		r.len = r.len - 1
+		proxyMap.isHostAlive = false
+
+		zap.S().Infof("Server is down, removing from load balancer, Addr: %s Healt Check Status: %d ", backend.Url, status)
+		if r.len == 0 {
+			panic("All backends are down")
+		}
+	} else if ok && (status && !proxyMap.isHostAlive) {
+		r.servers = append(r.servers, proxyMap.proxy)
+		r.len++
+		proxyMap.isHostAlive = true
+		proxyMap.i = r.len - 1
+		zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s Healt Check Status: %d ", backend.Url, status)
+	}
 }
 
 func (r *Random) Stats() []types.ProxyStat {
