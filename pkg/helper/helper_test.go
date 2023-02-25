@@ -107,7 +107,7 @@ func TestRemove(t *testing.T) {
 	}
 }
 
-func TestRemoveMultipleByValue(t *testing.T) {
+func TestRemoveByValue(t *testing.T) {
 	testCases := []struct {
 		slice    []int
 		value    int
@@ -119,7 +119,7 @@ func TestRemoveMultipleByValue(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		result := helper.RemoveMultipleByValue(testCase.slice, testCase.value)
+		result := helper.RemoveByValue(testCase.slice, testCase.value)
 		if len(result) != len(testCase.expected) {
 			t.Errorf("For slice %v and value %d, expected length %d but got %d", testCase.slice, testCase.value, len(testCase.expected), len(result))
 		}

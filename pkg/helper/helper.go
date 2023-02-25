@@ -39,7 +39,7 @@ func Remove[T any](s []T, index int) []T {
 	return append(s[:index], s[index+1:]...)
 }
 
-func RemoveMultipleByValue[T comparable](s []T, value T) []T {
+func RemoveByValue[T comparable](s []T, value T) []T {
 	temp := make([]T, 0, len(s))
 	for _, elem := range s {
 		if elem != value {
