@@ -3,156 +3,38 @@ package random
 import (
 	"strconv"
 	"testing"
-	"time"
 
-	types "github.com/aaydin-tr/balancer/core/types"
-	"github.com/aaydin-tr/balancer/pkg/config"
-	"github.com/aaydin-tr/balancer/proxy"
+	"github.com/aaydin-tr/balancer/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/valyala/fasthttp"
 )
 
-type mockProxy struct {
-	addr     string
-	isCalled bool
-}
-
-func (m *mockProxy) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
-	m.isCalled = true
-	return nil
-}
-func (m *mockProxy) Stat() types.ProxyStat {
-	return types.ProxyStat{}
-}
-
-func createNewMockProxy(b config.Backend, h map[string]string) proxy.IProxyClient {
-	return &mockProxy{addr: b.Url, isCalled: false}
-}
-
-type testCaseStruct struct {
-	config              config.Config
-	healtCheckerFunc    types.IsHostAlive
-	hashFunc            types.HashFunc
-	proxyFunc           proxy.ProxyFunc
-	expectedServerCount int
-}
-
-var testCases = []testCaseStruct{
-	{
-		config: config.Config{
-			Type: "random",
-			Host: "localhost",
-			Port: "8000",
-			Backends: []config.Backend{
-				{
-					Url: "localhost:8080",
-				},
-				{
-					Url: "localhost:80",
-				},
-			},
-			HealthCheckerTime: time.Second * 5,
-			HealthCheckerFunc: func(string) bool {
-				return true
-			},
-			HashFunc: func(b []byte) uint32 {
-				return uint32(len(b))
-			},
-		},
-		expectedServerCount: 2,
-		proxyFunc:           createNewMockProxy,
-	},
-	{
-		config: config.Config{
-			Type: "ip-hash",
-			Host: "localhost",
-			Port: "8000",
-			Backends: []config.Backend{
-				{
-					Url: "localhost:8080",
-				},
-			},
-			HealthCheckerTime: time.Second * 5,
-			HealthCheckerFunc: func(string) bool {
-				return true
-			},
-			HashFunc: func(b []byte) uint32 {
-				return uint32(len(b))
-			},
-		},
-		expectedServerCount: 1,
-		proxyFunc:           createNewMockProxy,
-	},
-	{
-		config: config.Config{
-			Type: "random",
-			Host: "localhost",
-			Port: "8000",
-			Backends: []config.Backend{
-				{
-					Url: "localhost:8080",
-				},
-				{
-					Url: "localhost:80",
-				},
-			},
-			HealthCheckerTime: time.Second * 5,
-			HealthCheckerFunc: func(string) bool {
-				return false
-			},
-			HashFunc: func(b []byte) uint32 {
-				return uint32(len(b))
-			},
-		},
-		expectedServerCount: 0,
-		proxyFunc:           createNewMockProxy,
-	},
-	{
-		config: config.Config{
-			Type:              "random",
-			Host:              "localhost",
-			Port:              "8000",
-			Backends:          []config.Backend{},
-			HealthCheckerTime: time.Second * 5,
-			HealthCheckerFunc: func(s string) bool {
-				return true
-
-			},
-			HashFunc: func(b []byte) uint32 {
-				return uint32(len(b))
-			},
-		},
-		expectedServerCount: 0,
-		proxyFunc:           createNewMockProxy,
-	},
-}
-
 func TestNewRandom(t *testing.T) {
-	for _, rand := range testCases {
-		if rand.expectedServerCount == 0 {
-			random := NewRandom(&rand.config, rand.proxyFunc)
+	for _, rand := range mocks.TestCases {
+		if rand.ExpectedServerCount == 0 {
+			random := NewRandom(&rand.Config, rand.ProxyFunc)
 			assert.Nil(t, random)
 		} else {
-			random := NewRandom(&rand.config, rand.proxyFunc).(*Random)
-			assert.Equal(t, rand.expectedServerCount, len(random.serversMap))
+			random := NewRandom(&rand.Config, rand.ProxyFunc).(*Random)
+			assert.Equal(t, rand.ExpectedServerCount, len(random.serversMap))
 		}
 	}
 }
 
 func TestNext(t *testing.T) {
-	caseOne := testCases[0]
-	balancer := NewRandom(&caseOne.config, caseOne.proxyFunc)
+	caseOne := mocks.TestCases[0]
+	balancer := NewRandom(&caseOne.Config, caseOne.ProxyFunc)
 	assert.NotNil(t, balancer)
 
 	random := balancer.(*Random)
 	proxy := random.next()
 
-	assert.IsType(t, &mockProxy{}, proxy)
+	assert.IsType(t, &mocks.MockProxy{}, proxy)
 }
 
 func TestServer(t *testing.T) {
-	caseOne := testCases[1]
-	balancer := NewRandom(&caseOne.config, caseOne.proxyFunc)
+	caseOne := mocks.TestCases[1]
+	balancer := NewRandom(&caseOne.Config, caseOne.ProxyFunc)
 	assert.NotNil(t, balancer)
 
 	random := balancer.(*Random)
@@ -161,21 +43,21 @@ func TestServer(t *testing.T) {
 	ctx := fasthttp.RequestCtx{
 		Request: *fasthttp.AcquireRequest(),
 	}
-	proxy := random.next().(*mockProxy)
-	assert.False(t, proxy.isCalled, "expected Server func not be called, but it was called")
+	proxy := random.next().(*mocks.MockProxy)
+	assert.False(t, proxy.IsCalled, "expected Server func not be called, but it was called")
 	handlerFunc(&ctx)
-	assert.True(t, proxy.isCalled, "expected Server func to be called, but it wasn't")
+	assert.True(t, proxy.IsCalled, "expected Server func to be called, but it wasn't")
 }
 
 func TestStats(t *testing.T) {
-	caseOne := testCases[0]
-	balancer := NewRandom(&caseOne.config, caseOne.proxyFunc)
+	caseOne := mocks.TestCases[0]
+	balancer := NewRandom(&caseOne.Config, caseOne.ProxyFunc)
 	assert.NotNil(t, balancer)
 
 	random := balancer.(*Random)
 	stats := random.Stats()
 
-	for i, backend := range caseOne.config.Backends {
+	for i, backend := range caseOne.Config.Backends {
 		hash := random.hashFunc([]byte(backend.Url + strconv.Itoa(i)))
 		s := random.serversMap[hash]
 
@@ -185,7 +67,7 @@ func TestStats(t *testing.T) {
 }
 
 func TestHealthChecker(t *testing.T) {
-	caseOne := testCases[0]
+	caseOne := mocks.TestCases[0]
 	random := &Random{stopHealthChecker: make(chan bool)}
 
 	random.isHostAlive = func(s string) bool {
@@ -198,17 +80,37 @@ func TestHealthChecker(t *testing.T) {
 		return 0
 	}
 
-	caseOne.config.HealthCheckerTime = 1
-	random.healthChecker(caseOne.config.Backends)
+	caseOne.Config.HealthCheckerTime = 1
+	random.healthChecker(caseOne.Config.Backends)
 }
 
-func TestHealthCheck(t *testing.T) {
-	caseOne := testCases[0]
-	random := NewRandom(&caseOne.config, caseOne.proxyFunc).(*Random)
-	assert.Equal(t, caseOne.expectedServerCount, len(random.serversMap))
+func TestRemoveOneServer(t *testing.T) {
+	caseOne := mocks.TestCases[0]
+	random := NewRandom(&caseOne.Config, caseOne.ProxyFunc).(*Random)
+	assert.Equal(t, caseOne.ExpectedServerCount, len(random.serversMap))
 
 	// Remove one server
-	backend := caseOne.config.Backends[0]
+	backend := caseOne.Config.Backends[0]
+	if b, ok := random.serversMap[random.hashFunc([]byte(backend.Url+strconv.Itoa(0)))]; ok {
+		random.isHostAlive = func(s string) bool {
+			return false
+		}
+		oldServerCount := random.len
+		random.healthCheck(backend, 0)
+
+		assert.False(t, b.isHostAlive, "expected isHostAlive equal to false, but got %v", b.isHostAlive)
+		assert.GreaterOrEqual(t, oldServerCount, random.len, "expected server to be removed after health check, but it did not.")
+	}
+
+}
+
+func TestRemoveAndAddServer(t *testing.T) {
+	caseOne := mocks.TestCases[0]
+	random := NewRandom(&caseOne.Config, caseOne.ProxyFunc).(*Random)
+	assert.Equal(t, caseOne.ExpectedServerCount, len(random.serversMap))
+
+	// Remove one server
+	backend := caseOne.Config.Backends[0]
 	if b, ok := random.serversMap[random.hashFunc([]byte(backend.Url+strconv.Itoa(0)))]; ok {
 		random.isHostAlive = func(s string) bool {
 			return false
@@ -234,9 +136,15 @@ func TestHealthCheck(t *testing.T) {
 		assert.GreaterOrEqual(t, random.len, oldServerCount, "expected server to be added after health check, but it did not.")
 
 	}
+}
+
+func TestRemmoveAllServers(t *testing.T) {
+	caseOne := mocks.TestCases[0]
+	random := NewRandom(&caseOne.Config, caseOne.ProxyFunc).(*Random)
+	assert.Equal(t, caseOne.ExpectedServerCount, len(random.serversMap))
 
 	// Remove All
-	for i, backend := range caseOne.config.Backends {
+	for i, backend := range caseOne.Config.Backends {
 		if _, ok := random.serversMap[random.hashFunc([]byte(backend.Url+strconv.Itoa(i)))]; ok {
 			random.isHostAlive = func(s string) bool {
 				return false
@@ -247,11 +155,11 @@ func TestHealthCheck(t *testing.T) {
 				assert.Panics(t, func() {
 					random.healthCheck(backend, i)
 				}, "expected panic after remove all servers")
+
 			} else {
 				random.healthCheck(backend, i)
 				assert.GreaterOrEqual(t, oldServerCount, random.len, "expected server to be removed after health check, but it did not.")
 			}
 		}
 	}
-
 }
