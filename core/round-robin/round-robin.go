@@ -20,25 +20,27 @@ type serverMap struct {
 }
 
 type RoundRobin struct {
-	serversMap       map[uint32]*serverMap
-	healtCheckerFunc types.IsHostAlive
-	servers          []proxy.IProxyClient
-	len              uint64
-	i                uint64
-	healtCheckerTime time.Duration
-	hashFunc         types.HashFunc
+	serversMap        map[uint32]*serverMap
+	isHostAlive       types.IsHostAlive
+	hashFunc          types.HashFunc
+	stopHealthChecker chan bool
+	servers           []proxy.IProxyClient
+	len               uint64
+	i                 uint64
+	healthCheckerTime time.Duration
 }
 
 func NewRoundRobin(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBalancer {
 	roundRobin := &RoundRobin{
-		serversMap:       make(map[uint32]*serverMap),
-		healtCheckerFunc: config.HealthCheckerFunc,
-		healtCheckerTime: config.HealthCheckerTime,
-		hashFunc:         config.HashFunc,
+		serversMap:        make(map[uint32]*serverMap),
+		isHostAlive:       config.HealthCheckerFunc,
+		healthCheckerTime: config.HealthCheckerTime,
+		hashFunc:          config.HashFunc,
+		stopHealthChecker: make(chan bool),
 	}
 
 	for i, b := range config.Backends {
-		if !roundRobin.healtCheckerFunc(b.GetURL()) {
+		if !roundRobin.isHostAlive(b.GetURL()) {
 			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
@@ -46,14 +48,14 @@ func NewRoundRobin(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBala
 		roundRobin.servers = append(roundRobin.servers, proxy)
 		roundRobin.serversMap[roundRobin.hashFunc(helper.S2b(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxy, isHostAlive: true, i: i}
 		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
+		roundRobin.len++
 	}
 
-	roundRobin.len = uint64(len(roundRobin.servers))
 	if roundRobin.len <= 0 {
 		return nil
 	}
 
-	go roundRobin.healtChecker(config.Backends)
+	go roundRobin.healthChecker(config.Backends)
 
 	return roundRobin
 }
@@ -69,30 +71,38 @@ func (r *RoundRobin) next() proxy.IProxyClient {
 	return r.servers[v%r.len]
 }
 
-func (r *RoundRobin) healtChecker(backends []config.Backend) {
+func (r *RoundRobin) healthChecker(backends []config.Backend) {
 	for {
-		time.Sleep(r.healtCheckerTime)
-		for i, backend := range backends {
-			status := r.healtCheckerFunc(backend.GetURL())
-			backendHash := r.hashFunc(helper.S2b(backend.Url + strconv.Itoa(i)))
-			proxyMap, ok := r.serversMap[backendHash]
-			if ok && (!status && proxyMap.isHostAlive) {
-				r.servers = helper.Remove(r.servers, proxyMap.i)
-				r.len = r.len - 1
-				proxyMap.isHostAlive = false
-
-				zap.S().Infof("Server is down, removing from load balancer, Addr: %s Healt Check Status: %d ", backend.Url, status)
-				if r.len == 0 {
-					panic("All backends are down")
-				}
-			} else if ok && (status && !proxyMap.isHostAlive) {
-				r.servers = append(r.servers, proxyMap.proxy)
-				r.len++
-				proxyMap.isHostAlive = true
-				proxyMap.i = int(r.len)
-				zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s Healt Check Status: %d ", backend.Url, status)
+		select {
+		case <-r.stopHealthChecker:
+			return
+		default:
+			time.Sleep(r.healthCheckerTime)
+			for i, backend := range backends {
+				r.healthCheck(backend, i)
 			}
 		}
+	}
+}
+
+func (r *RoundRobin) healthCheck(backend config.Backend, index int) {
+	status := r.isHostAlive(backend.GetURL())
+	backendHash := r.hashFunc(helper.S2b(backend.Url + strconv.Itoa(index)))
+	proxyMap, ok := r.serversMap[backendHash]
+	if ok && (!status && proxyMap.isHostAlive) {
+		r.servers = helper.RemoveByValue(r.servers, proxyMap.proxy)
+		r.len = r.len - 1
+		proxyMap.isHostAlive = false
+
+		zap.S().Infof("Server is down, removing from load balancer, Addr: %s Healt Check Status: %d ", backend.Url, status)
+		if r.len == 0 {
+			panic("All backends are down")
+		}
+	} else if ok && (status && !proxyMap.isHostAlive) {
+		r.servers = append(r.servers, proxyMap.proxy)
+		r.len++
+		proxyMap.isHostAlive = true
+		zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s Healt Check Status: %d ", backend.Url, status)
 	}
 }
 

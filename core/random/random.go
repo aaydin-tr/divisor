@@ -88,7 +88,7 @@ func (r *Random) healthCheck(backend config.Backend, index int) {
 	backendHash := r.hashFunc(helper.S2b(backend.Url + strconv.Itoa(index)))
 	proxyMap, ok := r.serversMap[backendHash]
 	if ok && (!status && proxyMap.isHostAlive) {
-		r.servers = helper.RemoveMultipleByValue(r.servers, proxyMap.proxy)
+		r.servers = helper.RemoveByValue(r.servers, proxyMap.proxy)
 		r.len = r.len - 1
 		proxyMap.isHostAlive = false
 
@@ -100,7 +100,6 @@ func (r *Random) healthCheck(backend config.Backend, index int) {
 		r.servers = append(r.servers, proxyMap.proxy)
 		r.len++
 		proxyMap.isHostAlive = true
-		proxyMap.i = r.len - 1
 		zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s Healt Check Status: %d ", backend.Url, status)
 	}
 }

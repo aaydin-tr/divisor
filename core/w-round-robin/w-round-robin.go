@@ -22,25 +22,26 @@ type serverMap struct {
 }
 
 type WRoundRobin struct {
-	serversMap       map[uint32]*serverMap
-	healtCheckerFunc types.IsHostAlive
-	servers          []proxy.IProxyClient
-	len              uint64
-	i                uint64
-	healtCheckerTime time.Duration
-	hashFunc         types.HashFunc
+	serversMap        map[uint32]*serverMap
+	isHostAlive       types.IsHostAlive
+	hashFunc          types.HashFunc
+	stopHealthChecker chan bool
+	servers           []proxy.IProxyClient
+	len               uint64
+	i                 uint64
+	healthCheckerTime time.Duration
 }
 
 func NewWRoundRobin(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBalancer {
 	wRoundRobin := &WRoundRobin{
-		healtCheckerFunc: config.HealthCheckerFunc,
-		healtCheckerTime: config.HealthCheckerTime,
-		serversMap:       make(map[uint32]*serverMap),
-		hashFunc:         config.HashFunc,
+		isHostAlive:       config.HealthCheckerFunc,
+		healthCheckerTime: config.HealthCheckerTime,
+		serversMap:        make(map[uint32]*serverMap),
+		hashFunc:          config.HashFunc,
 	}
 
 	for i, b := range config.Backends {
-		if !wRoundRobin.healtCheckerFunc(b.GetURL()) {
+		if !wRoundRobin.isHostAlive(b.GetURL()) {
 			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
@@ -64,7 +65,7 @@ func NewWRoundRobin(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBal
 		wRoundRobin.servers[i], wRoundRobin.servers[j] = wRoundRobin.servers[j], wRoundRobin.servers[i]
 	})
 
-	go wRoundRobin.healtChecker(config.Backends)
+	go wRoundRobin.healthChecker(config.Backends)
 
 	return wRoundRobin
 }
@@ -80,40 +81,48 @@ func (w *WRoundRobin) next() proxy.IProxyClient {
 	return w.servers[v%w.len]
 }
 
-func (w *WRoundRobin) healtChecker(backends []config.Backend) {
+func (w *WRoundRobin) healthChecker(backends []config.Backend) {
 	for {
-		time.Sleep(w.healtCheckerTime)
-		for i, backend := range backends {
-			status := w.healtCheckerFunc(backend.GetURL())
-			backendHash := w.hashFunc(helper.S2b(backend.Url + strconv.Itoa(i)))
-			proxyMap, ok := w.serversMap[backendHash]
-
-			if ok && (!status && proxyMap.isHostAlive) {
-				w.servers = helper.RemoveMultipleByValue(w.servers, proxyMap.proxy)
-
-				w.len = w.len - uint64(proxyMap.weight)
-				proxyMap.isHostAlive = false
-
-				zap.S().Infof("Server is down, removing from load balancer, Addr: %s Healt Check Status: %d ", backend.Url, status)
-				if w.len == 0 {
-					panic("All backends are down")
-				}
-			} else if ok && (status && !proxyMap.isHostAlive) {
-				for i := 0; i < int(proxyMap.weight); i++ {
-					w.servers = append(w.servers, proxyMap.proxy)
-				}
-
-				rand.Seed(time.Now().UnixNano())
-				rand.Shuffle(len(w.servers), func(i, j int) {
-					w.servers[i], w.servers[j] = w.servers[j], w.servers[i]
-				})
-
-				w.len = w.len + uint64(proxyMap.weight)
-				proxyMap.isHostAlive = true
-				zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s Healt Check Status: %d ", backend.Url, status)
+		select {
+		case <-w.stopHealthChecker:
+			return
+		default:
+			time.Sleep(w.healthCheckerTime)
+			for i, backend := range backends {
+				w.healthCheck(backend, i)
 			}
-
 		}
+	}
+}
+
+func (w *WRoundRobin) healthCheck(backend config.Backend, index int) {
+	status := w.isHostAlive(backend.GetURL())
+	backendHash := w.hashFunc(helper.S2b(backend.Url + strconv.Itoa(index)))
+	proxyMap, ok := w.serversMap[backendHash]
+
+	if ok && (!status && proxyMap.isHostAlive) {
+		w.servers = helper.RemoveByValue(w.servers, proxyMap.proxy)
+
+		w.len = w.len - uint64(proxyMap.weight)
+		proxyMap.isHostAlive = false
+
+		zap.S().Infof("Server is down, removing from load balancer, Addr: %s Healt Check Status: %d ", backend.Url, status)
+		if w.len == 0 {
+			panic("All backends are down")
+		}
+	} else if ok && (status && !proxyMap.isHostAlive) {
+		for i := 0; i < int(proxyMap.weight); i++ {
+			w.servers = append(w.servers, proxyMap.proxy)
+		}
+
+		rand.Seed(time.Now().UnixNano())
+		rand.Shuffle(len(w.servers), func(i, j int) {
+			w.servers[i], w.servers[j] = w.servers[j], w.servers[i]
+		})
+
+		w.len = w.len + uint64(proxyMap.weight)
+		proxyMap.isHostAlive = true
+		zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s Healt Check Status: %d ", backend.Url, status)
 	}
 }
 
