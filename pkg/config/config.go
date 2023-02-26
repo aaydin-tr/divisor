@@ -64,20 +64,20 @@ func (c *Config) GetMonitoringAddr() string {
 	return c.Monitoring.Host + ":" + c.Monitoring.Port
 }
 
-func ParseConfigFile(path string) *Config {
+func ParseConfigFile(path string) (*Config, error) {
 	configFile, err := os.ReadFile(path)
 	if err != nil {
-		zap.S().Error(err)
+		return nil, err
 	}
 
 	var config Config
 	err = yaml.Unmarshal(configFile, &config)
 
 	if err != nil {
-		zap.S().Error(err)
+		return nil, err
 	}
 
-	return &config
+	return &config, nil
 }
 
 func (c *Config) PrepareConfig() {
