@@ -1,16 +1,11 @@
 package logger
 
 import (
-	"fmt"
-
-	"github.com/aaydin-tr/balancer/pkg/helper"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
-func InitLogger() *zap.Logger {
-	logFile := helper.GetLogFile()
-
+func InitLogger(logFile string) {
 	config := zap.Config{
 		Level:       zap.NewAtomicLevelAt(zap.InfoLevel),
 		Development: false,
@@ -32,12 +27,6 @@ func InitLogger() *zap.Logger {
 		ErrorOutputPaths: []string{logFile, "stdout"},
 	}
 
-	logger, err := config.Build()
-	if err != nil {
-		fmt.Println(err)
-		return nil
-	}
+	logger, _ := config.Build()
 	zap.ReplaceGlobals(logger)
-
-	return logger
 }

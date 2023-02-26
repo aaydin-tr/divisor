@@ -1,13 +1,13 @@
 package main
 
 import (
-	"fmt"
 	"net"
 	"time"
 
 	balancer "github.com/aaydin-tr/balancer/core"
 	"github.com/aaydin-tr/balancer/internal/monitoring"
 	"github.com/aaydin-tr/balancer/pkg/config"
+	"github.com/aaydin-tr/balancer/pkg/helper"
 	"github.com/aaydin-tr/balancer/pkg/logger"
 	"github.com/aaydin-tr/balancer/proxy"
 	"github.com/valyala/fasthttp"
@@ -15,16 +15,21 @@ import (
 )
 
 func main() {
-	logger.InitLogger()
+	logFile := helper.GetLogFile()
+	logger.InitLogger(logFile)
 
-	config := config.ParseConfigFile("./config.yaml")
+	config, err := config.ParseConfigFile("./config.yaml")
+	if err != nil {
+		zap.S().Error(err)
+		return
+	}
 	config.PrepareConfig()
 
 	zap.S().Infof("Proxies are being prepared.")
 	proxies := balancer.NewBalancer(config, proxy.NewProxyClient)
 
 	if proxies == nil {
-		fmt.Println("No avaible serves")
+		zap.S().Error("No avaible serves")
 		return
 	}
 	zap.S().Infof("All proxies are ready, divisor will use `%s` algorithm healt checker func will triger every %v", config.Type, config.HealthCheckerTime)
