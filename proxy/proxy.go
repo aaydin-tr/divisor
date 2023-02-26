@@ -71,6 +71,9 @@ func (h *ProxyClient) preReq(req *fasthttp.Request, clientIP net.IP, host []byte
 	for _, h := range hopHeaders {
 		req.Header.DelBytes(h)
 	}
+
+	req.SetHostBytes(helper.S2b(h.Addr))
+	req.Header.SetBytesKV(XForwardedFor, helper.S2b(clientIP.String()))
 	h.setCustomHeaders(req, clientIP.String())
 }
 
