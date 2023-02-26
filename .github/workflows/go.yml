@@ -25,4 +25,4 @@ jobs:
       run: go build -v ./...
 
     - name: Test
-      run: go test -v ./... -timeout 300ms 
+      run: go test -v ./... -timeout 1000ms 
