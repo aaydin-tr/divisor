@@ -41,7 +41,7 @@ func NewWRoundRobin(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBal
 	}
 
 	for i, b := range config.Backends {
-		if !wRoundRobin.isHostAlive(b.GetURL()) {
+		if !wRoundRobin.isHostAlive(b.GetHealthCheckURL()) {
 			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
@@ -96,7 +96,7 @@ func (w *WRoundRobin) healthChecker(backends []config.Backend) {
 }
 
 func (w *WRoundRobin) healthCheck(backend config.Backend, index int) {
-	status := w.isHostAlive(backend.GetURL())
+	status := w.isHostAlive(backend.GetHealthCheckURL())
 	backendHash := w.hashFunc(helper.S2b(backend.Url + strconv.Itoa(index)))
 	proxyMap, ok := w.serversMap[backendHash]
 

@@ -39,7 +39,7 @@ func NewRandom(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBalancer
 	}
 
 	for i, b := range config.Backends {
-		if !random.isHostAlive(b.GetURL()) {
+		if !random.isHostAlive(b.GetHealthCheckURL()) {
 			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
@@ -84,7 +84,7 @@ func (r *Random) healthChecker(backends []config.Backend) {
 }
 
 func (r *Random) healthCheck(backend config.Backend, index int) {
-	status := r.isHostAlive(backend.GetURL())
+	status := r.isHostAlive(backend.GetHealthCheckURL())
 	backendHash := r.hashFunc(helper.S2b(backend.Url + strconv.Itoa(index)))
 	proxyMap, ok := r.serversMap[backendHash]
 	if ok && (!status && proxyMap.isHostAlive) {

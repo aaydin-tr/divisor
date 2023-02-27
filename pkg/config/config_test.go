@@ -152,7 +152,7 @@ func TestPrepareBackends(t *testing.T) {
 		}
 	})
 
-	t.Run("GetURL", func(t *testing.T) {
+	t.Run("GetHealthCheckURL", func(t *testing.T) {
 		basic, err := ParseConfigFile("../../examples/basic.config.yaml")
 		assert.Equal(t, "round-robin", basic.Type)
 		assert.Nil(t, err)
@@ -160,8 +160,8 @@ func TestPrepareBackends(t *testing.T) {
 		basic.prepareBackends()
 
 		for _, b := range basic.Backends {
-			url := b.GetURL()
-			assert.Equal(t, "http://"+b.Url, url)
+			url := b.GetHealthCheckURL()
+			assert.Equal(t, "http://"+b.Url+"/", url)
 
 		}
 	})

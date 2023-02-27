@@ -27,6 +27,7 @@ var protocolRegex = regexp.MustCompile(`(^https?://)`)
 
 type Backend struct {
 	Url                       string        `yaml:"url"`
+	HealthCheckPath           string        `yaml:"health_check_path"`
 	Weight                    uint          `yaml:"weight,omitempty"`
 	MaxConnection             int           `yaml:"max_conn,omitempty"`
 	MaxConnWaitTimeout        time.Duration `yaml:"max_conn_timeout,omitempty"`
@@ -35,8 +36,8 @@ type Backend struct {
 	MaxIdemponentCallAttempts int           `yaml:"max_idemponent_call_attempts,omitempty"`
 }
 
-func (b *Backend) GetURL() string {
-	return "http://" + b.Url
+func (b *Backend) GetHealthCheckURL() string {
+	return "http://" + b.Url + b.HealthCheckPath
 }
 
 type Monitoring struct {
@@ -147,6 +148,10 @@ func (c *Config) prepareBackends() {
 		if c.Type == "w-round-robin" && b.Weight <= 0 {
 			zap.S().Error("When using the weighted-round-robin algorithm, a weight must be specified for each backend.")
 			return
+		}
+
+		if b.HealthCheckPath == "" {
+			b.HealthCheckPath = "/"
 		}
 
 		if b.MaxConnection <= 0 {

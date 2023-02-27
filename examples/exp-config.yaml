@@ -4,6 +4,7 @@ host: localhost # Server host. default: localhost
 health_checker_time: 30s # Time interval to perform health check for backends. default: 30 seconds
 backends:
   - url: localhost:8080 # Backend url, do not present protocol
+    health_check_path: /health # Health check path for backends. default: /
     weight: 2 # Only mandatory for w-round-robin algorithm
     max_conn: 512 # Maximum number of connections which may be established to host listed in Addr. default: 512
     max_conn_timeout: 30s # Maximum duration for waiting for a free connection. default: 30 seconds

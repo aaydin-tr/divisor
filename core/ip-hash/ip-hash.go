@@ -44,7 +44,7 @@ func NewIPHash(config *config.Config, ProxyFunc proxy.ProxyFunc) types.IBalancer
 	}
 
 	for i, b := range config.Backends {
-		if !ipHash.isHostAlive(b.GetURL()) {
+		if !ipHash.isHostAlive(b.GetHealthCheckURL()) {
 			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
@@ -93,7 +93,7 @@ func (h *IPHash) healthChecker(backends []config.Backend) {
 }
 
 func (h *IPHash) healthCheck(backend config.Backend, index int) {
-	status := h.isHostAlive(backend.GetURL())
+	status := h.isHostAlive(backend.GetHealthCheckURL())
 	backendHash := h.hashFunc(helper.S2b(backend.Url + strconv.Itoa(index)))
 	proxyMap, ok := h.serversMap[backendHash]
 
