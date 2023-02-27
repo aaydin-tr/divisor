@@ -47,14 +47,14 @@ type Monitoring struct {
 
 type Config struct {
 	CustomHeaders     map[string]string `yaml:"custom_headers"`
-	Monitoring        Monitoring        `yaml:"monitoring"`
-	Type              string            `yaml:"type"`
-	Host              string            `yaml:"host"`
-	Port              string            `yaml:"port"`
-	Backends          []Backend         `yaml:"backends"`
-	HealthCheckerTime time.Duration     `yaml:"health_checker_time"`
 	HealthCheckerFunc types.IsHostAlive
 	HashFunc          types.HashFunc
+	Monitoring        Monitoring    `yaml:"monitoring"`
+	Type              string        `yaml:"type"`
+	Host              string        `yaml:"host"`
+	Port              string        `yaml:"port"`
+	Backends          []Backend     `yaml:"backends"`
+	HealthCheckerTime time.Duration `yaml:"health_checker_time"`
 }
 
 func (c *Config) GetAddr() string {
