@@ -106,7 +106,7 @@ func (w *WRoundRobin) healthCheck(backend config.Backend, index int) {
 		w.len = w.len - uint64(proxyMap.weight)
 		proxyMap.isHostAlive = false
 
-		zap.S().Infof("Server is down, removing from load balancer, Addr: %s Healt Check Status: %d ", backend.Url, status)
+		zap.S().Infof("Server is down, removing from load balancer, Addr: %s", backend.Url)
 		if w.len == 0 {
 			panic("All backends are down")
 		}
@@ -122,7 +122,7 @@ func (w *WRoundRobin) healthCheck(backend config.Backend, index int) {
 
 		w.len = w.len + uint64(proxyMap.weight)
 		proxyMap.isHostAlive = true
-		zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s Healt Check Status: %d ", backend.Url, status)
+		zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s", backend.Url)
 	}
 }
 

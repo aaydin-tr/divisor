@@ -94,7 +94,7 @@ func (r *RoundRobin) healthCheck(backend config.Backend, index int) {
 		r.len = r.len - 1
 		proxyMap.isHostAlive = false
 
-		zap.S().Infof("Server is down, removing from load balancer, Addr: %s Healt Check Status: %d ", backend.Url, status)
+		zap.S().Infof("Server is down, removing from load balancer, Addr: %s", backend.Url)
 		if r.len == 0 {
 			panic("All backends are down")
 		}
@@ -102,7 +102,7 @@ func (r *RoundRobin) healthCheck(backend config.Backend, index int) {
 		r.servers = append(r.servers, proxyMap.proxy)
 		r.len++
 		proxyMap.isHostAlive = true
-		zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s Healt Check Status: %d ", backend.Url, status)
+		zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s", backend.Url)
 	}
 }
 

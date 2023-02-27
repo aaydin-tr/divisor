@@ -102,7 +102,7 @@ func (h *IPHash) healthCheck(backend config.Backend, index int) {
 		proxyMap.isHostAlive = false
 		h.len = h.len - 1
 
-		zap.S().Infof("Server is down, removing from load balancer, Addr: %s health Check Status: %d ", backend.Url, status)
+		zap.S().Infof("Server is down, removing from load balancer, Addr: %s", backend.Url)
 		if h.len == 0 {
 			panic("All backends are down")
 		}
@@ -110,7 +110,7 @@ func (h *IPHash) healthCheck(backend config.Backend, index int) {
 		h.servers.AddNode(proxyMap.node)
 		proxyMap.isHostAlive = true
 		h.len = h.len + 1
-		zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s health Check Status: %d ", backend.Url, status)
+		zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s", backend.Url)
 	}
 }
 
