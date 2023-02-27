@@ -136,8 +136,6 @@ func TestPrepareConfig(t *testing.T) {
 }
 
 func TestPrepareBackends(t *testing.T) {
-	t.Parallel()
-
 	t.Run("default values", func(t *testing.T) {
 		basic, err := ParseConfigFile("../../examples/basic.config.yaml")
 		assert.Equal(t, "round-robin", basic.Type)

@@ -71,10 +71,7 @@ func (c *ConsistentHash) GetNode(hash uint32) *Node {
 		i = 0
 	}
 
-	node, ok := c.nodes.Load(c.numbers[i])
-	if ok {
-		return node.(*Node)
-	}
+	node, _ := c.nodes.Load(c.numbers[i])
 
-	return nil
+	return node.(*Node)
 }

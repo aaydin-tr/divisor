@@ -69,7 +69,7 @@ func TestRemoveNode(t *testing.T) {
 
 func TestGetNode(t *testing.T) {
 	// Create a ConsistentHash struct with replicas 2 and a dummy hash function
-	ch := NewConsistentHash(2, func(b []byte) uint32 {
+	ch := NewConsistentHash(1, func(b []byte) uint32 {
 		return uint32(len(b))
 	})
 
@@ -95,6 +95,7 @@ func TestGetNode(t *testing.T) {
 		{hash: ch.hashFunc([]byte(string(rune(node1.Id+0)) + node1.Addr)), expectedNode: node1},
 		{hash: ch.hashFunc([]byte(string(rune(node2.Id+0)) + node2.Addr)), expectedNode: node2},
 		{hash: ch.hashFunc([]byte(string(rune(node1.Id+0)) + node1.Addr)), expectedNode: node1},
+		{hash: 16, expectedNode: node2},
 	}
 
 	for _, tc := range testCases {
