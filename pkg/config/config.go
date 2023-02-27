@@ -51,7 +51,7 @@ type Config struct {
 	Host              string            `yaml:"host"`
 	Port              string            `yaml:"port"`
 	Backends          []Backend         `yaml:"backends"`
-	HealthCheckerTime time.Duration     `yaml:"healt_checker_time"`
+	HealthCheckerTime time.Duration     `yaml:"health_checker_time"`
 	HealthCheckerFunc types.IsHostAlive
 	HashFunc          types.HashFunc
 }
