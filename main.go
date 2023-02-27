@@ -51,6 +51,6 @@ func main() {
 		return
 	}
 
-	zap.S().Infof("divisor server started successfully -> %s", config.GetAddr())
+	zap.S().Infof("divisor server started successfully -> http://%s", config.GetAddr())
 	server.Serve(ln)
 }

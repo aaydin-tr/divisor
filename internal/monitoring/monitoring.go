@@ -122,7 +122,7 @@ func StartMonitoringServer(server *fasthttp.Server, proxies types.IBalancer, add
 		return
 	}
 
-	zap.S().Infof("Monitoring server started successfully -> %s", addr)
+	zap.S().Infof("Monitoring server started successfully -> http://%s", addr)
 	monitoringServer.Serve(ln)
 }
 
