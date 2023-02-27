@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"net"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -45,6 +44,7 @@ type ProxyClient struct {
 	totalResTime      *uint64
 	customHeaders     map[string]string
 	Addr              string
+	addrB             []byte
 }
 
 func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
@@ -53,7 +53,7 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 
 	req := &ctx.Request
 	res := &ctx.Response
-	clientIP := ctx.RemoteIP()
+	clientIP := helper.S2b(ctx.RemoteIP().String())
 
 	h.preReq(req, clientIP, ctx.Host())
 
@@ -67,14 +67,14 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 	return nil
 }
 
-func (h *ProxyClient) preReq(req *fasthttp.Request, clientIP net.IP, host []byte) {
+func (h *ProxyClient) preReq(req *fasthttp.Request, clientIP []byte, host []byte) {
 	for _, h := range hopHeaders {
 		req.Header.DelBytes(h)
 	}
 
-	req.SetHostBytes(helper.S2b(h.Addr))
-	req.Header.SetBytesKV(XForwardedFor, helper.S2b(clientIP.String()))
-	h.setCustomHeaders(req, clientIP.String())
+	req.SetHostBytes(h.addrB)
+	req.Header.SetBytesKV(XForwardedFor, clientIP)
+	h.setCustomHeaders(req, clientIP)
 }
 
 func (h *ProxyClient) postRes(res *fasthttp.Response) {
@@ -95,10 +95,10 @@ func (h *ProxyClient) serverError(res *fasthttp.Response, err string) {
 	res.SetBody(helper.S2b(`{"message":"` + err + `"}`))
 }
 
-func (h *ProxyClient) setCustomHeaders(req *fasthttp.Request, clientIP string) {
+func (h *ProxyClient) setCustomHeaders(req *fasthttp.Request, clientIP []byte) {
 	for k, v := range h.customHeaders {
 		if v == "$remote_addr" {
-			req.Header.Set(k, clientIP)
+			req.Header.SetBytesV(k, clientIP)
 		} else if v == "$time" {
 			req.Header.Set(k, time.Now().Local().Format("2006-01-02T15:04:05.000Z"))
 		} else if v == "$incremental" {
@@ -139,6 +139,7 @@ func NewProxyClient(backend config.Backend, customHeaders map[string]string) IPr
 	return &ProxyClient{
 		proxy:             proxyClient,
 		Addr:              backend.Url,
+		addrB:             helper.S2b(backend.Url),
 		totalRequestCount: new(uint64),
 		totalResTime:      new(uint64),
 		customHeaders:     customHeaders,
