@@ -1,0 +1,26 @@
+version: '3.9'
+services:
+  service-one:
+    build: .
+    environment:
+      - hostname=service-one
+    ports:
+      - 8080:8080
+  service-two:
+    build: .
+    environment:
+      - hostname=service-two
+    ports:
+      - 7070:8080
+  service-three:
+    build: .
+    environment:
+      - hostname=service-three
+    ports:
+      - 6060:8080    
+  service-four:
+    build: .
+    environment:
+      - hostname=service-four
+    ports:
+      - 5050:8080   
