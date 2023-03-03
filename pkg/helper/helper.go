@@ -5,6 +5,7 @@ import (
 	"hash/crc32"
 	"os"
 	"reflect"
+	"runtime"
 	"unsafe"
 )
 
@@ -63,24 +64,34 @@ func GetLogFile() string {
 	logDir := GetLogFolder()
 	err := CreateLogDirIfNotExist(logDir)
 	if err != nil {
-		return "./balancer.log"
+		return "./divisor.log"
 	}
 
-	return logDir + "Balancer/balancer.log"
+	return logDir + "divisor.log"
 }
 
 func GetLogFolder() string {
-	logDir, err := os.UserCacheDir()
-	if err != nil {
-		logDir = "./"
+	var dir string
+	switch runtime.GOOS {
+	case "windows":
+		dir = os.Getenv("LocalAppData") + "\\divisor\\"
+		if dir == "" {
+			return ""
+		}
+	default: // Unix
+		dir = "/var/log/divisor/"
 	}
-	return logDir + "/"
+
+	return dir
 }
 
 func CreateLogDirIfNotExist(logDir string) error {
-	baseDir := logDir + "Balancer"
-	if _, err := os.Stat(baseDir); os.IsNotExist(err) {
-		return os.Mkdir(logDir+"Balancer", os.ModeAppend)
+	if _, err := os.Stat(logDir); errors.Is(err, os.ErrNotExist) {
+		err := os.Mkdir(logDir, os.ModePerm)
+		if err != nil {
+			return err
+		}
 	}
+
 	return nil
 }
