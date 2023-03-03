@@ -6,10 +6,10 @@ import (
 
 	balancer "github.com/aaydin-tr/balancer/core"
 	"github.com/aaydin-tr/balancer/internal/monitoring"
+	"github.com/aaydin-tr/balancer/internal/proxy"
 	"github.com/aaydin-tr/balancer/pkg/config"
 	"github.com/aaydin-tr/balancer/pkg/helper"
 	"github.com/aaydin-tr/balancer/pkg/logger"
-	"github.com/aaydin-tr/balancer/proxy"
 	"github.com/valyala/fasthttp"
 	"go.uber.org/zap"
 )

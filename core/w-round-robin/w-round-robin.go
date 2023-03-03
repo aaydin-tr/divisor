@@ -7,9 +7,9 @@ import (
 	"time"
 
 	types "github.com/aaydin-tr/balancer/core/types"
+	"github.com/aaydin-tr/balancer/internal/proxy"
 	"github.com/aaydin-tr/balancer/pkg/config"
 	"github.com/aaydin-tr/balancer/pkg/helper"
-	"github.com/aaydin-tr/balancer/proxy"
 	"github.com/valyala/fasthttp"
 	"go.uber.org/zap"
 )

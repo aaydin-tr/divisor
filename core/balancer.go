@@ -6,7 +6,7 @@ import (
 	round_robin "github.com/aaydin-tr/balancer/core/round-robin"
 	"github.com/aaydin-tr/balancer/core/types"
 	w_round_robin "github.com/aaydin-tr/balancer/core/w-round-robin"
-	"github.com/aaydin-tr/balancer/proxy"
+	"github.com/aaydin-tr/balancer/internal/proxy"
 
 	"github.com/aaydin-tr/balancer/pkg/config"
 )

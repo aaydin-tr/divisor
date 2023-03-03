@@ -3,7 +3,7 @@ package consistent
 import (
 	"testing"
 
-	"github.com/aaydin-tr/balancer/proxy"
+	"github.com/aaydin-tr/balancer/internal/proxy"
 )
 
 func TestNewConsistentHash(t *testing.T) {
