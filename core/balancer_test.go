@@ -3,11 +3,11 @@ package balancer
 import (
 	"testing"
 
-	ip_hash "github.com/aaydin-tr/balancer/core/ip-hash"
-	"github.com/aaydin-tr/balancer/core/random"
-	round_robin "github.com/aaydin-tr/balancer/core/round-robin"
-	w_round_robin "github.com/aaydin-tr/balancer/core/w-round-robin"
-	"github.com/aaydin-tr/balancer/mocks"
+	ip_hash "github.com/aaydin-tr/divisor/core/ip-hash"
+	"github.com/aaydin-tr/divisor/core/random"
+	round_robin "github.com/aaydin-tr/divisor/core/round-robin"
+	w_round_robin "github.com/aaydin-tr/divisor/core/w-round-robin"
+	"github.com/aaydin-tr/divisor/mocks"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/aaydin-tr/balancer/mocks"
+	"github.com/aaydin-tr/divisor/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/valyala/fasthttp"
 )

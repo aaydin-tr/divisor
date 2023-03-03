@@ -3,9 +3,9 @@ package mocks
 import (
 	"time"
 
-	"github.com/aaydin-tr/balancer/core/types"
-	"github.com/aaydin-tr/balancer/internal/proxy"
-	"github.com/aaydin-tr/balancer/pkg/config"
+	"github.com/aaydin-tr/divisor/core/types"
+	"github.com/aaydin-tr/divisor/internal/proxy"
+	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/valyala/fasthttp"
 )
 

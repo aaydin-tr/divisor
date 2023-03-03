@@ -1,14 +1,14 @@
 package balancer
 
 import (
-	ip_hash "github.com/aaydin-tr/balancer/core/ip-hash"
-	random "github.com/aaydin-tr/balancer/core/random"
-	round_robin "github.com/aaydin-tr/balancer/core/round-robin"
-	"github.com/aaydin-tr/balancer/core/types"
-	w_round_robin "github.com/aaydin-tr/balancer/core/w-round-robin"
-	"github.com/aaydin-tr/balancer/internal/proxy"
+	ip_hash "github.com/aaydin-tr/divisor/core/ip-hash"
+	random "github.com/aaydin-tr/divisor/core/random"
+	round_robin "github.com/aaydin-tr/divisor/core/round-robin"
+	"github.com/aaydin-tr/divisor/core/types"
+	w_round_robin "github.com/aaydin-tr/divisor/core/w-round-robin"
+	"github.com/aaydin-tr/divisor/internal/proxy"
 
-	"github.com/aaydin-tr/balancer/pkg/config"
+	"github.com/aaydin-tr/divisor/pkg/config"
 )
 
 var balancers = map[string]func(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBalancer{

@@ -1,4 +1,4 @@
-module github.com/aaydin-tr/balancer
+module github.com/aaydin-tr/divisor
 
 go 1.20
 

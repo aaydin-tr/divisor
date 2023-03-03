@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/aaydin-tr/balancer/pkg/helper"
+	"github.com/aaydin-tr/divisor/pkg/helper"
 )
 
 func TestContains(t *testing.T) {

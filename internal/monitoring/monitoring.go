@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aaydin-tr/balancer/core/types"
+	"github.com/aaydin-tr/divisor/core/types"
 	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/mem"
 	"github.com/shirou/gopsutil/process"

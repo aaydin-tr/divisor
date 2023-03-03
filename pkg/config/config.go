@@ -5,9 +5,9 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/aaydin-tr/balancer/core/types"
-	"github.com/aaydin-tr/balancer/pkg/helper"
-	"github.com/aaydin-tr/balancer/pkg/http"
+	"github.com/aaydin-tr/divisor/core/types"
+	"github.com/aaydin-tr/divisor/pkg/helper"
+	"github.com/aaydin-tr/divisor/pkg/http"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )

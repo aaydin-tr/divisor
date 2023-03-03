@@ -4,8 +4,8 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/aaydin-tr/balancer/internal/proxy"
-	"github.com/aaydin-tr/balancer/pkg/helper"
+	"github.com/aaydin-tr/divisor/internal/proxy"
+	"github.com/aaydin-tr/divisor/pkg/helper"
 )
 
 type hashRing []uint32

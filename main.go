@@ -4,12 +4,12 @@ import (
 	"net"
 	"time"
 
-	balancer "github.com/aaydin-tr/balancer/core"
-	"github.com/aaydin-tr/balancer/internal/monitoring"
-	"github.com/aaydin-tr/balancer/internal/proxy"
-	"github.com/aaydin-tr/balancer/pkg/config"
-	"github.com/aaydin-tr/balancer/pkg/helper"
-	"github.com/aaydin-tr/balancer/pkg/logger"
+	balancer "github.com/aaydin-tr/divisor/core"
+	"github.com/aaydin-tr/divisor/internal/monitoring"
+	"github.com/aaydin-tr/divisor/internal/proxy"
+	"github.com/aaydin-tr/divisor/pkg/config"
+	"github.com/aaydin-tr/divisor/pkg/helper"
+	"github.com/aaydin-tr/divisor/pkg/logger"
 	"github.com/valyala/fasthttp"
 	"go.uber.org/zap"
 )
