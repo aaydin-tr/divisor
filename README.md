@@ -36,7 +36,7 @@ This project is particularly suitable for large-scale applications and websites.
 
 
 ## Features
-- Fast and easy-to-configure load balancer for Go language.
+- Fast and easy-to-configure load balancer.
 - Supports round-robin, weighted round-robin, IP hash, and random algorithms.
 - Uses the fasthttp library for high performance and scalability.
 - Offers multiple configuration options to suit user needs.
