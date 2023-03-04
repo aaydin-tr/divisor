@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"net"
 	"time"
 
@@ -15,10 +16,13 @@ import (
 )
 
 func main() {
+	configFile := flag.String("config", "./config.yaml", "config file, please use absolute path")
+	flag.Parse()
+
 	logFile := helper.GetLogFile()
 	logger.InitLogger(logFile)
 
-	config, err := config.ParseConfigFile("./config.yaml")
+	config, err := config.ParseConfigFile(*configFile)
 	if err != nil {
 		zap.S().Error(err)
 		return
