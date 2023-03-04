@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"net"
+	"os"
 	"time"
 
 	balancer "github.com/aaydin-tr/divisor/core"
@@ -21,6 +22,17 @@ func main() {
 
 	logFile := helper.GetLogFile()
 	logger.InitLogger(logFile)
+
+	if *configFile == "" {
+		zap.S().Error("Please provide a config file")
+		return
+	}
+
+	_, err := os.Stat(*configFile)
+	if os.IsNotExist(err) {
+		zap.S().Errorf("This config file does not exist %s", *configFile)
+		return
+	}
 
 	config, err := config.ParseConfigFile(*configFile)
 	if err != nil {
