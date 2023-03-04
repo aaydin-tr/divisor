@@ -96,6 +96,9 @@ While Divisor has several features and benefits, it also has some limitations to
 
 Please keep these limitations in mind when considering whether this load balancer is the right choice for your project.
 
+## Benchmark
+Please see [benchmark folder](https://github.com/aaydin-tr/divisor/tree/main/benchmark) for detail explanation 
+
 ## TODO
 While Divisor has several features, there are also some areas for improvement that are planned for future releases:
 
