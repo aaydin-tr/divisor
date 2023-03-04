@@ -3,12 +3,27 @@
   <h3 align="center">Divisor</h3>
 
   <p align="center">
-    A fast and easy to configure load balancer
+    A fast and easy-to-configure load balancer
     <br />
     <br />
   </p>
 </div>
 
+<details>
+  <summary>Table of Contents</summary>
+  <ol>
+    <li><a href="#about-the-project">About The Project</a></li>
+    <li><a href="#features">Features</a></li>
+    <li><a href="#installation">Installation</a></li>
+    <li><a href="#usage">Usage</a></li>
+    <li><a href="#configuration">Configuration</a></li>
+    <li><a href="#limitations">Limitations</a></li>
+    <li><a href="#benchmark">Benchmark</a></li>
+    <li><a href="#todo">TODO</a></li>
+    <li><a href="#contributors">Contributors</a></li>
+    <li><a href="#license">License</a></li>
+  </ol>
+</details>
 
 ## About The Project
 This project is designed to provide a fast and easy-to-configure load balancer in Go language. It currently includes **round-robin**, **weighted round-robin**, **ip-hash** and **random** algorithms, but we have more to add to our [TODO](#todo) list.
