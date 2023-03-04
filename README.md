@@ -47,7 +47,7 @@ go build -o divisor &&
 ```
 
 #### Using go install
-You can also install the load balancer using the go install command:
+You can also install Divisor using the go install command:
 
 ```bash
 go install github.com/aaydin-tr/divisor@latest
@@ -55,7 +55,37 @@ go install github.com/aaydin-tr/divisor@latest
 
 This will install the divisor binary to your system's `$GOPATH/bin` directory. Make sure this directory is included in your system's `$PATH` variable to make the divisor accessible from anywhere.
 
-That's it! You're now ready to use the load balancer in your project.
+That's it! You're now ready to use Divisor in your project.
+
+## Usage
+
+You need a `config.yaml` file to use Divisor, you can give this file to Divisor to use with the `--config` flag, by default it will try to use a `config.yaml` file in the directory it is in. [Example config files](https://github.com/aaydin-tr/divisor/tree/main/examples)
+> :warning: Please use absolute path for "config.yaml" while using "--config" flag
+
+## Configuration
+
+| Name | Description | Type | Default Value |
+| --- | --- | --- | --- |
+| type | Load balancing algorithm | string | round-robin |
+| port | Server port | int | 8000 |
+| host | Server host | string | localhost |
+| health_checker_time | Time interval to perform health check for backends | time.Duration | 30s |
+| backends | List of backends with their configurations | array |  |
+| backends.url | Backend URL | string |  |
+| backends.health_check_path | Health check path for backends | string | / |
+| backends.weight | Only mandatory for w-round-robin algorithm | int | 1 |
+| backends.max_conn | Maximum number of connections which may be established to host listed in Addr | int | 512 |
+| backends.max_conn_timeout | Maximum duration for waiting for a free connection | time.Duration | 30s |
+| backends.max_conn_duration | Keep-alive connections are closed after this duration | time.Duration | 10s |
+| backends.max_idle_conn_duration | Idle keep-alive connections are closed after this duration | time.Duration | 10s |
+| backends.max_idemponent_call_attempts | Maximum number of attempts for idempotent calls | int | 5 |
+| monitoring | Monitoring server configurations | map |  |
+| monitoring.port | Monitoring server port | int | 8001 |
+| monitoring.host | Monitoring server host | string | localhost |
+| custom_headers | Custom headers will be set on request sent to backend | map |  |
+| custom_headers.header-name | Valid values are `$remote_addr`, `$time`, `$incremental`, `$uuid`, Header name can be whatever you want as long as it's a string | string |  |
+
+Please see [example config files](https://github.com/aaydin-tr/divisor/tree/main/examples)
 
 ## Limitations
 While Divisor has several features and benefits, it also has some limitations to be aware of:
