@@ -39,9 +39,15 @@ func main() {
 		zap.S().Error(err)
 		return
 	}
-	config.PrepareConfig()
+	zap.S().Info("Parsing config file")
+	err = config.PrepareConfig()
+	if err != nil {
+		zap.S().Error(err)
+		return
+	}
+	zap.S().Info("Config file parse successfully")
 
-	zap.S().Infof("Proxies are being prepared.")
+	zap.S().Info("Proxies are being prepared.")
 	proxies := balancer.NewBalancer(config, proxy.NewProxyClient)
 
 	if proxies == nil {

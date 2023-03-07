@@ -1,12 +1,11 @@
 package config
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zaptest/observer"
 )
 
 func TestParseConfigFile(t *testing.T) {
@@ -42,94 +41,76 @@ func TestPrepareConfig(t *testing.T) {
 	t.Parallel()
 
 	t.Run("zero backend", func(t *testing.T) {
-		observedZapCore, observedLogs := observer.New(zap.InfoLevel)
-		observedLogger := zap.New(observedZapCore)
-		zap.ReplaceGlobals(observedLogger)
-
 		config := Config{}
-		config.PrepareConfig()
-
-		log := observedLogs.All()[1]
-		assert.Equal(t, "At least one backend must be set", log.Message)
+		err := config.PrepareConfig()
+		assert.EqualError(t, err, "At least one backend must be set")
 	})
 
 	t.Run("default localhost", func(t *testing.T) {
 		basic, _ := ParseConfigFile("../../examples/basic.config.yaml")
-		basic.PrepareConfig()
+		err := basic.PrepareConfig()
+		assert.Nil(t, err)
 		assert.Equal(t, "localhost", basic.Host)
 	})
 
 	t.Run("port is required", func(t *testing.T) {
-		observedZapCore, observedLogs := observer.New(zap.InfoLevel)
-		observedLogger := zap.New(observedZapCore)
-		zap.ReplaceGlobals(observedLogger)
-
 		config := Config{Backends: []Backend{{}}}
-		config.PrepareConfig()
-
-		log := observedLogs.All()[1]
-		assert.Equal(t, "Please choose valid port", log.Message)
+		err := config.PrepareConfig()
+		assert.EqualError(t, err, "Please choose valid port")
 	})
 
 	t.Run("default round-robin", func(t *testing.T) {
 		config := Config{Backends: []Backend{{}}, Type: "", Port: "8000"}
-		config.PrepareConfig()
+		err := config.PrepareConfig()
+		assert.Nil(t, err)
 		assert.Equal(t, "round-robin", config.Type)
 	})
 
 	t.Run("is valid type", func(t *testing.T) {
-		observedZapCore, observedLogs := observer.New(zap.InfoLevel)
-		observedLogger := zap.New(observedZapCore)
-		zap.ReplaceGlobals(observedLogger)
-
 		config := Config{Backends: []Backend{{}}, Type: "test", Port: "8000"}
-		config.PrepareConfig()
-
-		log := observedLogs.All()[1]
-		assert.Equal(t, "Please choose valid load balancing type", log.Message)
+		err := config.PrepareConfig()
+		assert.EqualError(t, err, "Please choose valid load balancing type")
 	})
 
 	t.Run("w-round-robin to round-robin", func(t *testing.T) {
 		config := Config{Backends: []Backend{{}}, Type: "w-round-robin", Port: "8000"}
-		config.PrepareConfig()
+		err := config.PrepareConfig()
 
+		assert.Nil(t, err)
 		assert.Equal(t, "round-robin", config.Type)
 	})
 
 	t.Run("default HealtCheckerTime", func(t *testing.T) {
 		config := Config{Backends: []Backend{{}}, Type: "round-robin", Port: "8000", HealthCheckerTime: -1}
-		config.PrepareConfig()
-
+		err := config.PrepareConfig()
+		assert.Nil(t, err)
 		assert.Equal(t, DefaultHealtCheckerTime, config.HealthCheckerTime)
 	})
 
 	t.Run("default monitoring host and port", func(t *testing.T) {
 		config := Config{Backends: []Backend{{}}, Type: "round-robin", Port: "8000"}
-		config.PrepareConfig()
+		err := config.PrepareConfig()
 
+		assert.Nil(t, err)
 		assert.Equal(t, "localhost", config.Monitoring.Host)
 		assert.Equal(t, "8001", config.Monitoring.Port)
 	})
 
 	t.Run("custom headers", func(t *testing.T) {
-		observedZapCore, observedLogs := observer.New(zap.InfoLevel)
-		observedLogger := zap.New(observedZapCore)
-		zap.ReplaceGlobals(observedLogger)
-
 		customHeaders := map[string]string{
 			"test": "test",
 		}
 		config := Config{Backends: []Backend{{}}, Type: "round-robin", Port: "8000", CustomHeaders: customHeaders}
-		config.PrepareConfig()
+		err := config.PrepareConfig()
 
-		log := observedLogs.All()[1]
-		assert.Equal(t, "Please choose valid custom header, e.g [$remote_addr $time $uuid $incremental]", log.Message)
+		assert.EqualError(t, err, "Please choose valid custom header, e.g [$remote_addr $time $uuid $incremental]")
 	})
 
 	t.Run("default funcs", func(t *testing.T) {
 		config := Config{Backends: []Backend{{}}, Type: "round-robin", Port: "8000"}
-		config.PrepareConfig()
+		err := config.PrepareConfig()
 
+		assert.Nil(t, err)
 		assert.NotNil(t, config.HashFunc)
 		assert.NotNil(t, config.HealthCheckerFunc)
 	})
@@ -187,18 +168,13 @@ func TestPrepareBackends(t *testing.T) {
 	})
 
 	t.Run("w-round-robin", func(t *testing.T) {
-		observedZapCore, observedLogs := observer.New(zap.InfoLevel)
-		observedLogger := zap.New(observedZapCore)
-		zap.ReplaceGlobals(observedLogger)
-
 		config := Config{Backends: []Backend{{
 			Weight: 0,
 		}}, Type: "w-round-robin", Port: "8000"}
 
-		config.prepareBackends()
-
-		log := observedLogs.All()[0]
-		assert.Equal(t, "When using the weighted-round-robin algorithm, a weight must be specified for each backend.", log.Message)
+		err := config.prepareBackends()
+		fmt.Println(err)
+		assert.EqualError(t, err, "When using the weighted-round-robin algorithm, a weight must be specified for each backend.")
 	})
 
 }

@@ -1,6 +1,8 @@
 package config
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"regexp"
 	"time"
@@ -8,7 +10,6 @@ import (
 	"github.com/aaydin-tr/divisor/core/types"
 	"github.com/aaydin-tr/divisor/pkg/helper"
 	"github.com/aaydin-tr/divisor/pkg/http"
-	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
 
@@ -81,12 +82,9 @@ func ParseConfigFile(path string) (*Config, error) {
 	return &config, nil
 }
 
-func (c *Config) PrepareConfig() {
-	zap.S().Info("Parsing config file")
-
+func (c *Config) PrepareConfig() error {
 	if len(c.Backends) == 0 {
-		zap.S().Error("At least one backend must be set")
-		return
+		return errors.New("At least one backend must be set")
 	}
 
 	if c.Host == "" {
@@ -94,8 +92,7 @@ func (c *Config) PrepareConfig() {
 	}
 
 	if c.Port == "" {
-		zap.S().Error("Please choose valid port")
-		return
+		return errors.New("Please choose valid port")
 	}
 
 	if c.Type == "" {
@@ -103,8 +100,7 @@ func (c *Config) PrepareConfig() {
 	}
 
 	if !helper.Contains(ValidTypes, c.Type) {
-		zap.S().Error("Please choose valid load balancing type")
-		return
+		return errors.New(fmt.Sprintf("Please choose valid load balancing type e.g %v", ValidTypes))
 	}
 
 	if c.Type == "w-round-robin" && len(c.Backends) == 1 {
@@ -125,8 +121,7 @@ func (c *Config) PrepareConfig() {
 
 	for _, value := range c.CustomHeaders {
 		if !helper.Contains(ValidCustomHeaders, value) {
-			zap.S().Error("Please choose valid custom header, e.g ", ValidCustomHeaders)
-			return
+			return errors.New(fmt.Sprintf("Please choose valid custom header, e.g %v", ValidCustomHeaders))
 		}
 	}
 
@@ -135,19 +130,16 @@ func (c *Config) PrepareConfig() {
 	c.HashFunc = helper.HashFunc
 	c.HealthCheckerFunc = http.NewHttpClient().IsHostAlive
 
-	zap.S().Info("Config file parse successfully")
-	c.prepareBackends()
-	zap.S().Info("Default configurations applied")
+	return c.prepareBackends()
 }
 
-func (c *Config) prepareBackends() {
+func (c *Config) prepareBackends() error {
 	for i := 0; i < len(c.Backends); i++ {
 		b := &c.Backends[i]
 		b.Url = protocolRegex.ReplaceAllString(b.Url, "")
 
 		if c.Type == "w-round-robin" && b.Weight <= 0 {
-			zap.S().Error("When using the weighted-round-robin algorithm, a weight must be specified for each backend.")
-			return
+			return errors.New("When using the weighted-round-robin algorithm, a weight must be specified for each backend.")
 		}
 
 		if b.HealthCheckPath == "" {
@@ -174,4 +166,6 @@ func (c *Config) prepareBackends() {
 			b.MaxIdemponentCallAttempts = DefaultMaxIdemponentCallAttempts
 		}
 	}
+
+	return nil
 }
