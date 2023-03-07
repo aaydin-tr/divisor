@@ -69,7 +69,7 @@ func TestPrepareConfig(t *testing.T) {
 	t.Run("is valid type", func(t *testing.T) {
 		config := Config{Backends: []Backend{{}}, Type: "test", Port: "8000"}
 		err := config.PrepareConfig()
-		assert.EqualError(t, err, "Please choose valid load balancing type")
+		assert.EqualError(t, err, fmt.Sprintf("Please choose valid load balancing type e.g %v", ValidTypes))
 	})
 
 	t.Run("w-round-robin to round-robin", func(t *testing.T) {
@@ -103,7 +103,7 @@ func TestPrepareConfig(t *testing.T) {
 		config := Config{Backends: []Backend{{}}, Type: "round-robin", Port: "8000", CustomHeaders: customHeaders}
 		err := config.PrepareConfig()
 
-		assert.EqualError(t, err, "Please choose valid custom header, e.g [$remote_addr $time $uuid $incremental]")
+		assert.EqualError(t, err, fmt.Sprintf("Please choose valid custom header, e.g %v", ValidCustomHeaders))
 	})
 
 	t.Run("default funcs", func(t *testing.T) {
