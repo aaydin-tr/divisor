@@ -126,8 +126,8 @@ func (c *Config) PrepareConfig() {
 	for _, value := range c.CustomHeaders {
 		if !helper.Contains(ValidCustomHeaders, value) {
 			zap.S().Error("Please choose valid custom header, e.g ", ValidCustomHeaders)
+			return
 		}
-		return
 	}
 
 	// Default funcs
