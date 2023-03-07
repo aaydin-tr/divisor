@@ -17,7 +17,6 @@ func InitLogger(logFile string) {
 			CallerKey:      "C",
 			FunctionKey:    zapcore.OmitKey,
 			MessageKey:     "M",
-			StacktraceKey:  "S",
 			LineEnding:     zapcore.DefaultLineEnding,
 			EncodeLevel:    zapcore.CapitalLevelEncoder,
 			EncodeTime:     zapcore.ISO8601TimeEncoder,
