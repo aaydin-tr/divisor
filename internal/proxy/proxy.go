@@ -18,6 +18,7 @@ type ProxyFunc func(config.Backend, map[string]string) IProxyClient
 type IProxyClient interface {
 	ReverseProxyHandler(ctx *fasthttp.RequestCtx) error
 	Stat() types.ProxyStat
+	PendingRequests() int
 }
 
 // Hop-by-hop headers. These are removed when sent to the backend.
@@ -55,8 +56,7 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 	res := &ctx.Response
 	clientIP := helper.S2b(ctx.RemoteIP().String())
 
-	h.preReq(req, clientIP, ctx.Host())
-
+	h.preReq(req, clientIP)
 	if err := h.proxy.Do(req, res); err != nil {
 		h.serverError(res, err.Error())
 		return err
@@ -67,7 +67,7 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 	return nil
 }
 
-func (h *ProxyClient) preReq(req *fasthttp.Request, clientIP []byte, host []byte) {
+func (h *ProxyClient) preReq(req *fasthttp.Request, clientIP []byte) {
 	for _, h := range hopHeaders {
 		req.Header.DelBytes(h)
 	}
@@ -124,6 +124,10 @@ func (h *ProxyClient) Stat() types.ProxyStat {
 		LastUseTime:   h.proxy.LastUseTime(),
 		ConnsCount:    h.proxy.ConnsCount(),
 	}
+}
+
+func (h *ProxyClient) PendingRequests() int {
+	return h.proxy.PendingRequests()
 }
 
 func NewProxyClient(backend config.Backend, customHeaders map[string]string) IProxyClient {

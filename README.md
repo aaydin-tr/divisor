@@ -26,7 +26,7 @@
 </details>
 
 ## About The Project
-This project is designed to provide a fast and easy-to-configure load balancer in Go language. It currently includes **round-robin**, **weighted round-robin**, **ip-hash** and **random** algorithms, but we have more to add to our [TODO](#todo) list.
+This project is designed to provide a fast and easy-to-configure load balancer in Go language. It currently includes **round-robin**, **weighted round-robin**, **least-connection**, **ip-hash** and **random** algorithms, but we have more to add to our [TODO](#todo) list.
 
 The project is developed using the [fasthttp](https://github.com/valyala/fasthttp) library, which ensures high performance. Its purpose is to distribute the load evenly among multiple servers by routing incoming requests.
 
@@ -37,7 +37,7 @@ This project is particularly suitable for large-scale applications and websites.
 
 ## Features
 - Fast and easy-to-configure load balancer.
-- Supports round-robin, weighted round-robin, IP hash, and random algorithms.
+- Supports round-robin, weighted round-robin, least-connection, IP hash, and random algorithms.
 - Uses the fasthttp library for high performance and scalability.
 - Offers multiple configuration options to suit user needs.
 - Can handle large-scale applications and websites.
@@ -105,9 +105,9 @@ Please see [example config files](https://github.com/aaydin-tr/divisor/tree/main
 ## Limitations
 While Divisor has several features and benefits, it also has some limitations to be aware of:
 
-- Divisor version of the project only includes four load balancing algorithms: round-robin, weighted round-robin, IP-hash, and random. Other algorithms may be added in future releases.
-- Divisor currently operates at layer 7, meaning it is specifically designed for HTTP/HTTPS load balancing. It does not support other protocols, such as TCP or UDP.
+- Divisor currently operates at layer 7, meaning it is specifically designed for HTTP load balancing. It does not support other protocols, such as TCP or UDP.
 - Divisor does not support HTTP/2 or HTTP/3, which may be important for some applications.
+- Divisor does not support TLS in both frontend and backend.
 
 Please keep these limitations in mind when considering whether this load balancer is the right choice for your project.
 
@@ -118,10 +118,11 @@ Please see [benchmark folder](https://github.com/aaydin-tr/divisor/tree/main/ben
 While Divisor has several features, there are also some areas for improvement that are planned for future releases:
 
 - [ ] Add support for other protocols, such as TCP or UDP.
+- [ ] Add TLS support for frontend.
 - [ ] Support HTTP/2 and HTTP/3 protocols.
 - [ ] Add more load balancing algorithms, such as,
+  - [x] least connection
   - [ ] sticky round-robin
-  - [ ] least connection
 - [ ] Improve performance and scalability for high-traffic applications.
 - [ ] Expand monitoring capabilities to provide more detailed metrics and analytics.
 

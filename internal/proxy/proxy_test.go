@@ -15,6 +15,8 @@ import (
 )
 
 type mockServer struct {
+	done  chan struct{}
+	ready chan struct{}
 }
 
 func (m *mockServer) ServeHTTP(res http.ResponseWriter, req *http.Request) {
@@ -27,6 +29,10 @@ func (m *mockServer) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 				res.Header().Add(string(h), string(h))
 			}
 		}
+	}
+	if _, ok := req.Header["Pending"]; ok {
+		m.ready <- struct{}{}
+		<-m.done
 	}
 
 	res.WriteHeader(200)
@@ -161,4 +167,31 @@ func TestReverseProxyHandler(t *testing.T) {
 		assert.Equal(t, "1", string(ctx.Request.Header.Peek("X-Incremental")))
 		assert.GreaterOrEqual(t, time.Now().Local().Format("2006-01-02T15:04:05.000Z"), string(ctx.Request.Header.Peek("X-Time")))
 	})
+}
+
+func TestPendingRequests(t *testing.T) {
+
+	customHeaders := make(map[string]string)
+	handler := mockServer{done: make(chan struct{}), ready: make(chan struct{})}
+	bServer := httptest.NewServer(&handler)
+	defer bServer.Close()
+	backend.Url = protocolRegex.ReplaceAllString(bServer.URL, "")
+	p := NewProxyClient(backend, customHeaders).(*ProxyClient)
+
+	assert.Equal(t, 0, p.PendingRequests())
+	concurrency := 10
+	ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+	ctx.Request.Header.Add("Pending", "true")
+	for i := 0; i < 10; i++ {
+		go p.ReverseProxyHandler(&ctx)
+	}
+
+	for i := 0; i < concurrency; i++ {
+		select {
+		case <-handler.ready:
+		}
+	}
+
+	close(handler.done)
+	assert.Equal(t, concurrency, p.PendingRequests())
 }

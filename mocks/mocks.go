@@ -10,8 +10,9 @@ import (
 )
 
 type MockProxy struct {
-	Addr     string
-	IsCalled bool
+	Addr            string
+	IsCalled        bool
+	pendingRequests int
 }
 
 func (m *MockProxy) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
@@ -23,6 +24,13 @@ func (m *MockProxy) Stat() types.ProxyStat {
 	return types.ProxyStat{
 		Addr: m.Addr,
 	}
+}
+
+func (m *MockProxy) PendingRequests() int {
+	if m.Addr == "localhost:8080" {
+		return 1
+	}
+	return 0
 }
 
 func CreateNewMockProxy(b config.Backend, h map[string]string) proxy.IProxyClient {
@@ -124,6 +132,31 @@ var TestCases = []testCaseStruct{
 			},
 		},
 		ExpectedServerCount: 0,
+		ProxyFunc:           CreateNewMockProxy,
+	},
+	{
+		Config: config.Config{
+			Host: "localhost",
+			Port: "8000",
+			Backends: []config.Backend{
+				{
+					Url:    "localhost:7070",
+					Weight: 1,
+				},
+				{
+					Url:    "localhost:80",
+					Weight: 1,
+				},
+			},
+			HealthCheckerTime: time.Second * 5,
+			HealthCheckerFunc: func(string) bool {
+				return true
+			},
+			HashFunc: func(b []byte) uint32 {
+				return uint32(len(b))
+			},
+		},
+		ExpectedServerCount: 2,
 		ProxyFunc:           CreateNewMockProxy,
 	},
 }

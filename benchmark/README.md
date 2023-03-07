@@ -162,6 +162,47 @@ Statistics        Avg      Stdev        Max
 | localhost:5050 | 0           | 0  |
 
 
+
+### Least-connection
+
+##### Config 
+```yaml
+type: least-connection
+port: 8000
+backends:
+  - url: localhost:8080
+  - url: localhost:7070
+  - url: localhost:6060
+  - url: localhost:5050
+```
+
+##### Result
+```bash
+bombardier -c 512 -t 10s --header="Least:true" "http://localhost:8000"
+
+Bombarding http://localhost:8000/stats for 10s using 512 connection(s)
+[=================================================================================================================] 10s
+Done!
+Statistics        Avg      Stdev        Max
+  Reqs/sec     39916.85    5426.21   50521.53
+  Latency       12.81ms    19.29ms      1.39s
+  HTTP codes:
+    1xx - 0, 2xx - 400038, 3xx - 0, 4xx - 0, 5xx - 0
+    others - 0
+  Throughput:    16.11MB/s
+```
+
+> :warning: `localhost:8080` wait 75 milliseconds, `localhost:5050` wait 25 milliseconds before return response.
+
+##### Server stats
+| addr            | total_req_count | avg_res_time(ms) |
+| ---------------| ---------------| ------------ |
+| localhost:8080 | 14489          | 81.94609703913314 |
+| localhost:7070 | 174030           | 5.924340630925703  |
+| localhost:6060 | 175242           | 5.872507732164664  |
+| localhost:5050 | 36277           | 31.916696529481488  |
+
+
 ## Conclusion
 
 Based on the results of the load tests, we conclude that our load balancer is performing well under the given test scenarios. However, we recommend conducting additional load tests to further validate its performance under different conditions.

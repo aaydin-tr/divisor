@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"sync/atomic"
+	"time"
 
 	"github.com/valyala/fasthttp"
 )
@@ -26,18 +27,28 @@ func main() {
 }
 
 func requestHandler(ctx *fasthttp.RequestCtx) {
-	atomic.AddUint32(&reqCount, 1)
 	headers := make(map[string]string)
+	hostName := os.Getenv("hostname")
 	ctx.Request.Header.VisitAll(func(key, value []byte) {
 		headers[string(key)] = string(value)
 	})
+
+	if _, ok := headers["Least"]; ok {
+		if hostName == "service-one" {
+			time.Sleep(time.Millisecond * 75)
+		} else if hostName == "service-four" {
+			time.Sleep(time.Millisecond * 25)
+		}
+	}
+
 	res := response{
-		Message:    fmt.Sprintf("This is a JSON response From %s counter %d", os.Getenv("hostname"), atomic.LoadUint32(&reqCount)),
-		Hostname:   os.Getenv("hostname"),
+		Message:    fmt.Sprintf("This is a JSON response From %s counter %d", hostName, atomic.LoadUint32(&reqCount)),
+		Hostname:   hostName,
 		ReqCounter: atomic.LoadUint32(&reqCount),
 		Headers:    headers,
 	}
 	ctx.SetContentType("application/json")
 	b, _ := json.Marshal(res)
 	ctx.SetBody(b)
+	atomic.AddUint32(&reqCount, 1)
 }
