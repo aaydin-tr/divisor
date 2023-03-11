@@ -38,6 +38,7 @@ This project is particularly suitable for large-scale applications and websites.
 ## Features
 - Fast and easy-to-configure load balancer.
 - Supports round-robin, weighted round-robin, least-connection, IP hash, and random algorithms.
+- Supports TLS and HTTP/2 for frontend server.
 - Uses the fasthttp library for high performance and scalability.
 - Offers multiple configuration options to suit user needs.
 - Can handle large-scale applications and websites.
