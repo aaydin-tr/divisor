@@ -2,6 +2,7 @@ package helper
 
 import (
 	"errors"
+	"fmt"
 	"hash/crc32"
 	"os"
 	"reflect"
@@ -93,5 +94,16 @@ func CreateLogDirIfNotExist(logDir string) error {
 		}
 	}
 
+	return nil
+}
+
+func IsFileExist(file string) error {
+	info, err := os.Stat(file)
+	if err != nil {
+		return errors.New(fmt.Sprintf("%s file does not exist", file))
+	}
+	if info.IsDir() {
+		return errors.New("Provided a dir not file")
+	}
 	return nil
 }

@@ -38,6 +38,7 @@ var hopHeaders = [][]byte{
 	[]byte("Upgrade"),
 }
 var XForwardedFor = []byte("X-Forwarded-For")
+var httpB = []byte("http")
 
 type ProxyClient struct {
 	proxy             *fasthttp.HostClient
@@ -72,6 +73,7 @@ func (h *ProxyClient) preReq(req *fasthttp.Request, clientIP []byte) {
 		req.Header.DelBytes(h)
 	}
 
+	req.URI().SetSchemeBytes(httpB)
 	req.SetHostBytes(h.addrB)
 	req.Header.SetBytesKV(XForwardedFor, clientIP)
 	h.setCustomHeaders(req, clientIP)

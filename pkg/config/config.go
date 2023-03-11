@@ -10,19 +10,27 @@ import (
 	"github.com/aaydin-tr/divisor/core/types"
 	"github.com/aaydin-tr/divisor/pkg/helper"
 	"github.com/aaydin-tr/divisor/pkg/http"
+	"github.com/valyala/fasthttp"
 	"gopkg.in/yaml.v3"
 )
 
 var ValidTypes = []string{"round-robin", "w-round-robin", "ip-hash", "random", "least-connection"}
 var ValidCustomHeaders = []string{"$remote_addr", "$time", "$uuid", "$incremental"}
 
-const DefaultMaxConnection = 512
-const DefaultMaxConnWaitTimeout = time.Second * 30
-const DefaultMaxConnDuration = time.Second * 10
-const DefaultMaxIdleConnDuration = time.Second * 10
-const DefaultMaxIdemponentCallAttempts = 5
+const (
+	DefaultMaxConnection             = 512
+	DefaultMaxConnWaitTimeout        = time.Second * 30
+	DefaultMaxConnDuration           = time.Second * 10
+	DefaultMaxIdleConnDuration       = time.Second * 10
+	DefaultMaxIdemponentCallAttempts = 5
 
-const DefaultHealtCheckerTime = time.Second * 30
+	DefaultHealtCheckerTime = time.Second * 30
+
+	Http1 = "http1.1"
+	Http2 = "http2"
+
+	DefaultMaxIdleWorkerDuration = 10 * time.Second
+)
 
 var protocolRegex = regexp.MustCompile(`(^https?://)`)
 
@@ -30,11 +38,11 @@ type Backend struct {
 	Url                       string        `yaml:"url"`
 	HealthCheckPath           string        `yaml:"health_check_path"`
 	Weight                    uint          `yaml:"weight,omitempty"`
-	MaxConnection             int           `yaml:"max_conn,omitempty"`
-	MaxConnWaitTimeout        time.Duration `yaml:"max_conn_timeout,omitempty"`
-	MaxConnDuration           time.Duration `yaml:"max_conn_duration,omitempty"`
-	MaxIdleConnDuration       time.Duration `yaml:"max_idle_conn_duration,omitempty"`
-	MaxIdemponentCallAttempts int           `yaml:"max_idemponent_call_attempts,omitempty"`
+	MaxConnection             int           `yaml:"max_conn"`
+	MaxConnWaitTimeout        time.Duration `yaml:"max_conn_timeout"`
+	MaxConnDuration           time.Duration `yaml:"max_conn_duration"`
+	MaxIdleConnDuration       time.Duration `yaml:"max_idle_conn_duration"`
+	MaxIdemponentCallAttempts int           `yaml:"max_idemponent_call_attempts"`
 }
 
 func (b *Backend) GetHealthCheckURL() string {
@@ -42,8 +50,22 @@ func (b *Backend) GetHealthCheckURL() string {
 }
 
 type Monitoring struct {
-	Host string `yaml:"host,omitempty"`
-	Port string `yaml:"port,omitempty"`
+	Host string `yaml:"host"`
+	Port string `yaml:"port"`
+}
+
+type Server struct {
+	HttpVersion                   string        `yaml:"http_version"`
+	CertFile                      string        `yaml:"cert_file"`
+	KeyFile                       string        `yaml:"key_file"`
+	MaxIdleWorkerDuration         time.Duration `yaml:"max_idle_worker_duration"`
+	TCPKeepalivePeriod            time.Duration `yaml:"tcp_keepalive_period"`
+	Concurrency                   int           `yaml:"concurrency"`
+	ReadTimeout                   time.Duration `yaml:"read_timeout"`
+	WriteTimeout                  time.Duration `yaml:"write_timeout"`
+	IdleTimeout                   time.Duration `yaml:"idle_timeout"`
+	DisableKeepalive              bool          `yaml:"disable_keepalive"`
+	DisableHeaderNamesNormalizing bool          `yaml:"disable_header_names_normalizing"`
 }
 
 type Config struct {
@@ -55,6 +77,7 @@ type Config struct {
 	Host              string        `yaml:"host"`
 	Port              string        `yaml:"port"`
 	Backends          []Backend     `yaml:"backends"`
+	Server            Server        `yaml:"server"`
 	HealthCheckerTime time.Duration `yaml:"health_checker_time"`
 }
 
@@ -130,6 +153,11 @@ func (c *Config) PrepareConfig() error {
 	c.HashFunc = helper.HashFunc
 	c.HealthCheckerFunc = http.NewHttpClient().IsHostAlive
 
+	err := c.Server.prepareServer()
+	if err != nil {
+		return err
+	}
+
 	return c.prepareBackends()
 }
 
@@ -165,6 +193,34 @@ func (c *Config) prepareBackends() error {
 		if b.MaxIdemponentCallAttempts <= 0 {
 			b.MaxIdemponentCallAttempts = DefaultMaxIdemponentCallAttempts
 		}
+	}
+
+	return nil
+}
+
+func (s *Server) prepareServer() error {
+	if s.HttpVersion == "" || s.HttpVersion != Http2 {
+		s.HttpVersion = Http1
+	}
+
+	if s.HttpVersion == Http2 && (s.CertFile == "" || s.KeyFile == "") {
+		return errors.New("The HTTP/2 connection can be only established if the server is using TLS. Please provide cert and key file")
+	}
+
+	if err := helper.IsFileExist(s.CertFile); err != nil && s.CertFile != "" {
+		return err
+	}
+
+	if err := helper.IsFileExist(s.KeyFile); err != nil && s.KeyFile != "" {
+		return err
+	}
+
+	if s.MaxIdleWorkerDuration == 0 {
+		s.MaxIdleWorkerDuration = DefaultMaxIdleWorkerDuration
+	}
+
+	if s.Concurrency == 0 {
+		s.Concurrency = fasthttp.DefaultConcurrency
 	}
 
 	return nil

@@ -88,26 +88,39 @@ You need a `config.yaml` file to use Divisor, you can give this file to Divisor 
 | backends | List of backends with their configurations | array |  |
 | backends.url | Backend URL | string |  |
 | backends.health_check_path | Health check path for backends | string | / |
-| backends.weight | Only mandatory for w-round-robin algorithm | int | 1 |
+| backends.weight | Only mandatory for w-round-robin algorithm | int |  |
 | backends.max_conn | Maximum number of connections which may be established to host listed in Addr | int | 512 |
 | backends.max_conn_timeout | Maximum duration for waiting for a free connection | time.Duration | 30s |
 | backends.max_conn_duration | Keep-alive connections are closed after this duration | time.Duration | 10s |
 | backends.max_idle_conn_duration | Idle keep-alive connections are closed after this duration | time.Duration | 10s |
 | backends.max_idemponent_call_attempts | Maximum number of attempts for idempotent calls | int | 5 |
-| monitoring | Monitoring server configurations | map |  |
+| monitoring | Monitoring server configurations | object |  |
 | monitoring.port | Monitoring server port | int | 8001 |
 | monitoring.host | Monitoring server host | string | localhost |
-| custom_headers | Custom headers will be set on request sent to backend | map |  |
+| custom_headers | Custom headers will be set on request sent to backend | object |  |
 | custom_headers.header-name | Valid values are `$remote_addr`, `$time`, `$incremental`, `$uuid`, Header name can be whatever you want as long as it's a string | string |  |
+| server | Server configurations | object | |
+| server.http_version | Http version for frontend server, http1 and http2 is supported (http1 mean HTTP/1.1) | string | http1 |
+| server.cert_file | TLS cert file | string |  |
+| server.key_file | TLS key file | string |  |
+| server.max_idle_worker_duration | MaxIdleWorkerDuration is the maximum idle time of a single worker in the underlying worker pool of the Server | time.Duration | 10s |
+| server.tcp_keepalive_period | Period between tcp keep-alive messages. TCP keep-alive period is determined by operation system by default | time.Duration |  |
+| server.concurrency | The maximum number of concurrent connections the server may serve | int | 262144 |
+| server.read_timeout | ReadTimeout is the amount of time allowed to read the full request including body | time.Duration | unlimited |
+| server.write_timeout | WriteTimeout is the maximum duration before timing out writes of the response | time.Duration | unlimited |
+| server.idle_timeout | IdleTimeout is the maximum amount of time to wait for the next request when keep-alive is enabled | time.Duration | unlimited |
+| server.disable_keepalive | The server will close all the incoming connections after sending the first response to client if this option is set to true | bool | false |
+| server.disable_header_names_normalizing | Header names are passed as-is without normalization if this option is set true | bool | false |
+
 
 Please see [example config files](https://github.com/aaydin-tr/divisor/tree/main/examples)
 
 ## Limitations
 While Divisor has several features and benefits, it also has some limitations to be aware of:
 
-- Divisor currently operates at layer 7, meaning it is specifically designed for HTTP load balancing. It does not support other protocols, such as TCP or UDP.
-- Divisor does not support HTTP/2 or HTTP/3, which may be important for some applications.
-- Divisor does not support TLS in both frontend and backend.
+- Divisor currently operates at layer 7, meaning it is specifically designed for HTTP(S) load balancing. It does not support other protocols, such as TCP or UDP.
+- Divisor does not support HTTP/3, which may be important for some applications.
+- Divisor does not support HTTPS for backend servers. HTTPS only available for frontend server.
 
 Please keep these limitations in mind when considering whether this load balancer is the right choice for your project.
 
@@ -118,8 +131,8 @@ Please see [benchmark folder](https://github.com/aaydin-tr/divisor/tree/main/ben
 While Divisor has several features, there are also some areas for improvement that are planned for future releases:
 
 - [ ] Add support for other protocols, such as TCP or UDP.
-- [ ] Add TLS support for frontend.
-- [ ] Support HTTP/2 and HTTP/3 protocols.
+- [x] Add TLS support for frontend.
+- [x] Support HTTP/2 in frontend server.
 - [ ] Add more load balancing algorithms, such as,
   - [x] least connection
   - [ ] sticky round-robin

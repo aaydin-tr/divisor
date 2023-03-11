@@ -167,6 +167,12 @@ func TestReverseProxyHandler(t *testing.T) {
 		assert.Equal(t, "1", string(ctx.Request.Header.Peek("X-Incremental")))
 		assert.GreaterOrEqual(t, time.Now().Local().Format("2006-01-02T15:04:05.000Z"), string(ctx.Request.Header.Peek("X-Time")))
 	})
+
+	t.Run("default http", func(t *testing.T) {
+		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+		p.ReverseProxyHandler(&ctx)
+		assert.Equal(t, "http", string(ctx.Request.URI().Scheme()))
+	})
 }
 
 func TestPendingRequests(t *testing.T) {
