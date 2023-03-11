@@ -42,7 +42,6 @@ This project is particularly suitable for large-scale applications and websites.
 - Uses the fasthttp library for high performance and scalability.
 - Offers multiple configuration options to suit user needs.
 - Can handle large-scale applications and websites.
-- Provides a simple and intuitive API for ease of use.
 - Includes a built-in monitoring system that displays real-time information on the system's CPU usage, RAM usage, number of Goroutines, and open connections.
 - Provides information on each server's average response time, total request count, and last time used.
 - Lightweight and efficient implementation for minimal resource usage.
