@@ -45,13 +45,13 @@ func main() {
 		zap.S().Error(err)
 		return
 	}
-	zap.S().Info("Config file parse successfully")
+	zap.S().Info("Config file parsed successfully")
 
 	zap.S().Info("Proxies are being prepared.")
 	proxies := balancer.NewBalancer(config, proxy.NewProxyClient)
 
 	if proxies == nil {
-		zap.S().Error("No avaible serves")
+		zap.S().Error("No available servers")
 		return
 	}
 	zap.S().Infof("All proxies are ready, divisor will use `%s` algorithm healt checker func will triger every %v", config.Type, config.HealthCheckerTime)
