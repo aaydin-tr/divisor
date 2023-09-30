@@ -1,9 +1,10 @@
 package random
 
 import (
-	"math/rand"
 	"strconv"
 	"time"
+
+	_ "unsafe"
 
 	types "github.com/aaydin-tr/divisor/core/types"
 	"github.com/aaydin-tr/divisor/internal/proxy"
@@ -25,7 +26,7 @@ type Random struct {
 	hashFunc          types.HashFunc
 	stopHealthChecker chan bool
 	servers           []proxy.IProxyClient
-	len               int
+	len               uint32
 	healthCheckerTime time.Duration
 }
 
@@ -65,8 +66,11 @@ func (r *Random) Serve() func(ctx *fasthttp.RequestCtx) {
 	}
 }
 
+//go:linkname fastrandn runtime.fastrandn
+func fastrandn(n uint32) uint32
+
 func (r *Random) next() proxy.IProxyClient {
-	return r.servers[rand.Intn(r.len)]
+	return r.servers[fastrandn(r.len)]
 }
 
 func (r *Random) healthChecker(backends []config.Backend) {
