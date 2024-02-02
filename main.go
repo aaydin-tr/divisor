@@ -11,7 +11,7 @@ import (
 	cfg "github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/aaydin-tr/divisor/pkg/helper"
 	"github.com/aaydin-tr/divisor/pkg/logger"
-	http2 "github.com/diamondcdn/fasthttp-http2"
+	"github.com/aaydin-tr/http2"
 	"github.com/valyala/fasthttp"
 	"go.uber.org/zap"
 )
