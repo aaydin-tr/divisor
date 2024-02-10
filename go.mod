@@ -1,6 +1,6 @@
 module github.com/aaydin-tr/divisor
 
-go 1.20
+go 1.22
 
 require (
 	github.com/aaydin-tr/http2 v0.1.0
