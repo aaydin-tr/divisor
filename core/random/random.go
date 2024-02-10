@@ -1,10 +1,9 @@
 package random
 
 import (
+	rand "math/rand/v2"
 	"strconv"
 	"time"
-
-	_ "unsafe"
 
 	types "github.com/aaydin-tr/divisor/core/types"
 	"github.com/aaydin-tr/divisor/internal/proxy"
@@ -66,11 +65,8 @@ func (r *Random) Serve() func(ctx *fasthttp.RequestCtx) {
 	}
 }
 
-//go:linkname fastrandn runtime.fastrandn
-func fastrandn(n uint32) uint32
-
 func (r *Random) next() proxy.IProxyClient {
-	return r.servers[fastrandn(r.len)]
+	return r.servers[rand.Uint32N(r.len)]
 }
 
 func (r *Random) healthChecker(backends []config.Backend) {
