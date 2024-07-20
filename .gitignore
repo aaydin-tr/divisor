@@ -17,3 +17,6 @@
 config.yaml
 .vscode/
 dist/
+*.crt
+*.key
+*.csr
