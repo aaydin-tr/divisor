@@ -66,7 +66,7 @@ func main() {
 		IdleTimeout:                   config.Server.IdleTimeout,
 		DisableKeepalive:              config.Server.DisableKeepalive,
 		DisableHeaderNamesNormalizing: config.Server.DisableHeaderNamesNormalizing,
-		NoDefaultServerHeader:         true,
+		Name:                          "divisor",
 	}
 
 	go monitoring.StartMonitoringServer(&server, proxies, config.GetMonitoringAddr())
@@ -81,11 +81,16 @@ func main() {
 		http2.ConfigureServer(&server, http2.ServerConfig{})
 	}
 
+	zap.S().Infof("Divisor server is running on %s", config.GetURL())
 	if config.Server.CertFile != "" && config.Server.KeyFile != "" {
-		zap.S().Infof("divisor server started successfully -> https://%s", config.GetAddr())
-		server.ServeTLS(ln, config.Server.CertFile, config.Server.KeyFile)
+		if err := server.ServeTLS(ln, config.Server.CertFile, config.Server.KeyFile); err != nil {
+			zap.S().Errorf("Error while starting divisor server %s", err)
+			return
+		}
 	}
 
-	zap.S().Infof("divisor server started successfully -> http://%s", config.GetAddr())
-	server.Serve(ln)
+	if err := server.Serve(ln); err != nil {
+		zap.S().Errorf("Error while starting divisor server %s", err)
+		return
+	}
 }

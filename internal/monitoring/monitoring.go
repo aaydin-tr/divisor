@@ -122,8 +122,11 @@ func StartMonitoringServer(server *fasthttp.Server, proxies types.IBalancer, add
 		return
 	}
 
-	zap.S().Infof("Monitoring server started successfully -> http://%s", addr)
-	monitoringServer.Serve(ln)
+	zap.S().Infof("Monitoring server is running on http://%s", addr)
+	if err := monitoringServer.Serve(ln); err != nil {
+		zap.S().Errorf("Error while starting monitoring server %s", err)
+		return
+	}
 }
 
 func ByteToMB(b uint64) uint64 {

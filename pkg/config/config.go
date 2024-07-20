@@ -89,6 +89,14 @@ func (c *Config) GetMonitoringAddr() string {
 	return c.Monitoring.Host + ":" + c.Monitoring.Port
 }
 
+func (c *Config) GetURL() string {
+	schema := "http"
+	if c.Server.KeyFile != "" && c.Server.CertFile != "" {
+		schema = "https"
+	}
+	return schema + "://" + c.Host + ":" + c.Port
+}
+
 func ParseConfigFile(path string) (*Config, error) {
 	configFile, err := os.ReadFile(path)
 	if err != nil {
