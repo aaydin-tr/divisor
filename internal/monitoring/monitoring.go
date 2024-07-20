@@ -38,7 +38,7 @@ type MemStats struct {
 var once sync.Once
 var pid int
 
-func healthChecker(server *fasthttp.Server, proxiesStats []types.ProxyStat) Monitoring {
+func getServerStats(server *fasthttp.Server, proxiesStats []types.ProxyStat) Monitoring {
 	once.Do(func() {
 		pid = os.Getpid()
 	})
@@ -96,7 +96,7 @@ func StartMonitoringServer(server *fasthttp.Server, proxies types.IBalancer, add
 			} else if path == "/stats" && method == "GET" {
 				ctx.Response.Header.Set("Content-Type", "application/json")
 
-				m := healthChecker(server, proxies.Stats())
+				m := getServerStats(server, proxies.Stats())
 				by, err := json.Marshal(m)
 				if err != nil {
 					zap.S().Errorf("Error while parsing json, err: %v", err)
