@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"sync/atomic"
 	"time"
@@ -21,7 +22,17 @@ type response struct {
 }
 
 func main() {
-	if err := fasthttp.ListenAndServe(":8080", requestHandler); err != nil {
+	server := &fasthttp.Server{
+		Handler:               requestHandler,
+		NoDefaultServerHeader: true,
+	}
+
+	ln, err := net.Listen("tcp", ":8080")
+	if err != nil {
+		log.Fatalf("Error in Listen: %v", err)
+	}
+
+	if err := server.Serve(ln); err != nil {
 		log.Fatalf("Error in ListenAndServe: %v", err)
 	}
 }
