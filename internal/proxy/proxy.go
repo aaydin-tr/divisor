@@ -19,6 +19,7 @@ type IProxyClient interface {
 	ReverseProxyHandler(ctx *fasthttp.RequestCtx) error
 	Stat() types.ProxyStat
 	PendingRequests() int
+	AvgResponseTime() float64
 }
 
 // Hop-by-hop headers. These are removed when sent to the backend.
@@ -113,15 +114,10 @@ func (h *ProxyClient) setCustomHeaders(req *fasthttp.Request, clientIP []byte) {
 
 func (h *ProxyClient) Stat() types.ProxyStat {
 	rc := atomic.LoadUint64(h.totalRequestCount)
-	rt := atomic.LoadUint64(h.totalResTime)
-	avg := float64(0)
-	if rc != 0 && rt != 0 {
-		avg = float64(rt) / float64(rc)
-	}
 
 	return types.ProxyStat{
 		TotalReqCount: rc,
-		AvgResTime:    avg,
+		AvgResTime:    h.AvgResponseTime(),
 		Addr:          h.Addr,
 		LastUseTime:   h.proxy.LastUseTime(),
 		ConnsCount:    h.proxy.ConnsCount(),
@@ -130,6 +126,16 @@ func (h *ProxyClient) Stat() types.ProxyStat {
 
 func (h *ProxyClient) PendingRequests() int {
 	return h.proxy.PendingRequests()
+}
+
+func (h *ProxyClient) AvgResponseTime() float64 {
+	rc := atomic.LoadUint64(h.totalRequestCount)
+	rt := atomic.LoadUint64(h.totalResTime)
+	if rc == 0 || rt == 0 {
+		return 0
+	}
+
+	return float64(rt) / float64(rc)
 }
 
 func NewProxyClient(backend config.Backend, customHeaders map[string]string) IProxyClient {
