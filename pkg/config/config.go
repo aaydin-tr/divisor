@@ -14,7 +14,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var ValidTypes = []string{"round-robin", "w-round-robin", "ip-hash", "random", "least-connection"}
+var ValidTypes = []string{"round-robin", "w-round-robin", "ip-hash", "random", "least-connection", "least-response-time"}
 var ValidCustomHeaders = []string{"$remote_addr", "$time", "$uuid", "$incremental"}
 
 const (
