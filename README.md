@@ -26,7 +26,7 @@
 </details>
 
 ## About The Project
-This project is designed to provide a fast and easy-to-configure load balancer in Go language. It currently includes **round-robin**, **weighted round-robin**, **least-connection**, **ip-hash** and **random** algorithms, but we have more to add to our [TODO](#todo) list.
+This project is designed to provide a fast and easy-to-configure load balancer in Go language. It currently includes **round-robin**, **weighted round-robin**, **least-connection**, **least-response-time**, **ip-hash** and **random** algorithms, but we have more to add to our [TODO](#todo) list.
 
 The project is developed using the [fasthttp](https://github.com/valyala/fasthttp) library, which ensures high performance. Its purpose is to distribute the load evenly among multiple servers by routing incoming requests.
 
@@ -37,7 +37,7 @@ This project is particularly suitable for large-scale applications and websites.
 
 ## Features
 - Fast and easy-to-configure load balancer.
-- Supports round-robin, weighted round-robin, least-connection, IP hash, and random algorithms.
+- Supports round-robin, weighted round-robin, least-connection, least-response-time, IP hash, and random algorithms.
 - Supports TLS and HTTP/2 for frontend server.
 - Uses the fasthttp library for high performance and scalability.
 - Offers multiple configuration options to suit user needs.
@@ -135,6 +135,7 @@ While Divisor has several features, there are also some areas for improvement th
 - [x] Support HTTP/2 in frontend server.
 - [ ] Add more load balancing algorithms, such as,
   - [x] least connection
+  - [x] least-response-time
   - [ ] sticky round-robin
 - [ ] Improve performance and scalability for high-traffic applications.
 - [ ] Expand monitoring capabilities to provide more detailed metrics and analytics.
