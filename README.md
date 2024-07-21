@@ -26,19 +26,19 @@
 </details>
 
 ## About The Project
-This project is designed to provide a fast and easy-to-configure load balancer in Go language. It currently includes **round-robin**, **weighted round-robin**, **least-connection**, **ip-hash** and **random** algorithms, but we have more to add to our [TODO](#todo) list.
+This project is designed to provide a fast and easy-to-configure load balancer in Go language. It currently includes **round-robin**, **weighted round-robin**, **least-connection**, **least-response-time**, **ip-hash** and **random** algorithms, but we have more to add to our [TODO](#todo) list.
 
 The project is developed using the [fasthttp](https://github.com/valyala/fasthttp) library, which ensures high performance. Its purpose is to distribute the load evenly among multiple servers by routing incoming requests.
 
-The project aims to simplify the configuration process for users while performing the essential functions of load balancers. Therefore, it offers several configuration options that can be adjusted to meet the user's needs.
+The project aims to simplify the configuration process for users while performing the essential functions of load balancers. Therefore, it offers several configuration options that can be adjusted to meet the users needs.
 
 This project is particularly suitable for large-scale applications and websites. It can be used for any application that requires a load balancer, thanks to its high performance, ease of configuration, and support for different algorithms.
 
 
 ## Features
 - Fast and easy-to-configure load balancer.
-- Supports round-robin, weighted round-robin, least-connection, IP hash, and random algorithms.
-- Supports TLS and HTTP/2 for frontend server.
+- Supports round-robin, weighted round-robin, least-connection, least-response-time, IP hash, and random algorithms.
+- Supports TLS and HTTP/2 for the frontend server.
 - Uses the fasthttp library for high performance and scalability.
 - Offers multiple configuration options to suit user needs.
 - Can handle large-scale applications and websites.
@@ -49,7 +49,7 @@ This project is particularly suitable for large-scale applications and websites.
 ## Installation
 
 #### Downloading the Release
-The latest release of Divisor can be downloaded from the [releases](https://github.com/aaydin-tr/divisor/releases) page. Choose the appropriate binary for your system, download and extract the archive, and then move the binary to a directory in your system's $PATH variable (e.g. /usr/local/bin).
+The latest release of Divisor can be downloaded from the [releases](https://github.com/aaydin-tr/divisor/releases) page. Choose the suitable binary for your system, download and extract the archive, and then move the binary to a directory in your system's $PATH variable (e.g. /usr/local/bin).
 
 #### Building from Source
 Alternatively, you can build Divisor from source by cloning this repository to your local machine and running the following commands:
@@ -62,7 +62,7 @@ go build -o divisor &&
 ```
 
 #### Using go install
-You can also install Divisor using the go install command:
+You can also install Divisor using the `go install` command:
 
 ```bash
 go install github.com/aaydin-tr/divisor@latest
@@ -98,7 +98,7 @@ You need a `config.yaml` file to use Divisor, you can give this file to Divisor 
 | monitoring.port | Monitoring server port | int | 8001 |
 | monitoring.host | Monitoring server host | string | localhost |
 | custom_headers | Custom headers will be set on request sent to backend | object |  |
-| custom_headers.header-name | Valid values are `$remote_addr`, `$time`, `$incremental`, `$uuid`, Header name can be whatever you want as long as it's a string | string |  |
+| custom_headers.header-name | Valid values are `$remote_addr`, `$time`, `$incremental`, `$uuid`, The Header name can be whatever you want as long as it's a string | string |  |
 | server | Server configurations | object | |
 | server.http_version | Http version for frontend server, http1 and http2 is supported (http1 mean HTTP/1.1) | string | http1 |
 | server.cert_file | TLS cert file | string |  |
@@ -125,7 +125,7 @@ While Divisor has several features and benefits, it also has some limitations to
 Please keep these limitations in mind when considering whether this load balancer is the right choice for your project.
 
 ## Benchmark
-Please see [benchmark folder](https://github.com/aaydin-tr/divisor/tree/main/benchmark) for detail explanation 
+Please see the [benchmark folder](https://github.com/aaydin-tr/divisor/tree/main/benchmark) for detail explanation 
 
 ## TODO
 While Divisor has several features, there are also some areas for improvement that are planned for future releases:
@@ -135,6 +135,7 @@ While Divisor has several features, there are also some areas for improvement th
 - [x] Support HTTP/2 in frontend server.
 - [ ] Add more load balancing algorithms, such as,
   - [x] least connection
+  - [x] least-response-time
   - [ ] sticky round-robin
 - [ ] Improve performance and scalability for high-traffic applications.
 - [ ] Expand monitoring capabilities to provide more detailed metrics and analytics.
