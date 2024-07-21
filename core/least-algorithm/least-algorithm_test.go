@@ -42,7 +42,6 @@ func TestNewLeastAlgorithmWithoutAlgorithmType(t *testing.T) {
 }
 
 func TestNext(t *testing.T) {
-
 	t.Run("least-connection", func(t *testing.T) {
 		t.Run("with zero pending requests", func(t *testing.T) {
 			caseFour := mocks.TestCases[4]
@@ -73,8 +72,36 @@ func TestNext(t *testing.T) {
 		})
 	})
 
-	// TODO least-response-time test
+	t.Run("least-response-time", func(t *testing.T) {
+		t.Run("with zero avg response time", func(t *testing.T) {
+			caseFive := mocks.TestCases[4]
+			caseFive.Config.Type = "least-response-time"
+			balancer := NewLeastAlgorithm(&caseFive.Config, caseFive.ProxyFunc)
+			assert.NotNil(t, balancer)
 
+			leastResponseTime := balancer.(*LeastAlgorithm)
+			proxy := leastResponseTime.nextFunc()
+
+			assert.IsType(t, &mocks.MockProxy{}, proxy)
+			mProxy := proxy.(*mocks.MockProxy)
+			assert.Equal(t, caseFive.Config.Backends[1].Url, mProxy.Addr)
+		})
+
+		t.Run("with non zero avg response time", func(t *testing.T) {
+			caseOne := mocks.TestCases[0]
+			caseOne.Config.Type = "least-response-time"
+			balancer := NewLeastAlgorithm(&caseOne.Config, caseOne.ProxyFunc)
+			assert.NotNil(t, balancer)
+
+			leastResponseTime := balancer.(*LeastAlgorithm)
+			proxy := leastResponseTime.nextFunc()
+
+			assert.IsType(t, &mocks.MockProxy{}, proxy)
+			mProxy := proxy.(*mocks.MockProxy)
+			assert.Equal(t, caseOne.Config.Backends[0].Url, mProxy.Addr)
+
+		})
+	})
 }
 
 func TestServe(t *testing.T) {

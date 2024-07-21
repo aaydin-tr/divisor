@@ -34,6 +34,9 @@ func (m *MockProxy) PendingRequests() int {
 }
 
 func (m *MockProxy) AvgResponseTime() float64 {
+	if m.Addr == "localhost:7070" {
+		return 1
+	}
 	return 0
 }
 
