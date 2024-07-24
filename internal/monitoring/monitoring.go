@@ -9,10 +9,13 @@ import (
 	"time"
 
 	"github.com/aaydin-tr/divisor/core/types"
+	"github.com/fasthttp/router"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/mem"
 	"github.com/shirou/gopsutil/process"
 	"github.com/valyala/fasthttp"
+	"github.com/valyala/fasthttp/fasthttpadaptor"
 	"go.uber.org/zap"
 )
 
@@ -83,33 +86,36 @@ func getServerStats(server *fasthttp.Server, proxiesStats []types.ProxyStat) Mon
 }
 
 func StartMonitoringServer(server *fasthttp.Server, proxies types.IBalancer, addr string) {
+	r := router.New()
+	init_prometheus()
+	go func() {
+		for {
+			updatePrometheusMetrics(getServerStats(server, proxies.Stats()))
+			time.Sleep(5 * time.Second)
+		}
+	}()
+
+	r.GET("/", func(ctx *fasthttp.RequestCtx) {
+		ctx.Response.Header.Set("Content-Type", "text/html")
+		ctx.Response.SetBodyString(index)
+	})
+
+	r.GET("/stats", func(ctx *fasthttp.RequestCtx) {
+		ctx.Response.Header.Set("Content-Type", "application/json")
+		m := getServerStats(server, proxies.Stats())
+		by, err := json.Marshal(m)
+		if err != nil {
+			zap.S().Errorf("Error while parsing json, err: %v", err)
+			return
+		}
+
+		ctx.Response.SetBodyRaw(by)
+	})
+
+	r.GET("/metrics", fasthttpadaptor.NewFastHTTPHandler(promhttp.Handler()))
+
 	monitoringServer := fasthttp.Server{
-		Handler: func(ctx *fasthttp.RequestCtx) {
-			path, method := string(ctx.Request.URI().Path()), string(ctx.Request.Header.Method())
-			ctx.Response.Header.Set("Access-Control-Allow-Credentials", "true")
-			ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
-
-			if path == "/" && method == "GET" {
-				ctx.Response.Header.Set("Content-Type", "text/html")
-				ctx.Response.SetBodyString(index)
-				return
-			} else if path == "/stats" && method == "GET" {
-				ctx.Response.Header.Set("Content-Type", "application/json")
-
-				m := getServerStats(server, proxies.Stats())
-				by, err := json.Marshal(m)
-				if err != nil {
-					zap.S().Errorf("Error while parsing json, err: %v", err)
-					return
-				}
-
-				ctx.Response.SetBodyRaw(by)
-				return
-			}
-
-			ctx.Response.SetStatusCode(fasthttp.StatusNotFound)
-
-		},
+		Handler:               r.Handler,
 		MaxIdleWorkerDuration: 15 * time.Second,
 		TCPKeepalivePeriod:    15 * time.Second,
 		TCPKeepalive:          true,
