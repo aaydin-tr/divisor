@@ -43,6 +43,7 @@ This project is particularly suitable for large-scale applications and websites.
 - Offers multiple configuration options to suit user needs.
 - Can handle large-scale applications and websites.
 - Includes a built-in monitoring system that displays real-time information on the system's CPU usage, RAM usage, number of Goroutines, and open connections.
+- Prometheus support for monitoring. (`http://monitoring-host:monitoring-port/metrics` can be used to get prometheus metrics)
 - Provides information on each server's average response time, total request count, and last time used.
 - Lightweight and efficient implementation for minimal resource usage.
 
@@ -138,7 +139,7 @@ While Divisor has several features, there are also some areas for improvement th
   - [x] least-response-time
   - [ ] sticky round-robin
 - [ ] Improve performance and scalability for high-traffic applications.
-- [ ] Expand monitoring capabilities to provide more detailed metrics and analytics.
+- [x] Expand monitoring capabilities to provide more detailed metrics and analytics.
 
 By addressing these issues and adding new features, we aim to make Divisor an even more versatile and powerful tool for managing traffic in modern web applications.
 
