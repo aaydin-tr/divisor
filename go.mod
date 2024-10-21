@@ -6,7 +6,7 @@ require (
 	github.com/aaydin-tr/http2 v0.1.0
 	github.com/fasthttp/router v1.5.2
 	github.com/google/uuid v1.6.0
-	github.com/prometheus/client_golang v1.20.4
+	github.com/prometheus/client_golang v1.20.5
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/stretchr/testify v1.9.0
 	github.com/valyala/fasthttp v1.56.0
