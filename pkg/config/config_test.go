@@ -81,11 +81,11 @@ func TestPrepareConfig(t *testing.T) {
 		assert.Equal(t, "round-robin", config.Type)
 	})
 
-	t.Run("default HealtCheckerTime", func(t *testing.T) {
+	t.Run("default HealthCheckerTime", func(t *testing.T) {
 		config := Config{Backends: []Backend{{}}, Type: "round-robin", Port: "8000", HealthCheckerTime: -1}
 		err := config.PrepareConfig()
 		assert.Nil(t, err)
-		assert.Equal(t, DefaultHealtCheckerTime, config.HealthCheckerTime)
+		assert.Equal(t, DefaultHealthCheckerTime, config.HealthCheckerTime)
 	})
 
 	t.Run("default monitoring host and port", func(t *testing.T) {
