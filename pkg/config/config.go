@@ -24,7 +24,7 @@ const (
 	DefaultMaxIdleConnDuration       = time.Second * 10
 	DefaultMaxIdemponentCallAttempts = 5
 
-	DefaultHealtCheckerTime = time.Second * 30
+	DefaultHealthCheckerTime = time.Second * 30
 
 	Http1 = "http1.1"
 	Http2 = "http2"
@@ -139,7 +139,7 @@ func (c *Config) PrepareConfig() error {
 	}
 
 	if c.HealthCheckerTime <= 0 {
-		c.HealthCheckerTime = DefaultHealtCheckerTime
+		c.HealthCheckerTime = DefaultHealthCheckerTime
 	}
 
 	if c.Monitoring.Host == "" {

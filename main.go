@@ -54,7 +54,7 @@ func main() {
 		zap.S().Error("No available servers")
 		return
 	}
-	zap.S().Infof("All proxies are ready, divisor will use `%s` algorithm healt checker func will triger every %v", config.Type, config.HealthCheckerTime)
+	zap.S().Infof("All proxies are ready, divisor will use `%s` algorithm health checker func will trigger every %v", config.Type, config.HealthCheckerTime)
 
 	server := fasthttp.Server{
 		Handler:                       proxies.Serve(),
