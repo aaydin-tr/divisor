@@ -4,12 +4,12 @@ go 1.22
 
 require (
 	github.com/aaydin-tr/http2 v0.1.0
-	github.com/fasthttp/router v1.5.2
+	github.com/fasthttp/router v1.5.4
 	github.com/google/uuid v1.6.0
 	github.com/prometheus/client_golang v1.20.4
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/stretchr/testify v1.9.0
-	github.com/valyala/fasthttp v1.56.0
+	github.com/valyala/fasthttp v1.58.0
 	go.uber.org/zap v1.27.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -33,6 +33,6 @@ require (
 	github.com/valyala/fastrand v1.1.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/sys v0.26.0 // indirect
+	golang.org/x/sys v0.27.0 // indirect
 	google.golang.org/protobuf v1.35.1 // indirect
 )
