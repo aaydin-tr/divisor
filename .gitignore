@@ -20,3 +20,4 @@ dist/
 *.crt
 *.key
 *.csr
+*.log
