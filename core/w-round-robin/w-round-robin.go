@@ -38,6 +38,7 @@ func NewWRoundRobin(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBal
 		healthCheckerTime: config.HealthCheckerTime,
 		serversMap:        make(map[uint32]*serverMap),
 		hashFunc:          config.HashFunc,
+		stopHealthChecker: make(chan bool),
 	}
 
 	for i, b := range config.Backends {
@@ -142,4 +143,26 @@ func (w *WRoundRobin) Stats() []types.ProxyStat {
 	}
 
 	return stats
+}
+
+func (w *WRoundRobin) Shutdown() error {
+	zap.S().Info("Initiating graceful shutdown for Weighted Round Robin balancer")
+
+	// Signal health checker to stop
+	select {
+	case w.stopHealthChecker <- true:
+		zap.S().Debug("Health checker stop signal sent")
+	default:
+		zap.S().Debug("Health checker already stopped")
+	}
+
+	// Close all proxy connections
+	for _, sm := range w.serversMap {
+		if err := sm.proxy.Close(); err != nil {
+			zap.S().Errorf("Error closing proxy connection: %s", err)
+		}
+	}
+
+	zap.S().Info("Weighted Round Robin balancer shutdown completed")
+	return nil
 }

@@ -123,3 +123,25 @@ func (r *RoundRobin) Stats() []types.ProxyStat {
 
 	return stats
 }
+
+func (r *RoundRobin) Shutdown() error {
+	zap.S().Info("Initiating graceful shutdown for Round Robin balancer")
+
+	// Signal health checker to stop
+	select {
+	case r.stopHealthChecker <- true:
+		zap.S().Debug("Health checker stop signal sent")
+	default:
+		zap.S().Debug("Health checker already stopped")
+	}
+
+	// Close all proxy connections
+	for _, sm := range r.serversMap {
+		if err := sm.proxy.Close(); err != nil {
+			zap.S().Errorf("Error closing proxy connection: %s", err)
+		}
+	}
+
+	zap.S().Info("Round Robin balancer shutdown completed")
+	return nil
+}
