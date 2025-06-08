@@ -21,3 +21,6 @@ dist/
 *.key
 *.csr
 *.log
+
+# Project binary
+divisor
