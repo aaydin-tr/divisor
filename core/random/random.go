@@ -121,3 +121,25 @@ func (r *Random) Stats() []types.ProxyStat {
 
 	return stats
 }
+
+func (r *Random) Shutdown() error {
+	zap.S().Info("Initiating graceful shutdown for Random balancer")
+
+	// Signal health checker to stop
+	select {
+	case r.stopHealthChecker <- true:
+		zap.S().Debug("Health checker stop signal sent")
+	default:
+		zap.S().Debug("Health checker already stopped")
+	}
+
+	// Close all proxy connections
+	for _, sm := range r.serversMap {
+		if err := sm.proxy.Close(); err != nil {
+			zap.S().Errorf("Error closing proxy connection: %s", err)
+		}
+	}
+
+	zap.S().Info("Random balancer shutdown completed")
+	return nil
+}

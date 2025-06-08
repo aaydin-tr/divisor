@@ -131,3 +131,25 @@ func (h *IPHash) Stats() []types.ProxyStat {
 
 	return stats
 }
+
+func (h *IPHash) Shutdown() error {
+	zap.S().Info("Initiating graceful shutdown for IP Hash balancer")
+
+	// Signal health checker to stop
+	select {
+	case h.stopHealthChecker <- true:
+		zap.S().Debug("Health checker stop signal sent")
+	default:
+		zap.S().Debug("Health checker already stopped")
+	}
+
+	// Close all proxy connections
+	for _, sm := range h.serversMap {
+		if err := sm.node.Proxy.Close(); err != nil {
+			zap.S().Errorf("Error closing proxy connection: %s", err)
+		}
+	}
+
+	zap.S().Info("IP Hash balancer shutdown completed")
+	return nil
+}

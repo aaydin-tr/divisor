@@ -40,6 +40,10 @@ func (m *MockProxy) AvgResponseTime() float64 {
 	return 0
 }
 
+func (m *MockProxy) Close() error {
+	return nil
+}
+
 func CreateNewMockProxy(b config.Backend, h map[string]string) proxy.IProxyClient {
 	return &MockProxy{Addr: b.Url, IsCalled: false}
 }

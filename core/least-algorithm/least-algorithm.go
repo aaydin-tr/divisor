@@ -157,3 +157,25 @@ func (l *LeastAlgorithm) Stats() []types.ProxyStat {
 
 	return stats
 }
+
+func (l *LeastAlgorithm) Shutdown() error {
+	zap.S().Info("Initiating graceful shutdown for Least Algorithm balancer")
+
+	// Signal health checker to stop
+	select {
+	case l.stopHealthChecker <- true:
+		zap.S().Debug("Health checker stop signal sent")
+	default:
+		zap.S().Debug("Health checker already stopped")
+	}
+
+	// Close all proxy connections
+	for _, sm := range l.serversMap {
+		if err := sm.proxy.Close(); err != nil {
+			zap.S().Errorf("Error closing proxy connection: %s", err)
+		}
+	}
+
+	zap.S().Info("Least Algorithm balancer shutdown completed")
+	return nil
+}
