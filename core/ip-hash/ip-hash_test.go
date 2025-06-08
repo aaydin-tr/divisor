@@ -3,6 +3,7 @@ package ip_hash
 import (
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/aaydin-tr/divisor/mocks"
 	"github.com/stretchr/testify/assert"
@@ -163,4 +164,60 @@ func TestRemmoveAllServers(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestShutdown(t *testing.T) {
+	t.Run("shutdown calls close on all proxies", func(t *testing.T) {
+		caseOne := mocks.TestCases[0]
+		ipHash := NewIPHash(&caseOne.Config, caseOne.ProxyFunc).(*IPHash)
+		assert.NotNil(t, ipHash)
+
+		// Verify proxy Close() methods are not called yet
+		for _, sm := range ipHash.serversMap {
+			mockProxy := sm.node.Proxy.(*mocks.MockProxy)
+			assert.False(t, mockProxy.CloseCalled, "Proxy Close() should not be called before shutdown")
+		}
+
+		// Call shutdown
+		err := ipHash.Shutdown()
+		assert.NoError(t, err, "Shutdown() should not return an error")
+
+		// Verify that Close() was called on all proxy clients
+		for _, sm := range ipHash.serversMap {
+			mockProxy := sm.node.Proxy.(*mocks.MockProxy)
+			assert.True(t, mockProxy.CloseCalled, "Proxy Close() should be called during shutdown")
+		}
+	})
+
+	t.Run("shutdown with no servers", func(t *testing.T) {
+		emptyCase := mocks.TestCases[3] // Case with 0 servers
+		emptyIPHash := NewIPHash(&emptyCase.Config, emptyCase.ProxyFunc)
+		if emptyIPHash != nil {
+			err := emptyIPHash.Shutdown()
+			assert.NoError(t, err, "Shutdown() should not return an error even with no servers")
+		}
+	})
+
+	t.Run("shutdown with actual health checker goroutine", func(t *testing.T) {
+		caseOne := mocks.TestCases[0]
+		caseOne.Config.HealthCheckerTime = 100 * time.Millisecond // Fast health check for testing
+		ipHash := NewIPHash(&caseOne.Config, caseOne.ProxyFunc).(*IPHash)
+		assert.NotNil(t, ipHash)
+
+		// Give health checker time to start
+		time.Sleep(50 * time.Millisecond)
+
+		// Call shutdown - this should stop the health checker goroutine
+		err := ipHash.Shutdown()
+		assert.NoError(t, err, "Shutdown() should not return an error")
+
+		// Verify that Close() was called on all proxy clients
+		for _, sm := range ipHash.serversMap {
+			mockProxy := sm.node.Proxy.(*mocks.MockProxy)
+			assert.True(t, mockProxy.CloseCalled, "Proxy Close() should be called during shutdown")
+		}
+
+		// Give some time for health checker to actually stop
+		time.Sleep(150 * time.Millisecond)
+	})
 }

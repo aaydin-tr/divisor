@@ -12,6 +12,7 @@ import (
 type MockProxy struct {
 	Addr            string
 	IsCalled        bool
+	CloseCalled     bool
 	pendingRequests int
 }
 
@@ -41,6 +42,7 @@ func (m *MockProxy) AvgResponseTime() float64 {
 }
 
 func (m *MockProxy) Close() error {
+	m.CloseCalled = true
 	return nil
 }
 

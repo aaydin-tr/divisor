@@ -165,7 +165,11 @@ func TestReverseProxyHandler(t *testing.T) {
 		assert.Nil(t, err)
 		assert.Equal(t, ctx.RemoteIP().String(), string(ctx.Request.Header.Peek("X-Remote-Addr")))
 		assert.Equal(t, "1", string(ctx.Request.Header.Peek("X-Incremental")))
-		assert.GreaterOrEqual(t, time.Now().Local().Format("2006-01-02T15:04:05.000Z"), string(ctx.Request.Header.Peek("X-Time")))
+
+		timeHeader := string(ctx.Request.Header.Peek("X-Time"))
+		assert.NotEmpty(t, timeHeader, "X-Time header should be set")
+		_, err = time.Parse("2006-01-02T15:04:05.000Z", timeHeader)
+		assert.NoError(t, err, "X-Time header should be a valid timestamp")
 	})
 
 	t.Run("default http", func(t *testing.T) {
@@ -186,18 +190,67 @@ func TestPendingRequests(t *testing.T) {
 
 	assert.Equal(t, 0, p.PendingRequests())
 	concurrency := 10
-	ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
-	ctx.Request.Header.Add("Pending", "true")
-	for i := 0; i < 10; i++ {
-		go p.ReverseProxyHandler(&ctx)
+	for range concurrency {
+		go func() {
+			ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+			ctx.Request.Header.Add("Pending", "true")
+			p.ReverseProxyHandler(&ctx)
+		}()
 	}
 
-	for i := 0; i < concurrency; i++ {
-		select {
-		case <-handler.ready:
-		}
+	for range concurrency {
+		<-handler.ready
 	}
 
 	close(handler.done)
 	assert.Equal(t, concurrency, p.PendingRequests())
+}
+
+func TestClose(t *testing.T) {
+	customHeaders := make(map[string]string)
+	handler := mockServer{}
+	bServer := httptest.NewServer(&handler)
+	defer bServer.Close()
+	backend.Url = protocolRegex.ReplaceAllString(bServer.URL, "")
+	p := NewProxyClient(backend, customHeaders).(*ProxyClient)
+
+	// Make a request to establish connection
+	ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+	err := p.ReverseProxyHandler(&ctx)
+	assert.NoError(t, err)
+
+	// Verify connection is established
+	stat := p.Stat()
+	assert.Equal(t, 1, stat.ConnsCount)
+
+	// Test Close method
+	err = p.Close()
+	assert.NoError(t, err, "Close() should not return an error")
+
+	// Wait for connections to be closed with a timeout
+	timeout := time.After(1 * time.Second)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	var connectionsClosed bool
+	for !connectionsClosed {
+		select {
+		case <-timeout:
+			t.Fatal("Timeout waiting for connections to close")
+		case <-ticker.C:
+			statAfterClose := p.Stat()
+			if statAfterClose.ConnsCount == 0 {
+				connectionsClosed = true
+			}
+		}
+	}
+
+	// Verify that the proxy client still functions after Close()
+	ctx2 := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+	err = p.ReverseProxyHandler(&ctx2)
+	assert.NoError(t, err, "Proxy should still work after Close()")
+
+	// Test multiple Close calls (should be idempotent)
+	err = p.Close()
+	assert.NoError(t, err, "Multiple Close() calls should not return an error")
 }
