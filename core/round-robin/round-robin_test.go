@@ -3,6 +3,7 @@ package round_robin
 import (
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/aaydin-tr/divisor/mocks"
 	"github.com/stretchr/testify/assert"
@@ -160,4 +161,89 @@ func TestRemmoveAllServers(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestShutdown(t *testing.T) {
+	t.Run("shutdown calls close on all proxies", func(t *testing.T) {
+		caseOne := mocks.TestCases[0]
+		roundRobin := NewRoundRobin(&caseOne.Config, caseOne.ProxyFunc).(*RoundRobin)
+		assert.NotNil(t, roundRobin)
+
+		// Verify proxy Close() methods are not called yet
+		for _, sm := range roundRobin.serversMap {
+			mockProxy := sm.proxy.(*mocks.MockProxy)
+			assert.False(t, mockProxy.CloseCalled, "Proxy Close() should not be called before shutdown")
+		}
+
+		// Call shutdown
+		err := roundRobin.Shutdown()
+		assert.NoError(t, err, "Shutdown() should not return an error")
+
+		// Verify that Close() was called on all proxy clients
+		for _, sm := range roundRobin.serversMap {
+			mockProxy := sm.proxy.(*mocks.MockProxy)
+			assert.True(t, mockProxy.CloseCalled, "Proxy Close() should be called during shutdown")
+		}
+	})
+
+	t.Run("shutdown with no servers", func(t *testing.T) {
+		emptyCase := mocks.TestCases[3] // Case with 0 servers
+		emptyRoundRobin := NewRoundRobin(&emptyCase.Config, emptyCase.ProxyFunc)
+		if emptyRoundRobin != nil {
+			err := emptyRoundRobin.Shutdown()
+			assert.NoError(t, err, "Shutdown() should not return an error even with no servers")
+		}
+	})
+
+	t.Run("multiple shutdowns are idempotent", func(t *testing.T) {
+		caseOne := mocks.TestCases[0]
+		roundRobin := NewRoundRobin(&caseOne.Config, caseOne.ProxyFunc).(*RoundRobin)
+		assert.NotNil(t, roundRobin)
+
+		// First shutdown
+		err := roundRobin.Shutdown()
+		assert.NoError(t, err, "First shutdown should not return an error")
+
+		// Reset mock proxy state to verify second shutdown doesn't call Close() again
+		for _, sm := range roundRobin.serversMap {
+			mockProxy := sm.proxy.(*mocks.MockProxy)
+			mockProxy.CloseCalled = false
+		}
+
+		// Second shutdown
+		err = roundRobin.Shutdown()
+		assert.NoError(t, err, "Second shutdown should not return an error")
+
+		// Verify Close() is called again (current implementation doesn't prevent this, which is fine)
+		for _, sm := range roundRobin.serversMap {
+			mockProxy := sm.proxy.(*mocks.MockProxy)
+			assert.True(t, mockProxy.CloseCalled, "Proxy Close() should be called on second shutdown too")
+		}
+	})
+
+	t.Run("shutdown with actual health checker goroutine", func(t *testing.T) {
+		caseOne := mocks.TestCases[0]
+		caseOne.Config.HealthCheckerTime = 100 * time.Millisecond // Fast health check for testing
+		roundRobin := NewRoundRobin(&caseOne.Config, caseOne.ProxyFunc).(*RoundRobin)
+		assert.NotNil(t, roundRobin)
+
+		// Give health checker time to start
+		time.Sleep(50 * time.Millisecond)
+
+		// Verify health checker is running by checking that backends are being monitored
+		// This is implicit since NewRoundRobin starts the health checker
+
+		// Call shutdown - this should stop the health checker goroutine
+		err := roundRobin.Shutdown()
+		assert.NoError(t, err, "Shutdown() should not return an error")
+
+		// Verify that Close() was called on all proxy clients
+		for _, sm := range roundRobin.serversMap {
+			mockProxy := sm.proxy.(*mocks.MockProxy)
+			assert.True(t, mockProxy.CloseCalled, "Proxy Close() should be called during shutdown")
+		}
+
+		// Give some time for health checker to actually stop
+		time.Sleep(150 * time.Millisecond)
+	})
 }

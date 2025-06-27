@@ -13,6 +13,7 @@ type HashFunc func([]byte) uint32
 type IBalancer interface {
 	Serve() func(ctx *fasthttp.RequestCtx)
 	Stats() []ProxyStat
+	Shutdown() error
 }
 
 type ProxyStat struct {

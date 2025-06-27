@@ -20,6 +20,7 @@ type IProxyClient interface {
 	Stat() types.ProxyStat
 	PendingRequests() int
 	AvgResponseTime() float64
+	Close() error
 }
 
 // Hop-by-hop headers. These are removed when sent to the backend.
@@ -136,6 +137,11 @@ func (h *ProxyClient) AvgResponseTime() float64 {
 	}
 
 	return float64(rt) / float64(rc)
+}
+
+func (h *ProxyClient) Close() error {
+	h.proxy.CloseIdleConnections()
+	return nil
 }
 
 func NewProxyClient(backend config.Backend, customHeaders map[string]string) IProxyClient {
