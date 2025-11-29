@@ -3,7 +3,7 @@ module github.com/aaydin-tr/divisor
 go 1.25.3
 
 require (
-	github.com/aaydin-tr/http2 v0.1.0
+	github.com/aaydin-tr/http2 v0.1.1
 	github.com/fasthttp/router v1.5.4
 	github.com/google/uuid v1.6.0
 	github.com/prometheus/client_golang v1.23.2

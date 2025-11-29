@@ -1,5 +1,5 @@
-github.com/aaydin-tr/http2 v0.1.0 h1:+1mEbPCDma8c7BMoXY/GD57KpR55BSBbs7xFSeC/MPM=
-github.com/aaydin-tr/http2 v0.1.0/go.mod h1:SWWo2Ypjm5gItlaUCJsxlfmnJNpNmhg+tqOZYQxrdmk=
+github.com/aaydin-tr/http2 v0.1.1 h1:X+vWZ3GIQP5L0zavVj5jG5950YwDVjYMqliqP//a9a8=
+github.com/aaydin-tr/http2 v0.1.1/go.mod h1:SWWo2Ypjm5gItlaUCJsxlfmnJNpNmhg+tqOZYQxrdmk=
 github.com/andybalholm/brotli v1.2.0 h1:ukwgCxwYrmACq68yiUqwIWnGY0cTPox/M94sVwToPjQ=
 github.com/andybalholm/brotli v1.2.0/go.mod h1:rzTDkvFWvIrjDXZHkuS16NPggd91W3kUSvPlQ1pLaKY=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
