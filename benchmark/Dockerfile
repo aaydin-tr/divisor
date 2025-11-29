@@ -1,5 +1,4 @@
-FROM golang:1.20-alpine
-
+FROM golang:1.25-alpine AS builder
 WORKDIR /server
 
 COPY . .
@@ -8,6 +7,9 @@ RUN go mod download
 
 RUN go build -o /app
 
-EXPOSE 8080
+FROM alpine:latest
 
-CMD [ "/app" ]
+COPY --from=builder /app /app
+
+EXPOSE 8080
+CMD ["/app"]

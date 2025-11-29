@@ -40,14 +40,16 @@ func main() {
 func requestHandler(ctx *fasthttp.RequestCtx) {
 	headers := make(map[string]string)
 	hostName := os.Getenv("hostname")
-	ctx.Request.Header.VisitAll(func(key, value []byte) {
+	ctx.Request.Header.All()(func(key, value []byte) bool {
 		headers[string(key)] = string(value)
+		return true
 	})
 
 	if _, ok := headers["Least"]; ok {
-		if hostName == "service-one" {
+		switch hostName {
+		case "service-one":
 			time.Sleep(time.Millisecond * 75)
-		} else if hostName == "service-four" {
+		case "service-four":
 			time.Sleep(time.Millisecond * 25)
 		}
 	}
