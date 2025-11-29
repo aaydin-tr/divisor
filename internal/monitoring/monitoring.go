@@ -2,7 +2,6 @@ package monitoring
 
 import (
 	"encoding/json"
-	"net"
 	"os"
 	"runtime"
 	"sync"
@@ -16,6 +15,7 @@ import (
 	"github.com/shirou/gopsutil/v4/process"
 	"github.com/valyala/fasthttp"
 	"github.com/valyala/fasthttp/fasthttpadaptor"
+	"github.com/valyala/fasthttp/reuseport"
 	"go.uber.org/zap"
 )
 
@@ -122,7 +122,7 @@ func StartMonitoringServer(server *fasthttp.Server, proxies types.IBalancer, add
 		NoDefaultServerHeader: true,
 	}
 
-	ln, err := net.Listen("tcp4", addr)
+	ln, err := reuseport.Listen("tcp4", addr)
 	if err != nil {
 		zap.S().Errorf("Error while starting monitoring server %s", err)
 		return

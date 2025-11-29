@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -18,6 +17,7 @@ import (
 	"github.com/aaydin-tr/divisor/pkg/logger"
 	"github.com/aaydin-tr/http2"
 	"github.com/valyala/fasthttp"
+	"github.com/valyala/fasthttp/reuseport"
 	"go.uber.org/zap"
 )
 
@@ -77,7 +77,7 @@ func main() {
 	// Start monitoring server
 	go monitoring.StartMonitoringServer(&server, proxies, config.GetMonitoringAddr())
 
-	ln, err := net.Listen("tcp4", config.GetAddr())
+	ln, err := reuseport.Listen("tcp4", config.GetAddr())
 	if err != nil {
 		zap.S().Errorf("Error while starting divisor server %s", err)
 		return
