@@ -88,6 +88,11 @@ func main() {
 		server = startFasthttpServer(config, proxies, ln)
 	}
 
+	if server == nil {
+		zap.S().Error("Failed to start server")
+		return
+	}
+
 	go monitoring.StartMonitoringServer(server, proxies, config.GetMonitoringAddr())
 
 	<-shutdown
@@ -150,7 +155,11 @@ func startNetHttpServer(config *cfg.Config, proxies types.IBalancer, ln net.List
 		server.SetKeepAlivesEnabled(true)
 	}
 
-	http2.ConfigureServer(server, &http2.Server{})
+	err := http2.ConfigureServer(server, &http2.Server{})
+	if err != nil {
+		zap.S().Errorf("Error while configuring HTTP/2 server %s", err)
+		return nil
+	}
 
 	go func() {
 		zap.S().Infof("Divisor server is running on %s", config.GetURL())
