@@ -49,7 +49,7 @@ func NewLeastAlgorithm(config *config.Config, middlewareExecutor *middleware.Exe
 		}
 		proxy := proxyFunc(b, config.CustomHeaders, middlewareExecutor)
 		leastAlgorithm.servers = append(leastAlgorithm.servers, proxy)
-		leastAlgorithm.serversMap[leastAlgorithm.hashFunc(helper.S2b(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxy, isHostAlive: true, i: i}
+		leastAlgorithm.serversMap[leastAlgorithm.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxy, isHostAlive: true, i: i}
 		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
 		leastAlgorithm.len++
 	}
@@ -118,7 +118,7 @@ func (l *LeastAlgorithm) healthChecker(backends []config.Backend) {
 
 func (l *LeastAlgorithm) healthCheck(backend config.Backend, index int) {
 	status := l.isHostAlive(backend.GetHealthCheckURL())
-	backendHash := l.hashFunc(helper.S2b(backend.Url + strconv.Itoa(index)))
+	backendHash := l.hashFunc(helper.S2B(backend.Url + strconv.Itoa(index)))
 	proxyMap, ok := l.serversMap[backendHash]
 	if ok && (!status && proxyMap.isHostAlive) {
 		l.servers = helper.RemoveByValue(l.servers, proxyMap.proxy)

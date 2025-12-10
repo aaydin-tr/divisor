@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"hash/crc32"
 	"os"
-	"reflect"
 	"runtime"
 	"unsafe"
 )
@@ -20,17 +19,12 @@ func Contains(s []string, str string) bool {
 	return false
 }
 
-func B2s(b []byte) string {
-	return *(*string)(unsafe.Pointer(&b))
+func B2S(b []byte) string {
+	return unsafe.String(unsafe.SliceData(b), len(b))
 }
 
-func S2b(s string) (b []byte) {
-	bh := (*reflect.SliceHeader)(unsafe.Pointer(&b))
-	sh := (*reflect.StringHeader)(unsafe.Pointer(&s))
-	bh.Data = sh.Data
-	bh.Cap = sh.Len
-	bh.Len = sh.Len
-	return b
+func S2B(s string) []byte {
+	return unsafe.Slice(unsafe.StringData(s), len(s))
 }
 
 func HashFunc(b []byte) uint32 {

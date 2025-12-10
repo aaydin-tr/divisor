@@ -60,7 +60,7 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 
 	req := &ctx.Request
 	res := &ctx.Response
-	clientIP := helper.S2b(ctx.RemoteIP().String())
+	clientIP := helper.S2B(ctx.RemoteIP().String())
 	mwCtx := middleware.NewContext(ctx)
 
 	h.preReq(req, clientIP)
@@ -117,7 +117,7 @@ func (h *ProxyClient) serverError(res *fasthttp.Response, err string) {
 	res.SetStatusCode(fasthttp.StatusInternalServerError)
 	res.SetConnectionClose()
 	res.Header.Set("Content-Type", "application/json")
-	res.SetBody(helper.S2b(`{"message":"` + err + `"}`))
+	res.SetBody(helper.S2B(`{"message":"` + err + `"}`))
 }
 
 func (h *ProxyClient) setCustomHeaders(req *fasthttp.Request, clientIP []byte) {
@@ -178,7 +178,7 @@ func NewProxyClient(backend config.Backend, customHeaders map[string]string, mid
 	return &ProxyClient{
 		proxy:              proxyClient,
 		Addr:               backend.Url,
-		addrB:              helper.S2b(backend.Url),
+		addrB:              helper.S2B(backend.Url),
 		totalRequestCount:  new(uint64),
 		totalResTime:       new(uint64),
 		customHeaders:      customHeaders,

@@ -27,7 +27,7 @@ func TestContains(t *testing.T) {
 	}
 }
 
-func TestB2s(t *testing.T) {
+func TestB2S(t *testing.T) {
 	testCases := []struct {
 		bytes    []byte
 		expected string
@@ -38,14 +38,14 @@ func TestB2s(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		result := helper.B2s(testCase.bytes)
+		result := helper.B2S(testCase.bytes)
 		if result != testCase.expected {
 			t.Errorf("For bytes %v, expected %s but got %s", testCase.bytes, testCase.expected, result)
 		}
 	}
 }
 
-func TestS2b(t *testing.T) {
+func TestS2B(t *testing.T) {
 	testCases := []struct {
 		str      string
 		expected []byte
@@ -56,7 +56,7 @@ func TestS2b(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		result := helper.S2b(testCase.str)
+		result := helper.S2B(testCase.str)
 		if !bytes.Equal(result, testCase.expected) {
 			t.Errorf("For string %s, expected %v but got %v", testCase.str, testCase.expected, result)
 		}

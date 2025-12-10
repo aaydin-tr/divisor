@@ -53,7 +53,7 @@ func NewWRoundRobin(config *config.Config, middlewareExecutor *middleware.Execut
 			wRoundRobin.servers = append(wRoundRobin.servers, proxy)
 		}
 
-		wRoundRobin.serversMap[wRoundRobin.hashFunc(helper.S2b(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxy, weight: b.Weight, isHostAlive: true, i: i}
+		wRoundRobin.serversMap[wRoundRobin.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxy, weight: b.Weight, isHostAlive: true, i: i}
 		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
 	}
 
@@ -98,7 +98,7 @@ func (w *WRoundRobin) healthChecker(backends []config.Backend) {
 
 func (w *WRoundRobin) healthCheck(backend config.Backend, index int) {
 	status := w.isHostAlive(backend.GetHealthCheckURL())
-	backendHash := w.hashFunc(helper.S2b(backend.Url + strconv.Itoa(index)))
+	backendHash := w.hashFunc(helper.S2B(backend.Url + strconv.Itoa(index)))
 	proxyMap, ok := w.serversMap[backendHash]
 
 	if ok && (!status && proxyMap.isHostAlive) {
