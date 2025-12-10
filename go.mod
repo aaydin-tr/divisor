@@ -3,7 +3,6 @@ module github.com/aaydin-tr/divisor
 go 1.25.3
 
 require (
-	github.com/aaydin-tr/http2 v0.1.2
 	github.com/fasthttp/router v1.5.4
 	github.com/google/uuid v1.6.0
 	github.com/prometheus/client_golang v1.23.2
@@ -12,6 +11,7 @@ require (
 	github.com/traefik/yaegi v0.16.1
 	github.com/valyala/fasthttp v1.68.0
 	go.uber.org/zap v1.27.0
+	golang.org/x/net v0.46.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -34,10 +34,10 @@ require (
 	github.com/tklauser/go-sysconf v0.3.15 // indirect
 	github.com/tklauser/numcpus v0.10.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
-	github.com/valyala/fastrand v1.1.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/sys v0.37.0 // indirect
+	golang.org/x/text v0.30.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
 )

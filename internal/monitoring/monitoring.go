@@ -2,6 +2,7 @@ package monitoring
 
 import (
 	"encoding/json"
+	"net/http"
 	"os"
 	"runtime"
 	"sync"
@@ -41,7 +42,7 @@ type MemStats struct {
 var once sync.Once
 var pid int
 
-func getServerStats(server *fasthttp.Server, proxiesStats []types.ProxyStat) Monitoring {
+func getServerStats(server any, proxiesStats []types.ProxyStat) Monitoring {
 	once.Do(func() {
 		pid = os.Getpid()
 	})
@@ -79,13 +80,22 @@ func getServerStats(server *fasthttp.Server, proxiesStats []types.ProxyStat) Mon
 	monitoring.Memory.ProcessPercent = per
 	monitoring.Memory.TotalPercent = vm.UsedPercent
 	monitoring.TotalGoroutine = runtime.NumGoroutine()
-	monitoring.OpenConnectionCount = server.GetOpenConnectionsCount()
+
+	switch s := server.(type) {
+	case *fasthttp.Server:
+		monitoring.OpenConnectionCount = s.GetOpenConnectionsCount()
+	case *http.Server:
+		// net/http doesn't expose connection count directly, set to 0
+		// TODO: Implement net/http connection count
+		monitoring.OpenConnectionCount = 0
+	}
+
 	monitoring.Backends = proxiesStats
 
 	return monitoring
 }
 
-func StartMonitoringServer(server *fasthttp.Server, proxies types.IBalancer, addr string) {
+func StartMonitoringServer(server any, proxies types.IBalancer, addr string) {
 	r := router.New()
 	init_prometheus()
 	go func() {
