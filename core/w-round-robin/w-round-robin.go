@@ -55,7 +55,7 @@ func NewWRoundRobin(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBal
 		}
 
 		proxy := proxyFunc(b, config.CustomHeaders, middlewareExecutor)
-		for i := 0; i < int(b.Weight); i++ {
+		for range int(b.Weight) {
 			wRoundRobin.servers = append(wRoundRobin.servers, proxy)
 		}
 
@@ -68,7 +68,7 @@ func NewWRoundRobin(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBal
 	}
 	wRoundRobin.len = uint64(len(wRoundRobin.servers))
 
-	rand.Seed(time.Now().UnixNano())
+	rand.New(rand.NewSource(time.Now().UnixNano()))
 	rand.Shuffle(len(wRoundRobin.servers), func(i, j int) {
 		wRoundRobin.servers[i], wRoundRobin.servers[j] = wRoundRobin.servers[j], wRoundRobin.servers[i]
 	})
