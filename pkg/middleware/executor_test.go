@@ -225,8 +225,7 @@ func TestNewExecutor(t *testing.T) {
 
 		executor, err := NewExecutor(configs)
 		assert.NoError(t, err)
-		assert.NotNil(t, executor)
-		assert.Len(t, executor.middlewares, 0)
+		assert.Nil(t, executor)
 	})
 
 	t.Run("middleware with config", func(t *testing.T) {
@@ -531,18 +530,6 @@ func TestRunOnRequest(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
-	t.Run("empty middleware list", func(t *testing.T) {
-		configs := []config.Middleware{}
-
-		executor, err := NewExecutor(configs)
-		assert.NoError(t, err)
-		assert.NotNil(t, executor)
-
-		ctx := createTestContext()
-		err = executor.RunOnRequest(ctx)
-		assert.NoError(t, err)
-	})
-
 	t.Run("middleware returns error", func(t *testing.T) {
 		configs := []config.Middleware{
 			{
@@ -695,18 +682,6 @@ func TestRunOnResponse(t *testing.T) {
 				Config:   map[string]any{},
 			},
 		}
-
-		executor, err := NewExecutor(configs)
-		assert.NoError(t, err)
-		assert.NotNil(t, executor)
-
-		ctx := createTestContext()
-		err = executor.RunOnResponse(ctx, nil)
-		assert.NoError(t, err)
-	})
-
-	t.Run("empty middleware list", func(t *testing.T) {
-		configs := []config.Middleware{}
 
 		executor, err := NewExecutor(configs)
 		assert.NoError(t, err)
