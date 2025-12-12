@@ -17,6 +17,7 @@
     <li><a href="#installation">Installation</a></li>
     <li><a href="#usage">Usage</a></li>
     <li><a href="#configuration">Configuration</a></li>
+    <li><a href="#custom-middleware">Custom Middleware</a></li>
     <li><a href="#limitations">Limitations</a></li>
     <li><a href="#benchmark">Benchmark</a></li>
     <li><a href="#todo">TODO</a></li>
