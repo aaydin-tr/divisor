@@ -68,8 +68,7 @@ func NewWRoundRobin(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBal
 	}
 	wRoundRobin.len = uint64(len(wRoundRobin.servers))
 
-	rand.New(rand.NewSource(time.Now().UnixNano()))
-	rand.Shuffle(len(wRoundRobin.servers), func(i, j int) {
+	rand.New(rand.NewSource(time.Now().UnixNano())).Shuffle(len(wRoundRobin.servers), func(i, j int) {
 		wRoundRobin.servers[i], wRoundRobin.servers[j] = wRoundRobin.servers[j], wRoundRobin.servers[i]
 	})
 
@@ -123,8 +122,7 @@ func (w *WRoundRobin) healthCheck(backend config.Backend, index int) {
 			w.servers = append(w.servers, proxyMap.proxy)
 		}
 
-		rand.Seed(time.Now().UnixNano())
-		rand.Shuffle(len(w.servers), func(i, j int) {
+		rand.New(rand.NewSource(time.Now().UnixNano())).Shuffle(len(w.servers), func(i, j int) {
 			w.servers[i], w.servers[j] = w.servers[j], w.servers[i]
 		})
 
