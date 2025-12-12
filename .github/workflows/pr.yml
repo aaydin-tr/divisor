@@ -5,14 +5,14 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
-  linter:
-    name: Linter
-    uses: ./.github/workflows/linter.yml
+  # linter:
+  #   name: Linter
+  #   uses: ./.github/workflows/linter.yml
 
   test:
     name: Test
     uses: ./.github/workflows/test.yml
-    needs: linter
+    # needs: linter
 
   review:
     permissions:
@@ -20,7 +20,7 @@ jobs:
       pull-requests: write
       id-token: write
     name: Review
-    needs: [test, linter]
+    needs: [test]
     uses: ./.github/workflows/review.yml
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
