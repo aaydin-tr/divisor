@@ -39,6 +39,7 @@ This project is particularly suitable for large-scale applications and websites.
 - Fast and easy-to-configure load balancer.
 - Supports round-robin, weighted round-robin, least-connection, least-response-time, IP hash, and random algorithms.
 - Supports TLS and HTTP/2 for the frontend server.
+- Support for custom middleware written in Go.
 - Uses the fasthttp library for high performance and scalability.
 - Offers multiple configuration options to suit user needs.
 - Can handle large-scale applications and websites.
@@ -112,9 +113,146 @@ You need a `config.yaml` file to use Divisor, you can give this file to Divisor 
 | server.idle_timeout | IdleTimeout is the maximum amount of time to wait for the next request when keep-alive is enabled | time.Duration | unlimited |
 | server.disable_keepalive | The server will close all the incoming connections after sending the first response to client if this option is set to true | bool | false |
 | server.disable_header_names_normalizing | Header names are passed as-is without normalization if this option is set true | bool | false |
+| middlewares | List of custom middlewares | array | |
+| middlewares.name | Name of the middleware | string | |
+| middlewares.disabled | If set to true, the middleware will be disabled | bool | false |
+| middlewares.code | Go code for the middleware (content) | string | |
+| middlewares.file | Path to the file containing Go code for the middleware | string | |
+| middlewares.config | Configuration map passed to the middleware's New function | map[string]any | |
 
 
 Please see [example config files](https://github.com/aaydin-tr/divisor/tree/main/examples)
+
+## Custom Middleware
+
+Divisor supports custom middleware written in Go. You can define middleware to intercept requests and responses, allowing you to implement custom logic such as authentication, logging, header manipulation, etc.
+
+The middleware is executed using the [Yaegi](https://github.com/traefik/yaegi) interpreter.
+
+### Interface
+
+Your middleware must implement the `Middleware` interface and provide a `New` function constructor.
+
+```go
+package middleware
+
+import (
+    "github.com/aaydin-tr/divisor/middleware"
+    "fmt"
+)
+
+type MyMiddleware struct {
+    config map[string]any
+}
+
+func New(config map[string]any) middleware.Middleware {
+    return &MyMiddleware{config: config}
+}
+
+func (m *MyMiddleware) OnRequest(ctx *middleware.Context) error {
+    // Logic to execute before request reached to backend server
+    // e.g. ctx.Request.Header.Set("X-Custom-Header", "Value")
+    fmt.Println("OnRequest")
+    return nil
+}
+
+func (m *MyMiddleware) OnResponse(ctx *middleware.Context, err error) error {
+    // Logic to execute after response is received from backend server
+    fmt.Println("OnResponse")
+    return nil
+}
+```
+
+### Configuration
+
+You can configure middlewares in `config.yaml` using either inline code or a file path.
+
+**Using a file:**
+
+```yaml
+middlewares:
+  - name: "my-logger"
+    file: "./middleware/logger.go"
+    config:
+      prefix: "[LOG]"
+```
+
+**Using inline code:**
+
+```yaml
+middlewares:
+  - name: "simple-header"
+    code: |
+      package middleware
+      
+      import "github.com/aaydin-tr/divisor/middleware"
+
+      type HeaderMiddleware struct {}
+
+      func New(config map[string]any) middleware.Middleware {
+          return &HeaderMiddleware{}
+      }
+
+      func (h *HeaderMiddleware) OnRequest(ctx *middleware.Context) error {
+          ctx.Request.Header.Set("X-Divisor", "True")
+          return nil
+      }
+
+      func (h *HeaderMiddleware) OnResponse(ctx *middleware.Context, err error) error {
+          return nil
+      }
+```
+
+### Flow Control
+
+The middleware execution flow allows you to intercept and control the request/response lifecycle.
+
+1.  **OnRequest**:
+    -   Executed **before** the request is sent to the backend.
+    -   If `OnRequest` returns an `error`:
+        -   The execution chain stops immediately.
+        -   The request is **not** sent to the backend.
+        -   `OnResponse` is **not** called.
+        -   The error is returned to the client.
+
+2.  **OnResponse**:
+    -   Executed **after** the backend responds (or fails).
+    -   It receives the `error` from the backend (if any) as the second argument.
+    -   If `OnResponse` returns an `error`:
+        -   It overrides any backend error.
+        -   The standard error handling is skipped.
+        -   This allows you to customize error responses or handling.
+
+### Request/Response Flow Diagram
+
+```mermaid
+flowchart TD
+    %% STYLE
+    classDef step fill:#e7f0fd,stroke:#5b8def,stroke-width:1px;
+    classDef decision fill:#fff3cd,stroke:#e0a800,stroke-width:1px;
+    classDef terminus fill:#d4edda,stroke:#28a745,stroke-width:1px;
+    classDef error fill:#f8d7da,stroke:#dc3545,stroke-width:1px;
+
+    Start([Request Received]):::step --> PreReq[Pre-Request Setup]:::step
+    PreReq --> OnReq{{OnRequest<br>Middleware}}:::decision
+
+    OnReq -- Error --> ReturnErr([Return Error<br>Chain Stops]):::error
+    OnReq -- Success --> Proxy[Proxy Request to Backend]:::step
+
+    Proxy --> ProxyResult{{Backend Error?}}:::decision
+    ProxyResult -- Yes --> CaptureErr[Capture Server Error]:::error
+    ProxyResult -- No --> CaptureErr
+
+    CaptureErr --> OnRes{{OnResponse<br>Middleware}}:::decision
+
+    OnRes -- Error --> MwCleanup[Post-Response Cleanup]:::step --> ReturnMwErr([Return Middleware Error]):::error
+
+    OnRes -- Success --> CheckServerErr{{Captured Server Error?}}:::decision
+
+    CheckServerErr -- Yes --> ErrCleanup[Post-Response Cleanup]:::step --> DefaultErr([Default Error Handler<br>500 Internal Server Error]):::error --> ReturnServerErr([Return Server Error]):::error
+
+    CheckServerErr -- No --> ErrCleanup[Post-Response Cleanup]:::step --> ReturnOK([Return Success]):::terminus
+```
 
 ## Limitations
 While Divisor has several features and benefits, it also has some limitations to be aware of:
