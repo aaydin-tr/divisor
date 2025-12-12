@@ -47,7 +47,7 @@ func NewRoundRobin(config *config.Config, middlewareExecutor *middleware.Executo
 		}
 		proxy := proxyFunc(b, config.CustomHeaders, middlewareExecutor)
 		roundRobin.servers = append(roundRobin.servers, proxy)
-		roundRobin.serversMap[roundRobin.hashFunc(helper.S2b(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxy, isHostAlive: true, i: i}
+		roundRobin.serversMap[roundRobin.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxy, isHostAlive: true, i: i}
 		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
 		roundRobin.len++
 	}
@@ -88,7 +88,7 @@ func (r *RoundRobin) healthChecker(backends []config.Backend) {
 
 func (r *RoundRobin) healthCheck(backend config.Backend, index int) {
 	status := r.isHostAlive(backend.GetHealthCheckURL())
-	backendHash := r.hashFunc(helper.S2b(backend.Url + strconv.Itoa(index)))
+	backendHash := r.hashFunc(helper.S2B(backend.Url + strconv.Itoa(index)))
 	proxyMap, ok := r.serversMap[backendHash]
 	if ok && (!status && proxyMap.isHostAlive) {
 		r.servers = helper.RemoveByValue(r.servers, proxyMap.proxy)

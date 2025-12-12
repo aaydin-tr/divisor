@@ -52,7 +52,7 @@ func NewIPHash(config *config.Config, middlewareExecutor *middleware.Executor, p
 		proxy := proxyFunc(b, config.CustomHeaders, middlewareExecutor)
 		node := &consistent.Node{Id: i, Proxy: proxy, Addr: b.Url}
 		ipHash.servers.AddNode(node)
-		ipHash.serversMap[ipHash.hashFunc(helper.S2b(b.Url+strconv.Itoa(i)))] = &serverMap{node: node, isHostAlive: true, i: i}
+		ipHash.serversMap[ipHash.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{node: node, isHostAlive: true, i: i}
 		ipHash.len++
 		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
 	}
@@ -68,7 +68,7 @@ func NewIPHash(config *config.Config, middlewareExecutor *middleware.Executor, p
 
 func (h *IPHash) Serve() func(ctx *fasthttp.RequestCtx) {
 	return func(ctx *fasthttp.RequestCtx) {
-		hashCode := h.hashFunc(helper.S2b(ctx.RemoteIP().String()))
+		hashCode := h.hashFunc(helper.S2B(ctx.RemoteIP().String()))
 		proxy := h.get(hashCode)
 		proxy.ReverseProxyHandler(ctx)
 	}
@@ -95,7 +95,7 @@ func (h *IPHash) healthChecker(backends []config.Backend) {
 
 func (h *IPHash) healthCheck(backend config.Backend, index int) {
 	status := h.isHostAlive(backend.GetHealthCheckURL())
-	backendHash := h.hashFunc(helper.S2b(backend.Url + strconv.Itoa(index)))
+	backendHash := h.hashFunc(helper.S2B(backend.Url + strconv.Itoa(index)))
 	proxyMap, ok := h.serversMap[backendHash]
 
 	if ok && (!status && proxyMap.isHostAlive) {
