@@ -67,6 +67,7 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 
 	if h.middlewareExecutor != nil {
 		if err := h.middlewareExecutor.RunOnRequest(mwCtx); err != nil {
+			h.postRes(res)
 			return err
 		}
 	}
