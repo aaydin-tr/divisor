@@ -66,7 +66,7 @@ func init_prometheus() {
 	prometheus.MustRegister(backendAlive)
 }
 
-func updatePrometheusMetrics(m Monitoring) {
+func updatePrometheusMetrics(m *Monitoring) {
 	processMemoryPercent.Set(float64(m.Memory.ProcessPercent))
 	totalMemoryPercent.Set(float64(m.Memory.TotalPercent))
 	processMemoryMB.Set(m.Memory.ProcessMB)

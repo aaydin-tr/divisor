@@ -36,5 +36,5 @@ func (h *HttpClient) IsHostAlive(url string) bool {
 	if err != nil {
 		return false
 	}
-	return resp.StatusCode() == 200
+	return resp.StatusCode() == fasthttp.StatusOK
 }
