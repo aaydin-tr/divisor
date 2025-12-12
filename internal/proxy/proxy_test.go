@@ -48,7 +48,7 @@ func (m *mockServer) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 // mockMiddleware is a test middleware implementation
 type mockMiddleware struct {
 	onRequestFunc  func(ctx *middleware.Context) error
-	onResponseFunc func(ctx *middleware.Context)
+	onResponseFunc func(ctx *middleware.Context, err error) error
 	mu             sync.Mutex
 	requestCalls   int
 	responseCalls  int
@@ -64,13 +64,14 @@ func (m *mockMiddleware) OnRequest(ctx *middleware.Context) error {
 	return nil
 }
 
-func (m *mockMiddleware) OnResponse(ctx *middleware.Context) {
+func (m *mockMiddleware) OnResponse(ctx *middleware.Context, err error) error {
 	m.mu.Lock()
 	m.responseCalls++
 	m.mu.Unlock()
 	if m.onResponseFunc != nil {
-		m.onResponseFunc(ctx)
+		return m.onResponseFunc(ctx, err)
 	}
+	return nil
 }
 
 func (m *mockMiddleware) getRequestCalls() int {
@@ -88,27 +89,8 @@ func (m *mockMiddleware) getResponseCalls() int {
 // createTestProxyWithMiddlewares creates a ProxyClient with test middlewares injected
 // This helper directly creates a ProxyClient and injects the test executor
 func createTestProxyWithMiddlewares(backend config.Backend, customHeaders map[string]string, middlewares ...middleware.Middleware) *ProxyClient {
-	proxyClient := &fasthttp.HostClient{
-		Addr:                      backend.Url,
-		MaxConns:                  backend.MaxConnection,
-		MaxConnDuration:           backend.MaxConnDuration,
-		MaxIdleConnDuration:       backend.MaxIdleConnDuration,
-		MaxIdemponentCallAttempts: backend.MaxIdemponentCallAttempts,
-		MaxConnWaitTimeout:        backend.MaxConnWaitTimeout,
-	}
-
-	// Create a test executor using reflection/unsafe to inject mock middlewares
 	testExec := createTestExecutor(middlewares)
-
-	return &ProxyClient{
-		proxy:              proxyClient,
-		Addr:               backend.Url,
-		addrB:              []byte(backend.Url),
-		totalRequestCount:  new(uint64),
-		totalResTime:       new(uint64),
-		customHeaders:      customHeaders,
-		middlewareExecutor: testExec,
-	}
+	return NewProxyClient(backend, customHeaders, testExec).(*ProxyClient)
 }
 
 // createTestExecutor creates an executor with the given middlewares for testing
@@ -398,8 +380,9 @@ func TestMiddlewareOnResponseSuccess(t *testing.T) {
 
 	t.Run("should execute OnResponse and modify response headers", func(t *testing.T) {
 		mw := &mockMiddleware{
-			onResponseFunc: func(ctx *middleware.Context) {
+			onResponseFunc: func(ctx *middleware.Context, err error) error {
 				ctx.Response.Header.Set("X-Response-Header", "response-value")
+				return nil
 			},
 		}
 
@@ -415,10 +398,11 @@ func TestMiddlewareOnResponseSuccess(t *testing.T) {
 	t.Run("should call OnResponse after receiving backend response", func(t *testing.T) {
 		var responseExecuted bool
 		mw := &mockMiddleware{
-			onResponseFunc: func(ctx *middleware.Context) {
+			onResponseFunc: func(ctx *middleware.Context, err error) error {
 				responseExecuted = true
 				// Verify we have a response (status code set)
 				assert.Equal(t, 200, ctx.Response.StatusCode())
+				return nil
 			},
 		}
 
@@ -437,8 +421,9 @@ func TestMiddlewareOnResponseSuccess(t *testing.T) {
 				ctx.Request.Header.Set("X-Request-MW", "request")
 				return nil
 			},
-			onResponseFunc: func(ctx *middleware.Context) {
+			onResponseFunc: func(ctx *middleware.Context, err error) error {
 				ctx.Response.Header.Set("X-Response-MW", "response")
+				return nil
 			},
 		}
 
@@ -483,8 +468,9 @@ func TestMiddlewareOnRequestError(t *testing.T) {
 			onRequestFunc: func(ctx *middleware.Context) error {
 				return errors.New("request failed")
 			},
-			onResponseFunc: func(ctx *middleware.Context) {
+			onResponseFunc: func(ctx *middleware.Context, err error) error {
 				t.Error("OnResponse should not be called when OnRequest fails")
+				return nil
 			},
 		}
 
@@ -591,24 +577,27 @@ func TestMiddlewareExecutionOrder(t *testing.T) {
 		var mu sync.Mutex
 
 		mw1 := &mockMiddleware{
-			onResponseFunc: func(ctx *middleware.Context) {
+			onResponseFunc: func(ctx *middleware.Context, err error) error {
 				mu.Lock()
 				executionOrder = append(executionOrder, "mw1-response")
 				mu.Unlock()
+				return nil
 			},
 		}
 		mw2 := &mockMiddleware{
-			onResponseFunc: func(ctx *middleware.Context) {
+			onResponseFunc: func(ctx *middleware.Context, err error) error {
 				mu.Lock()
 				executionOrder = append(executionOrder, "mw2-response")
 				mu.Unlock()
+				return nil
 			},
 		}
 		mw3 := &mockMiddleware{
-			onResponseFunc: func(ctx *middleware.Context) {
+			onResponseFunc: func(ctx *middleware.Context, err error) error {
 				mu.Lock()
 				executionOrder = append(executionOrder, "mw3-response")
 				mu.Unlock()
+				return nil
 			},
 		}
 
@@ -634,10 +623,11 @@ func TestMiddlewareExecutionOrder(t *testing.T) {
 				mu.Unlock()
 				return nil
 			},
-			onResponseFunc: func(ctx *middleware.Context) {
+			onResponseFunc: func(ctx *middleware.Context, err error) error {
 				mu.Lock()
 				executionOrder = append(executionOrder, "mw1-response")
 				mu.Unlock()
+				return nil
 			},
 		}
 		mw2 := &mockMiddleware{
@@ -647,10 +637,11 @@ func TestMiddlewareExecutionOrder(t *testing.T) {
 				mu.Unlock()
 				return nil
 			},
-			onResponseFunc: func(ctx *middleware.Context) {
+			onResponseFunc: func(ctx *middleware.Context, err error) error {
 				mu.Lock()
 				executionOrder = append(executionOrder, "mw2-response")
 				mu.Unlock()
+				return nil
 			},
 		}
 
@@ -739,8 +730,9 @@ func TestMiddlewareEdgeCases(t *testing.T) {
 				ctx.Request.Header.Set("X-Counter", strconv.FormatInt(atomic.LoadInt64(&counter), 10))
 				return nil
 			},
-			onResponseFunc: func(ctx *middleware.Context) {
+			onResponseFunc: func(ctx *middleware.Context, err error) error {
 				ctx.Response.Header.Set("X-Processed", "true")
+				return nil
 			},
 		}
 
@@ -818,14 +810,15 @@ func TestMiddlewareEdgeCases(t *testing.T) {
 		assert.Equal(t, fasthttp.StatusOK, ctx.Response.StatusCode())
 	})
 
-	t.Run("should not call OnResponse when backend proxy fails", func(t *testing.T) {
+	t.Run("should call OnResponse with error when backend proxy fails", func(t *testing.T) {
 		invalidBackend := config.Backend{Url: "invalid-host:99999"}
 		mw := &mockMiddleware{
 			onRequestFunc: func(ctx *middleware.Context) error {
 				return nil
 			},
-			onResponseFunc: func(ctx *middleware.Context) {
-				t.Error("OnResponse should not be called when backend fails")
+			onResponseFunc: func(ctx *middleware.Context, err error) error {
+				assert.Error(t, err)
+				return nil
 			},
 		}
 
@@ -835,6 +828,312 @@ func TestMiddlewareEdgeCases(t *testing.T) {
 		err := p.ReverseProxyHandler(&ctx)
 		assert.Error(t, err)
 		assert.Equal(t, 1, mw.getRequestCalls())
-		assert.Equal(t, 0, mw.getResponseCalls())
+		assert.Equal(t, 1, mw.getResponseCalls()) // OnResponse should be called with the error
+	})
+}
+
+func TestMiddlewareErrorHandling(t *testing.T) {
+	customHeaders := make(map[string]string)
+	handler := mockServer{}
+	bServer := httptest.NewServer(&handler)
+	defer bServer.Close()
+	backend.Url = protocolRegex.ReplaceAllString(bServer.URL, "")
+
+	t.Run("middleware handles error and skips default error handler", func(t *testing.T) {
+		invalidBackend := config.Backend{Url: "invalid-host:99999"}
+		var receivedError error
+
+		mw := &mockMiddleware{
+			onRequestFunc: func(ctx *middleware.Context) error {
+				return nil
+			},
+			onResponseFunc: func(ctx *middleware.Context, err error) error {
+				receivedError = err
+				// Middleware handles the error by setting custom response
+				ctx.Response.SetStatusCode(fasthttp.StatusServiceUnavailable)
+				ctx.Response.Header.Set("Content-Type", "application/json")
+				ctx.Response.SetBodyString(`{"error":"custom error handling","message":"backend unavailable"}`)
+				// Return non-nil to signal error was handled
+				return err
+			},
+		}
+
+		p := createTestProxyWithMiddlewares(invalidBackend, customHeaders, mw)
+		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+
+		err := p.ReverseProxyHandler(&ctx)
+		assert.Error(t, err)
+		assert.NotNil(t, receivedError)
+		assert.Equal(t, 1, mw.getRequestCalls())
+		assert.Equal(t, 1, mw.getResponseCalls())
+
+		// Verify custom response (not default 500)
+		assert.Equal(t, fasthttp.StatusServiceUnavailable, ctx.Response.StatusCode())
+		assert.Contains(t, string(ctx.Response.Body()), "custom error handling")
+		assert.Contains(t, string(ctx.Response.Body()), "backend unavailable")
+		// Verify it's our custom message, not the default error handler format
+		assert.Equal(t, `{"error":"custom error handling","message":"backend unavailable"}`, string(ctx.Response.Body()))
+	})
+
+	t.Run("middleware does not handle error and default error handler runs", func(t *testing.T) {
+		invalidBackend := config.Backend{Url: "invalid-host:99999"}
+		var receivedError error
+		var middlewareExecuted bool
+
+		mw := &mockMiddleware{
+			onRequestFunc: func(ctx *middleware.Context) error {
+				return nil
+			},
+			onResponseFunc: func(ctx *middleware.Context, err error) error {
+				receivedError = err
+				middlewareExecuted = true
+				// Middleware observes but doesn't handle - returns nil
+				return nil
+			},
+		}
+
+		p := createTestProxyWithMiddlewares(invalidBackend, customHeaders, mw)
+		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+
+		err := p.ReverseProxyHandler(&ctx)
+		assert.Error(t, err)
+		assert.NotNil(t, receivedError)
+		assert.True(t, middlewareExecuted)
+		assert.Equal(t, 1, mw.getResponseCalls())
+
+		// Verify default error handler ran (500 status code)
+		assert.Equal(t, fasthttp.StatusInternalServerError, ctx.Response.StatusCode())
+		// Default handler sets JSON with "message" field
+		assert.Contains(t, string(ctx.Response.Body()), `"message":"`)
+		assert.Equal(t, "application/json", string(ctx.Response.Header.Peek("Content-Type")))
+	})
+
+	t.Run("multiple middlewares - first handles error stops subsequent OnResponse", func(t *testing.T) {
+		invalidBackend := config.Backend{Url: "invalid-host:99999"}
+
+		mw1 := &mockMiddleware{
+			onRequestFunc: func(ctx *middleware.Context) error {
+				return nil
+			},
+			onResponseFunc: func(ctx *middleware.Context, err error) error {
+				if err != nil {
+					// First middleware handles the error
+					ctx.Response.SetStatusCode(fasthttp.StatusBadGateway)
+					ctx.Response.SetBodyString("handled by mw1")
+					return err // Signal error was handled
+				}
+				return nil
+			},
+		}
+
+		mw2 := &mockMiddleware{
+			onRequestFunc: func(ctx *middleware.Context) error {
+				return nil
+			},
+			onResponseFunc: func(ctx *middleware.Context, err error) error {
+				// This should NOT be called because mw1 handled the error
+				t.Error("Second middleware OnResponse should not be called when first handles error")
+				return nil
+			},
+		}
+
+		p := createTestProxyWithMiddlewares(invalidBackend, customHeaders, mw1, mw2)
+		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+
+		err := p.ReverseProxyHandler(&ctx)
+		assert.Error(t, err)
+		assert.Equal(t, 1, mw1.getResponseCalls())
+		assert.Equal(t, 0, mw2.getResponseCalls()) // Should not be called
+
+		// Verify first middleware's response
+		assert.Equal(t, fasthttp.StatusBadGateway, ctx.Response.StatusCode())
+		assert.Equal(t, "handled by mw1", string(ctx.Response.Body()))
+	})
+
+	t.Run("middleware sets custom error response with specific status code", func(t *testing.T) {
+		invalidBackend := config.Backend{Url: "invalid-host:99999"}
+
+		mw := &mockMiddleware{
+			onRequestFunc: func(ctx *middleware.Context) error {
+				return nil
+			},
+			onResponseFunc: func(ctx *middleware.Context, err error) error {
+				if err != nil {
+					// Custom error handling with specific status
+					ctx.Response.SetStatusCode(503)
+					ctx.Response.Header.Set("Content-Type", "text/plain")
+					ctx.Response.Header.Set("X-Error-Handler", "custom-middleware")
+					ctx.Response.SetBodyString("Service temporarily unavailable. Please try again later.")
+					return err
+				}
+				return nil
+			},
+		}
+
+		p := createTestProxyWithMiddlewares(invalidBackend, customHeaders, mw)
+		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+
+		err := p.ReverseProxyHandler(&ctx)
+		assert.Error(t, err)
+
+		// Verify custom response
+		assert.Equal(t, 503, ctx.Response.StatusCode())
+		assert.Equal(t, "text/plain", string(ctx.Response.Header.Peek("Content-Type")))
+		assert.Equal(t, "custom-middleware", string(ctx.Response.Header.Peek("X-Error-Handler")))
+		assert.Equal(t, "Service temporarily unavailable. Please try again later.", string(ctx.Response.Body()))
+	})
+
+	t.Run("middleware receives nil error on successful request", func(t *testing.T) {
+		var receivedError error
+		var wasSuccess bool
+
+		mw := &mockMiddleware{
+			onRequestFunc: func(ctx *middleware.Context) error {
+				return nil
+			},
+			onResponseFunc: func(ctx *middleware.Context, err error) error {
+				receivedError = err
+				if err == nil {
+					wasSuccess = true
+					ctx.Response.Header.Set("X-Success-Handler", "true")
+				}
+				return nil
+			},
+		}
+
+		p := createTestProxyWithMiddlewares(backend, customHeaders, mw)
+		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+
+		err := p.ReverseProxyHandler(&ctx)
+		assert.NoError(t, err)
+		assert.Nil(t, receivedError) // Error should be nil on success
+		assert.True(t, wasSuccess)
+		assert.Equal(t, 1, mw.getResponseCalls())
+
+		// Verify successful response
+		assert.Equal(t, fasthttp.StatusOK, ctx.Response.StatusCode())
+		assert.Equal(t, "true", string(ctx.Response.Header.Peek("X-Success-Handler")))
+	})
+
+	t.Run("middleware observes and logs error but lets default handler run", func(t *testing.T) {
+		invalidBackend := config.Backend{Url: "invalid-host:99999"}
+		var errorLogged bool
+		var loggedErrorMessage string
+
+		mw := &mockMiddleware{
+			onRequestFunc: func(ctx *middleware.Context) error {
+				return nil
+			},
+			onResponseFunc: func(ctx *middleware.Context, err error) error {
+				if err != nil {
+					// Middleware logs/observes the error
+					errorLogged = true
+					loggedErrorMessage = err.Error()
+					// But doesn't handle it - returns nil
+				}
+				return nil
+			},
+		}
+
+		p := createTestProxyWithMiddlewares(invalidBackend, customHeaders, mw)
+		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+
+		err := p.ReverseProxyHandler(&ctx)
+		assert.Error(t, err)
+		assert.True(t, errorLogged)
+		assert.NotEmpty(t, loggedErrorMessage)
+		assert.Equal(t, 1, mw.getResponseCalls())
+
+		// Verify default error handler ran
+		assert.Equal(t, fasthttp.StatusInternalServerError, ctx.Response.StatusCode())
+		assert.Contains(t, string(ctx.Response.Body()), `"message":"`)
+	})
+
+	t.Run("multiple middlewares all observe error before default handler", func(t *testing.T) {
+		invalidBackend := config.Backend{Url: "invalid-host:99999"}
+		var mw1Saw, mw2Saw, mw3Saw bool
+
+		mw1 := &mockMiddleware{
+			onResponseFunc: func(ctx *middleware.Context, err error) error {
+				if err != nil {
+					mw1Saw = true
+					ctx.Response.Header.Add("X-Middleware-Order", "mw1")
+				}
+				return nil
+			},
+		}
+
+		mw2 := &mockMiddleware{
+			onResponseFunc: func(ctx *middleware.Context, err error) error {
+				if err != nil {
+					mw2Saw = true
+					ctx.Response.Header.Add("X-Middleware-Order", "mw2")
+				}
+				return nil
+			},
+		}
+
+		mw3 := &mockMiddleware{
+			onResponseFunc: func(ctx *middleware.Context, err error) error {
+				if err != nil {
+					mw3Saw = true
+					ctx.Response.Header.Add("X-Middleware-Order", "mw3")
+				}
+				return nil
+			},
+		}
+
+		p := createTestProxyWithMiddlewares(invalidBackend, customHeaders, mw1, mw2, mw3)
+		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+
+		err := p.ReverseProxyHandler(&ctx)
+		assert.Error(t, err)
+
+		// All middlewares should have observed the error
+		assert.True(t, mw1Saw)
+		assert.True(t, mw2Saw)
+		assert.True(t, mw3Saw)
+		assert.Equal(t, 1, mw1.getResponseCalls())
+		assert.Equal(t, 1, mw2.getResponseCalls())
+		assert.Equal(t, 1, mw3.getResponseCalls())
+
+		// Default handler should have run
+		assert.Equal(t, fasthttp.StatusInternalServerError, ctx.Response.StatusCode())
+	})
+
+	t.Run("middleware can modify response even when handling error", func(t *testing.T) {
+		invalidBackend := config.Backend{Url: "invalid-host:99999"}
+
+		mw := &mockMiddleware{
+			onResponseFunc: func(ctx *middleware.Context, err error) error {
+				if err != nil {
+					// Set multiple headers
+					ctx.Response.Header.Set("X-Error-Handled", "true")
+					ctx.Response.Header.Set("X-Error-Time", "2024-01-01")
+					ctx.Response.Header.Set("Retry-After", "60")
+
+					// Set custom body
+					ctx.Response.SetStatusCode(429)
+					ctx.Response.SetBodyString(`{"error":"rate_limit","retry_after":60}`)
+
+					return err // Handle the error
+				}
+				return nil
+			},
+		}
+
+		p := createTestProxyWithMiddlewares(invalidBackend, customHeaders, mw)
+		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+
+		err := p.ReverseProxyHandler(&ctx)
+		assert.Error(t, err)
+
+		// Verify all custom headers and body
+		assert.Equal(t, 429, ctx.Response.StatusCode())
+		assert.Equal(t, "true", string(ctx.Response.Header.Peek("X-Error-Handled")))
+		assert.Equal(t, "2024-01-01", string(ctx.Response.Header.Peek("X-Error-Time")))
+		assert.Equal(t, "60", string(ctx.Response.Header.Peek("Retry-After")))
+		assert.Contains(t, string(ctx.Response.Body()), "rate_limit")
+		assert.Contains(t, string(ctx.Response.Body()), "retry_after")
 	})
 }

@@ -82,8 +82,11 @@ func (e *Executor) RunOnRequest(ctx *middleware.Context) error {
 	return nil
 }
 
-func (e *Executor) RunOnResponse(ctx *middleware.Context) {
+func (e *Executor) RunOnResponse(ctx *middleware.Context, err error) error {
 	for _, mw := range e.middlewares {
-		mw.OnResponse(ctx)
+		if err := mw.OnResponse(ctx, err); err != nil {
+			return err
+		}
 	}
+	return nil
 }

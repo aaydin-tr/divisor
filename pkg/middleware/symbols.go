@@ -26,12 +26,12 @@ var Symbols = map[string]map[string]reflect.Value{
 type _github_com_aaydin_tr_divisor_middleware_Middleware struct {
 	IValue      interface{}
 	WOnRequest  func(ctx *middleware.Context) error
-	WOnResponse func(ctx *middleware.Context)
+	WOnResponse func(ctx *middleware.Context, err error) error
 }
 
 func (W _github_com_aaydin_tr_divisor_middleware_Middleware) OnRequest(ctx *middleware.Context) error {
 	return W.WOnRequest(ctx)
 }
-func (W _github_com_aaydin_tr_divisor_middleware_Middleware) OnResponse(ctx *middleware.Context) {
-	W.WOnResponse(ctx)
+func (W _github_com_aaydin_tr_divisor_middleware_Middleware) OnResponse(ctx *middleware.Context, err error) error {
+	return W.WOnResponse(ctx, err)
 }

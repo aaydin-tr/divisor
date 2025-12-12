@@ -32,7 +32,8 @@ func (m *TestMiddleware) OnRequest(ctx *middleware.Context) error {
 	return nil
 }
 
-func (m *TestMiddleware) OnResponse(ctx *middleware.Context) {
+func (m *TestMiddleware) OnResponse(ctx *middleware.Context, err error) error {
+	return nil
 }
 
 func New(config map[string]any) middleware.Middleware {
@@ -55,7 +56,8 @@ func (m *ErrorMiddleware) OnRequest(ctx *middleware.Context) error {
 	return errors.New("middleware error")
 }
 
-func (m *ErrorMiddleware) OnResponse(ctx *middleware.Context) {
+func (m *ErrorMiddleware) OnResponse(ctx *middleware.Context, err error) error {
+	return nil
 }
 
 func New(config map[string]any) middleware.Middleware {
@@ -77,7 +79,8 @@ func (m *TestMiddleware) OnRequest(ctx *middleware.Context) error {
 	return nil
 }
 
-func (m *TestMiddleware) OnResponse(ctx *middleware.Context) {
+func (m *TestMiddleware) OnResponse(ctx *middleware.Context, err error) error {
+	return nil
 }
 `
 
@@ -106,8 +109,9 @@ func (m *ModifyingMiddleware) OnRequest(ctx *middleware.Context) error {
 	return nil
 }
 
-func (m *ModifyingMiddleware) OnResponse(ctx *middleware.Context) {
+func (m *ModifyingMiddleware) OnResponse(ctx *middleware.Context, err error) error {
 	ctx.Response.Header.Set(m.headerKey, m.headerValue)
+	return nil
 }
 
 func New(config map[string]any) middleware.Middleware {
@@ -666,8 +670,8 @@ func TestRunOnResponse(t *testing.T) {
 		assert.NotNil(t, executor)
 
 		ctx := createTestContext()
-		executor.RunOnResponse(ctx)
-		// OnResponse doesn't return error, just verify it doesn't panic
+		err = executor.RunOnResponse(ctx, nil)
+		assert.NoError(t, err)
 	})
 
 	t.Run("multiple middlewares execution chain", func(t *testing.T) {
@@ -697,8 +701,8 @@ func TestRunOnResponse(t *testing.T) {
 		assert.NotNil(t, executor)
 
 		ctx := createTestContext()
-		executor.RunOnResponse(ctx)
-		// OnResponse doesn't return error, just verify it doesn't panic
+		err = executor.RunOnResponse(ctx, nil)
+		assert.NoError(t, err)
 	})
 
 	t.Run("empty middleware list", func(t *testing.T) {
@@ -709,8 +713,8 @@ func TestRunOnResponse(t *testing.T) {
 		assert.NotNil(t, executor)
 
 		ctx := createTestContext()
-		executor.RunOnResponse(ctx)
-		// OnResponse doesn't return error, just verify it doesn't panic
+		err = executor.RunOnResponse(ctx, nil)
+		assert.NoError(t, err)
 	})
 
 	t.Run("middleware modifies response", func(t *testing.T) {
@@ -731,7 +735,8 @@ func TestRunOnResponse(t *testing.T) {
 		assert.NotNil(t, executor)
 
 		ctx := createTestContext()
-		executor.RunOnResponse(ctx)
+		err = executor.RunOnResponse(ctx, nil)
+		assert.NoError(t, err)
 
 		// Verify the response header was set
 		headerValue := string(ctx.Response.Header.Peek("X-Custom-Response"))
@@ -765,7 +770,8 @@ func TestRunOnResponse(t *testing.T) {
 		assert.NotNil(t, executor)
 
 		ctx := createTestContext()
-		executor.RunOnResponse(ctx)
+		err = executor.RunOnResponse(ctx, nil)
+		assert.NoError(t, err)
 
 		// Verify both response headers were set
 		firstHeader := string(ctx.Response.Header.Peek("X-Response-First"))
@@ -791,8 +797,7 @@ func TestRunOnResponse(t *testing.T) {
 		assert.NotNil(t, executor)
 
 		ctx := createTestContext()
-		// OnResponse doesn't return error, even if the middleware has error logic
-		executor.RunOnResponse(ctx)
-		// Just verify it doesn't panic
+		err = executor.RunOnResponse(ctx, nil)
+		assert.NoError(t, err)
 	})
 }

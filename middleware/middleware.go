@@ -14,7 +14,7 @@ func NewContext(ctx *fasthttp.RequestCtx) *Context {
 
 type Middleware interface {
 	OnRequest(ctx *Context) error
-	OnResponse(ctx *Context)
+	OnResponse(ctx *Context, err error) error
 }
 
 type New func(config map[string]any) Middleware

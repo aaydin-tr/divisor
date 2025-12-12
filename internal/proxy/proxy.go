@@ -71,16 +71,24 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 		}
 	}
 
+	var serverErr error
 	if err := h.proxy.Do(req, res); err != nil {
-		h.serverError(res, err.Error())
-		return err
+		serverErr = err
+
 	}
 
 	if h.middlewareExecutor != nil {
-		h.middlewareExecutor.RunOnResponse(mwCtx)
+		if handledErr := h.middlewareExecutor.RunOnResponse(mwCtx, serverErr); handledErr != nil {
+			h.postRes(res)
+			return handledErr
+		}
 	}
 
-	h.postRes(res)
+	if serverErr != nil {
+		h.postRes(res)
+		h.serverError(res, serverErr.Error())
+		return serverErr
+	}
 
 	atomic.AddUint64(h.totalResTime, uint64(time.Since(s).Milliseconds()))
 	return nil
@@ -104,10 +112,6 @@ func (h *ProxyClient) postRes(res *fasthttp.Response) {
 }
 
 func (h *ProxyClient) serverError(res *fasthttp.Response, err string) {
-	for _, h := range hopHeaders {
-		res.Header.DelBytes(h)
-	}
-
 	zap.S().Infof("error when proxying the request: %s", err)
 	res.SetStatusCode(fasthttp.StatusInternalServerError)
 	res.SetConnectionClose()
