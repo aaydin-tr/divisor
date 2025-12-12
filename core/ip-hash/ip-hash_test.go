@@ -13,10 +13,10 @@ import (
 func TestNewIPHash(t *testing.T) {
 	for _, ip := range mocks.TestCases {
 		if ip.ExpectedServerCount == 0 {
-			ipHash := NewIPHash(&ip.Config, ip.ProxyFunc)
+			ipHash := NewIPHash(&ip.Config, nil, ip.ProxyFunc)
 			assert.Nil(t, ipHash)
 		} else {
-			ipHash := NewIPHash(&ip.Config, ip.ProxyFunc).(*IPHash)
+			ipHash := NewIPHash(&ip.Config, nil, ip.ProxyFunc).(*IPHash)
 			assert.Equal(t, ip.ExpectedServerCount, len(ipHash.serversMap))
 		}
 	}
@@ -24,7 +24,7 @@ func TestNewIPHash(t *testing.T) {
 
 func TestGet(t *testing.T) {
 	caseOne := mocks.TestCases[0]
-	balancer := NewIPHash(&caseOne.Config, caseOne.ProxyFunc)
+	balancer := NewIPHash(&caseOne.Config, nil, caseOne.ProxyFunc)
 	assert.NotNil(t, balancer)
 
 	ipHash := balancer.(*IPHash)
@@ -35,7 +35,7 @@ func TestGet(t *testing.T) {
 
 func TestServer(t *testing.T) {
 	caseOne := mocks.TestCases[1]
-	balancer := NewIPHash(&caseOne.Config, caseOne.ProxyFunc)
+	balancer := NewIPHash(&caseOne.Config, nil, caseOne.ProxyFunc)
 	assert.NotNil(t, balancer)
 
 	ipHash := balancer.(*IPHash)
@@ -53,7 +53,7 @@ func TestServer(t *testing.T) {
 
 func TestStats(t *testing.T) {
 	caseOne := mocks.TestCases[0]
-	balancer := NewIPHash(&caseOne.Config, caseOne.ProxyFunc)
+	balancer := NewIPHash(&caseOne.Config, nil, caseOne.ProxyFunc)
 	assert.NotNil(t, balancer)
 
 	ipHash := balancer.(*IPHash)
@@ -88,7 +88,7 @@ func TestHealthChecker(t *testing.T) {
 
 func TestRemoveOneServer(t *testing.T) {
 	caseOne := mocks.TestCases[0]
-	ipHash := NewIPHash(&caseOne.Config, caseOne.ProxyFunc).(*IPHash)
+	ipHash := NewIPHash(&caseOne.Config, nil, caseOne.ProxyFunc).(*IPHash)
 	assert.Equal(t, caseOne.ExpectedServerCount, len(ipHash.serversMap))
 
 	// Remove one server
@@ -108,7 +108,7 @@ func TestRemoveOneServer(t *testing.T) {
 
 func TestRemoveAndAddServer(t *testing.T) {
 	caseOne := mocks.TestCases[0]
-	ipHash := NewIPHash(&caseOne.Config, caseOne.ProxyFunc).(*IPHash)
+	ipHash := NewIPHash(&caseOne.Config, nil, caseOne.ProxyFunc).(*IPHash)
 	assert.Equal(t, caseOne.ExpectedServerCount, len(ipHash.serversMap))
 
 	// Remove one server
@@ -142,7 +142,7 @@ func TestRemoveAndAddServer(t *testing.T) {
 
 func TestRemmoveAllServers(t *testing.T) {
 	caseOne := mocks.TestCases[0]
-	ipHash := NewIPHash(&caseOne.Config, caseOne.ProxyFunc).(*IPHash)
+	ipHash := NewIPHash(&caseOne.Config, nil, caseOne.ProxyFunc).(*IPHash)
 	assert.Equal(t, caseOne.ExpectedServerCount, len(ipHash.serversMap))
 
 	// Remove All
@@ -169,7 +169,7 @@ func TestRemmoveAllServers(t *testing.T) {
 func TestShutdown(t *testing.T) {
 	t.Run("shutdown calls close on all proxies", func(t *testing.T) {
 		caseOne := mocks.TestCases[0]
-		ipHash := NewIPHash(&caseOne.Config, caseOne.ProxyFunc).(*IPHash)
+		ipHash := NewIPHash(&caseOne.Config, nil, caseOne.ProxyFunc).(*IPHash)
 		assert.NotNil(t, ipHash)
 
 		// Verify proxy Close() methods are not called yet
@@ -191,7 +191,7 @@ func TestShutdown(t *testing.T) {
 
 	t.Run("shutdown with no servers", func(t *testing.T) {
 		emptyCase := mocks.TestCases[3] // Case with 0 servers
-		emptyIPHash := NewIPHash(&emptyCase.Config, emptyCase.ProxyFunc)
+		emptyIPHash := NewIPHash(&emptyCase.Config, nil, emptyCase.ProxyFunc)
 		if emptyIPHash != nil {
 			err := emptyIPHash.Shutdown()
 			assert.NoError(t, err, "Shutdown() should not return an error even with no servers")
@@ -201,7 +201,7 @@ func TestShutdown(t *testing.T) {
 	t.Run("shutdown with actual health checker goroutine", func(t *testing.T) {
 		caseOne := mocks.TestCases[0]
 		caseOne.Config.HealthCheckerTime = 100 * time.Millisecond // Fast health check for testing
-		ipHash := NewIPHash(&caseOne.Config, caseOne.ProxyFunc).(*IPHash)
+		ipHash := NewIPHash(&caseOne.Config, nil, caseOne.ProxyFunc).(*IPHash)
 		assert.NotNil(t, ipHash)
 
 		// Give health checker time to start

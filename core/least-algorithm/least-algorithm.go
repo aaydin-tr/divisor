@@ -32,7 +32,7 @@ type LeastAlgorithm struct {
 	nextFunc          func() proxy.IProxyClient
 }
 
-func NewLeastAlgorithm(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBalancer {
+func NewLeastAlgorithm(config *config.Config, middlewareExecutor *middleware.Executor, proxyFunc proxy.ProxyFunc) types.IBalancer {
 	leastAlgorithm := &LeastAlgorithm{
 		serversMap:        make(map[uint32]*serverMap),
 		isHostAlive:       config.HealthCheckerFunc,
@@ -40,12 +40,6 @@ func NewLeastAlgorithm(config *config.Config, proxyFunc proxy.ProxyFunc) types.I
 		hashFunc:          config.HashFunc,
 		stopHealthChecker: make(chan bool),
 		lastIndex:         new(uint32),
-	}
-
-	middlewareExecutor, err := middleware.NewExecutor(config.Middlewares)
-	if err != nil {
-		zap.S().Errorf("Error creating middleware executor: %s", err)
-		return nil
 	}
 
 	for i, b := range config.Backends {

@@ -13,10 +13,10 @@ import (
 func TestNewRoundRobin(t *testing.T) {
 	for _, r := range mocks.TestCases {
 		if r.ExpectedServerCount == 0 {
-			round := NewRoundRobin(&r.Config, r.ProxyFunc)
+			round := NewRoundRobin(&r.Config, nil, r.ProxyFunc)
 			assert.Nil(t, round)
 		} else {
-			round := NewRoundRobin(&r.Config, r.ProxyFunc).(*RoundRobin)
+			round := NewRoundRobin(&r.Config, nil, r.ProxyFunc).(*RoundRobin)
 			assert.Equal(t, r.ExpectedServerCount, len(round.serversMap))
 		}
 	}
@@ -24,7 +24,7 @@ func TestNewRoundRobin(t *testing.T) {
 
 func TestNext(t *testing.T) {
 	caseOne := mocks.TestCases[0]
-	balancer := NewRoundRobin(&caseOne.Config, caseOne.ProxyFunc)
+	balancer := NewRoundRobin(&caseOne.Config, nil, caseOne.ProxyFunc)
 	assert.NotNil(t, balancer)
 
 	roundRobin := balancer.(*RoundRobin)
@@ -35,7 +35,7 @@ func TestNext(t *testing.T) {
 
 func TestServer(t *testing.T) {
 	caseOne := mocks.TestCases[1]
-	balancer := NewRoundRobin(&caseOne.Config, caseOne.ProxyFunc)
+	balancer := NewRoundRobin(&caseOne.Config, nil, caseOne.ProxyFunc)
 	assert.NotNil(t, balancer)
 
 	roundRobin := balancer.(*RoundRobin)
@@ -52,7 +52,7 @@ func TestServer(t *testing.T) {
 
 func TestStats(t *testing.T) {
 	caseOne := mocks.TestCases[0]
-	balancer := NewRoundRobin(&caseOne.Config, caseOne.ProxyFunc)
+	balancer := NewRoundRobin(&caseOne.Config, nil, caseOne.ProxyFunc)
 	assert.NotNil(t, balancer)
 
 	roundRobin := balancer.(*RoundRobin)
@@ -87,7 +87,7 @@ func TestHealthChecker(t *testing.T) {
 
 func TestRemoveOneServer(t *testing.T) {
 	caseOne := mocks.TestCases[0]
-	roundRobin := NewRoundRobin(&caseOne.Config, caseOne.ProxyFunc).(*RoundRobin)
+	roundRobin := NewRoundRobin(&caseOne.Config, nil, caseOne.ProxyFunc).(*RoundRobin)
 	assert.Equal(t, caseOne.ExpectedServerCount, len(roundRobin.serversMap))
 
 	// Remove one server
@@ -106,7 +106,7 @@ func TestRemoveOneServer(t *testing.T) {
 
 func TestRemoveAndAddServer(t *testing.T) {
 	caseOne := mocks.TestCases[0]
-	roundRobin := NewRoundRobin(&caseOne.Config, caseOne.ProxyFunc).(*RoundRobin)
+	roundRobin := NewRoundRobin(&caseOne.Config, nil, caseOne.ProxyFunc).(*RoundRobin)
 	assert.Equal(t, caseOne.ExpectedServerCount, len(roundRobin.serversMap))
 
 	// Remove one server
@@ -140,7 +140,7 @@ func TestRemoveAndAddServer(t *testing.T) {
 
 func TestRemmoveAllServers(t *testing.T) {
 	caseOne := mocks.TestCases[0]
-	roundRobin := NewRoundRobin(&caseOne.Config, caseOne.ProxyFunc).(*RoundRobin)
+	roundRobin := NewRoundRobin(&caseOne.Config, nil, caseOne.ProxyFunc).(*RoundRobin)
 	assert.Equal(t, caseOne.ExpectedServerCount, len(roundRobin.serversMap))
 
 	// Remove All
@@ -166,7 +166,7 @@ func TestRemmoveAllServers(t *testing.T) {
 func TestShutdown(t *testing.T) {
 	t.Run("shutdown calls close on all proxies", func(t *testing.T) {
 		caseOne := mocks.TestCases[0]
-		roundRobin := NewRoundRobin(&caseOne.Config, caseOne.ProxyFunc).(*RoundRobin)
+		roundRobin := NewRoundRobin(&caseOne.Config, nil, caseOne.ProxyFunc).(*RoundRobin)
 		assert.NotNil(t, roundRobin)
 
 		// Verify proxy Close() methods are not called yet
@@ -188,7 +188,7 @@ func TestShutdown(t *testing.T) {
 
 	t.Run("shutdown with no servers", func(t *testing.T) {
 		emptyCase := mocks.TestCases[3] // Case with 0 servers
-		emptyRoundRobin := NewRoundRobin(&emptyCase.Config, emptyCase.ProxyFunc)
+		emptyRoundRobin := NewRoundRobin(&emptyCase.Config, nil, emptyCase.ProxyFunc)
 		if emptyRoundRobin != nil {
 			err := emptyRoundRobin.Shutdown()
 			assert.NoError(t, err, "Shutdown() should not return an error even with no servers")
@@ -197,7 +197,7 @@ func TestShutdown(t *testing.T) {
 
 	t.Run("multiple shutdowns are idempotent", func(t *testing.T) {
 		caseOne := mocks.TestCases[0]
-		roundRobin := NewRoundRobin(&caseOne.Config, caseOne.ProxyFunc).(*RoundRobin)
+		roundRobin := NewRoundRobin(&caseOne.Config, nil, caseOne.ProxyFunc).(*RoundRobin)
 		assert.NotNil(t, roundRobin)
 
 		// First shutdown
@@ -224,7 +224,7 @@ func TestShutdown(t *testing.T) {
 	t.Run("shutdown with actual health checker goroutine", func(t *testing.T) {
 		caseOne := mocks.TestCases[0]
 		caseOne.Config.HealthCheckerTime = 100 * time.Millisecond // Fast health check for testing
-		roundRobin := NewRoundRobin(&caseOne.Config, caseOne.ProxyFunc).(*RoundRobin)
+		roundRobin := NewRoundRobin(&caseOne.Config, nil, caseOne.ProxyFunc).(*RoundRobin)
 		assert.NotNil(t, roundRobin)
 
 		// Give health checker time to start

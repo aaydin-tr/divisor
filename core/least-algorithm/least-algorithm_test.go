@@ -19,7 +19,7 @@ func TestNewLeastAlgorithm(t *testing.T) {
 				testConfig.Type = "least-response-time"
 			}
 
-			leastAlgorithm := NewLeastAlgorithm(&testConfig, l.ProxyFunc)
+			leastAlgorithm := NewLeastAlgorithm(&testConfig, nil, l.ProxyFunc)
 			assert.Nil(t, leastAlgorithm)
 		} else {
 			testConfig := l.Config
@@ -28,7 +28,7 @@ func TestNewLeastAlgorithm(t *testing.T) {
 				testConfig.Type = "least-response-time"
 			}
 
-			leastAlgorithm := NewLeastAlgorithm(&testConfig, l.ProxyFunc).(*LeastAlgorithm)
+			leastAlgorithm := NewLeastAlgorithm(&testConfig, nil, l.ProxyFunc).(*LeastAlgorithm)
 			assert.Equal(t, l.ExpectedServerCount, len(leastAlgorithm.serversMap))
 			assert.Equal(t, l.ExpectedServerCount, leastAlgorithm.len)
 		}
@@ -38,7 +38,7 @@ func TestNewLeastAlgorithm(t *testing.T) {
 func TestNewLeastAlgorithmWithoutAlgorithmType(t *testing.T) {
 	caseOne := mocks.TestCases[0]
 	caseOne.Config.Type = ""
-	leastAlgorithm := NewLeastAlgorithm(&caseOne.Config, caseOne.ProxyFunc)
+	leastAlgorithm := NewLeastAlgorithm(&caseOne.Config, nil, caseOne.ProxyFunc)
 	assert.Nil(t, leastAlgorithm)
 }
 
@@ -47,7 +47,7 @@ func TestNext(t *testing.T) {
 		t.Run("with zero pending requests", func(t *testing.T) {
 			caseFour := mocks.TestCases[4]
 			caseFour.Config.Type = "least-connection"
-			balancer := NewLeastAlgorithm(&caseFour.Config, caseFour.ProxyFunc)
+			balancer := NewLeastAlgorithm(&caseFour.Config, nil, caseFour.ProxyFunc)
 			assert.NotNil(t, balancer)
 
 			leastConnection := balancer.(*LeastAlgorithm)
@@ -61,7 +61,7 @@ func TestNext(t *testing.T) {
 		t.Run("with non zero pending requests", func(t *testing.T) {
 			caseOne := mocks.TestCases[0]
 			caseOne.Config.Type = "least-connection"
-			balancer := NewLeastAlgorithm(&caseOne.Config, caseOne.ProxyFunc)
+			balancer := NewLeastAlgorithm(&caseOne.Config, nil, caseOne.ProxyFunc)
 			assert.NotNil(t, balancer)
 
 			leastConnection := balancer.(*LeastAlgorithm)
@@ -77,7 +77,7 @@ func TestNext(t *testing.T) {
 		t.Run("with zero avg response time", func(t *testing.T) {
 			caseFive := mocks.TestCases[4]
 			caseFive.Config.Type = "least-response-time"
-			balancer := NewLeastAlgorithm(&caseFive.Config, caseFive.ProxyFunc)
+			balancer := NewLeastAlgorithm(&caseFive.Config, nil, caseFive.ProxyFunc)
 			assert.NotNil(t, balancer)
 
 			leastResponseTime := balancer.(*LeastAlgorithm)
@@ -91,7 +91,7 @@ func TestNext(t *testing.T) {
 		t.Run("with non zero avg response time", func(t *testing.T) {
 			caseOne := mocks.TestCases[0]
 			caseOne.Config.Type = "least-response-time"
-			balancer := NewLeastAlgorithm(&caseOne.Config, caseOne.ProxyFunc)
+			balancer := NewLeastAlgorithm(&caseOne.Config, nil, caseOne.ProxyFunc)
 			assert.NotNil(t, balancer)
 
 			leastResponseTime := balancer.(*LeastAlgorithm)
@@ -108,7 +108,7 @@ func TestNext(t *testing.T) {
 func TestServe(t *testing.T) {
 	caseOne := mocks.TestCases[1]
 	caseOne.Config.Type = "least-connection"
-	balancer := NewLeastAlgorithm(&caseOne.Config, caseOne.ProxyFunc)
+	balancer := NewLeastAlgorithm(&caseOne.Config, nil, caseOne.ProxyFunc)
 	assert.NotNil(t, balancer)
 
 	leastAlgorithm := balancer.(*LeastAlgorithm)
@@ -145,7 +145,7 @@ func TestHealthChecker(t *testing.T) {
 func TestStats(t *testing.T) {
 	caseOne := mocks.TestCases[0]
 	caseOne.Config.Type = "least-connection"
-	balancer := NewLeastAlgorithm(&caseOne.Config, caseOne.ProxyFunc)
+	balancer := NewLeastAlgorithm(&caseOne.Config, nil, caseOne.ProxyFunc)
 	assert.NotNil(t, balancer)
 
 	leastAlgorithm := balancer.(*LeastAlgorithm)
@@ -165,7 +165,7 @@ func TestStats(t *testing.T) {
 func TestRemoveOneServer(t *testing.T) {
 	caseOne := mocks.TestCases[0]
 	caseOne.Config.Type = "least-connection"
-	leastAlgorithm := NewLeastAlgorithm(&caseOne.Config, caseOne.ProxyFunc).(*LeastAlgorithm)
+	leastAlgorithm := NewLeastAlgorithm(&caseOne.Config, nil, caseOne.ProxyFunc).(*LeastAlgorithm)
 	assert.Equal(t, caseOne.ExpectedServerCount, len(leastAlgorithm.serversMap))
 
 	// Remove one server
@@ -185,7 +185,7 @@ func TestRemoveOneServer(t *testing.T) {
 func TestRemoveAndAddServer(t *testing.T) {
 	caseOne := mocks.TestCases[0]
 	caseOne.Config.Type = "least-connection"
-	leastAlgorithm := NewLeastAlgorithm(&caseOne.Config, caseOne.ProxyFunc).(*LeastAlgorithm)
+	leastAlgorithm := NewLeastAlgorithm(&caseOne.Config, nil, caseOne.ProxyFunc).(*LeastAlgorithm)
 	assert.Equal(t, caseOne.ExpectedServerCount, len(leastAlgorithm.serversMap))
 
 	// Remove one server
@@ -220,7 +220,7 @@ func TestRemoveAndAddServer(t *testing.T) {
 func TestRemmoveAllServers(t *testing.T) {
 	caseOne := mocks.TestCases[0]
 	caseOne.Config.Type = "least-connection"
-	leastAlgorithm := NewLeastAlgorithm(&caseOne.Config, caseOne.ProxyFunc).(*LeastAlgorithm)
+	leastAlgorithm := NewLeastAlgorithm(&caseOne.Config, nil, caseOne.ProxyFunc).(*LeastAlgorithm)
 	assert.Equal(t, caseOne.ExpectedServerCount, len(leastAlgorithm.serversMap))
 
 	// Remove All
@@ -247,7 +247,7 @@ func TestShutdown(t *testing.T) {
 	t.Run("shutdown least-connection calls close on all proxies", func(t *testing.T) {
 		caseOne := mocks.TestCases[0]
 		caseOne.Config.Type = "least-connection"
-		leastAlgorithm := NewLeastAlgorithm(&caseOne.Config, caseOne.ProxyFunc).(*LeastAlgorithm)
+		leastAlgorithm := NewLeastAlgorithm(&caseOne.Config, nil, caseOne.ProxyFunc).(*LeastAlgorithm)
 		assert.NotNil(t, leastAlgorithm)
 
 		// Verify proxy Close() methods are not called yet
@@ -270,7 +270,7 @@ func TestShutdown(t *testing.T) {
 	t.Run("shutdown least-response-time calls close on all proxies", func(t *testing.T) {
 		caseOne := mocks.TestCases[0]
 		caseOne.Config.Type = "least-response-time"
-		leastResponseTime := NewLeastAlgorithm(&caseOne.Config, caseOne.ProxyFunc).(*LeastAlgorithm)
+		leastResponseTime := NewLeastAlgorithm(&caseOne.Config, nil, caseOne.ProxyFunc).(*LeastAlgorithm)
 		assert.NotNil(t, leastResponseTime)
 
 		// Verify proxy Close() methods are not called yet
@@ -293,7 +293,7 @@ func TestShutdown(t *testing.T) {
 	t.Run("shutdown with no servers", func(t *testing.T) {
 		emptyCase := mocks.TestCases[3] // Case with 0 servers
 		emptyCase.Config.Type = "least-connection"
-		emptyLeastAlgorithm := NewLeastAlgorithm(&emptyCase.Config, emptyCase.ProxyFunc)
+		emptyLeastAlgorithm := NewLeastAlgorithm(&emptyCase.Config, nil, emptyCase.ProxyFunc)
 		if emptyLeastAlgorithm != nil {
 			err := emptyLeastAlgorithm.Shutdown()
 			assert.NoError(t, err, "Shutdown() should not return an error even with no servers")
@@ -304,7 +304,7 @@ func TestShutdown(t *testing.T) {
 		caseOne := mocks.TestCases[0]
 		caseOne.Config.Type = "least-connection"
 		caseOne.Config.HealthCheckerTime = 100 * time.Millisecond // Fast health check for testing
-		leastAlgorithm := NewLeastAlgorithm(&caseOne.Config, caseOne.ProxyFunc).(*LeastAlgorithm)
+		leastAlgorithm := NewLeastAlgorithm(&caseOne.Config, nil, caseOne.ProxyFunc).(*LeastAlgorithm)
 		assert.NotNil(t, leastAlgorithm)
 
 		// Give health checker time to start

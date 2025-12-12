@@ -31,7 +31,7 @@ type IPHash struct {
 	healthCheckerTime time.Duration
 }
 
-func NewIPHash(config *config.Config, ProxyFunc proxy.ProxyFunc) types.IBalancer {
+func NewIPHash(config *config.Config, middlewareExecutor *middleware.Executor, proxyFunc proxy.ProxyFunc) types.IBalancer {
 	ipHash := &IPHash{
 		servers: *consistent.NewConsistentHash(
 			int(math.Pow(float64(len(config.Backends)), float64(2))),
@@ -44,18 +44,12 @@ func NewIPHash(config *config.Config, ProxyFunc proxy.ProxyFunc) types.IBalancer
 		stopHealthChecker: make(chan bool),
 	}
 
-	middlewareExecutor, err := middleware.NewExecutor(config.Middlewares)
-	if err != nil {
-		zap.S().Errorf("Error creating middleware executor: %s", err)
-		return nil
-	}
-
 	for i, b := range config.Backends {
 		if !ipHash.isHostAlive(b.GetHealthCheckURL()) {
 			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
-		proxy := ProxyFunc(b, config.CustomHeaders, middlewareExecutor)
+		proxy := proxyFunc(b, config.CustomHeaders, middlewareExecutor)
 		node := &consistent.Node{Id: i, Proxy: proxy, Addr: b.Url}
 		ipHash.servers.AddNode(node)
 		ipHash.serversMap[ipHash.hashFunc(helper.S2b(b.Url+strconv.Itoa(i)))] = &serverMap{node: node, isHostAlive: true, i: i}
