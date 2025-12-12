@@ -6,14 +6,16 @@ import (
 	"github.com/aaydin-tr/divisor/core/types"
 	"github.com/aaydin-tr/divisor/internal/proxy"
 	"github.com/aaydin-tr/divisor/pkg/config"
+	"github.com/aaydin-tr/divisor/pkg/middleware"
 	"github.com/valyala/fasthttp"
 )
 
 type MockProxy struct {
-	Addr            string
-	IsCalled        bool
-	CloseCalled     bool
-	pendingRequests int
+	Addr               string
+	IsCalled           bool
+	CloseCalled        bool
+	pendingRequests    int
+	middlewareExecutor *middleware.Executor
 }
 
 func (m *MockProxy) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
@@ -46,8 +48,8 @@ func (m *MockProxy) Close() error {
 	return nil
 }
 
-func CreateNewMockProxy(b config.Backend, h map[string]string) proxy.IProxyClient {
-	return &MockProxy{Addr: b.Url, IsCalled: false}
+func CreateNewMockProxy(b config.Backend, h map[string]string, middlewareExecutor *middleware.Executor) proxy.IProxyClient {
+	return &MockProxy{Addr: b.Url, IsCalled: false, middlewareExecutor: middlewareExecutor}
 }
 
 type testCaseStruct struct {

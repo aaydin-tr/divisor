@@ -6,14 +6,16 @@ import (
 	"time"
 
 	"github.com/aaydin-tr/divisor/core/types"
+	"github.com/aaydin-tr/divisor/middleware"
 	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/aaydin-tr/divisor/pkg/helper"
+	middlewarePkg "github.com/aaydin-tr/divisor/pkg/middleware"
 	"github.com/google/uuid"
 	"github.com/valyala/fasthttp"
 	"go.uber.org/zap"
 )
 
-type ProxyFunc func(config.Backend, map[string]string) IProxyClient
+type ProxyFunc func(config.Backend, map[string]string, *middlewarePkg.Executor) IProxyClient
 
 type IProxyClient interface {
 	ReverseProxyHandler(ctx *fasthttp.RequestCtx) error
@@ -43,12 +45,13 @@ var XForwardedFor = []byte("X-Forwarded-For")
 var httpB = []byte("http")
 
 type ProxyClient struct {
-	proxy             *fasthttp.HostClient
-	totalRequestCount *uint64
-	totalResTime      *uint64
-	customHeaders     map[string]string
-	Addr              string
-	addrB             []byte
+	proxy              *fasthttp.HostClient
+	totalRequestCount  *uint64
+	totalResTime       *uint64
+	customHeaders      map[string]string
+	middlewareExecutor *middlewarePkg.Executor
+	Addr               string
+	addrB              []byte
 }
 
 func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
@@ -58,12 +61,25 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 	req := &ctx.Request
 	res := &ctx.Response
 	clientIP := helper.S2b(ctx.RemoteIP().String())
+	mwCtx := middleware.NewContext(ctx)
 
 	h.preReq(req, clientIP)
+
+	if h.middlewareExecutor != nil {
+		if err := h.middlewareExecutor.RunOnRequest(mwCtx); err != nil {
+			return err
+		}
+	}
+
 	if err := h.proxy.Do(req, res); err != nil {
 		h.serverError(res, err.Error())
 		return err
 	}
+
+	if h.middlewareExecutor != nil {
+		h.middlewareExecutor.RunOnResponse(mwCtx)
+	}
+
 	h.postRes(res)
 
 	atomic.AddUint64(h.totalResTime, uint64(time.Since(s).Milliseconds()))
@@ -144,7 +160,7 @@ func (h *ProxyClient) Close() error {
 	return nil
 }
 
-func NewProxyClient(backend config.Backend, customHeaders map[string]string) IProxyClient {
+func NewProxyClient(backend config.Backend, customHeaders map[string]string, middlewareExecutor *middlewarePkg.Executor) IProxyClient {
 	proxyClient := &fasthttp.HostClient{
 		Addr:                      backend.Url,
 		MaxConns:                  backend.MaxConnection,
@@ -155,11 +171,12 @@ func NewProxyClient(backend config.Backend, customHeaders map[string]string) IPr
 	}
 
 	return &ProxyClient{
-		proxy:             proxyClient,
-		Addr:              backend.Url,
-		addrB:             helper.S2b(backend.Url),
-		totalRequestCount: new(uint64),
-		totalResTime:      new(uint64),
-		customHeaders:     customHeaders,
+		proxy:              proxyClient,
+		Addr:               backend.Url,
+		addrB:              helper.S2b(backend.Url),
+		totalRequestCount:  new(uint64),
+		totalResTime:       new(uint64),
+		customHeaders:      customHeaders,
+		middlewareExecutor: middlewareExecutor,
 	}
 }

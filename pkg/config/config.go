@@ -34,6 +34,14 @@ const (
 
 var protocolRegex = regexp.MustCompile(`(^https?://)`)
 
+type Middleware struct {
+	Name     string         `yaml:"name"`
+	Disabled bool           `yaml:"disabled"`
+	Code     string         `yaml:"code,omitempty"`
+	File     string         `yaml:"file,omitempty"`
+	Config   map[string]any `yaml:"config,omitempty"`
+}
+
 type Backend struct {
 	Url                       string        `yaml:"url"`
 	HealthCheckPath           string        `yaml:"health_check_path"`
@@ -78,6 +86,7 @@ type Config struct {
 	Port              string        `yaml:"port"`
 	Backends          []Backend     `yaml:"backends"`
 	Server            Server        `yaml:"server"`
+	Middlewares       []Middleware  `yaml:"middlewares"`
 	HealthCheckerTime time.Duration `yaml:"health_checker_time"`
 }
 

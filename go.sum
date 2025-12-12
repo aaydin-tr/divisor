@@ -1,5 +1,3 @@
-github.com/aaydin-tr/http2 v0.1.1 h1:X+vWZ3GIQP5L0zavVj5jG5950YwDVjYMqliqP//a9a8=
-github.com/aaydin-tr/http2 v0.1.1/go.mod h1:SWWo2Ypjm5gItlaUCJsxlfmnJNpNmhg+tqOZYQxrdmk=
 github.com/aaydin-tr/http2 v0.1.2 h1:5W2UfvMptOHKukCLoi2CuL4E0UGEKgIktnew4dwv254=
 github.com/aaydin-tr/http2 v0.1.2/go.mod h1:KKYt9Dd7OZkRUHDhmdbssQt/5v02SQLM3qTOu/L9BRo=
 github.com/andybalholm/brotli v1.2.0 h1:ukwgCxwYrmACq68yiUqwIWnGY0cTPox/M94sVwToPjQ=
@@ -58,6 +56,8 @@ github.com/tklauser/go-sysconf v0.3.15 h1:VE89k0criAymJ/Os65CSn1IXaol+1wrsFHEB8O
 github.com/tklauser/go-sysconf v0.3.15/go.mod h1:Dmjwr6tYFIseJw7a3dRLJfsHAMXZ3nEnL/aZY+0IuI4=
 github.com/tklauser/numcpus v0.10.0 h1:18njr6LDBk1zuna922MgdjQuJFjrdppsZG60sHGfjso=
 github.com/tklauser/numcpus v0.10.0/go.mod h1:BiTKazU708GQTYF4mB+cmlpT2Is1gLk7XVuEeem8LsQ=
+github.com/traefik/yaegi v0.16.1 h1:f1De3DVJqIDKmnasUF6MwmWv1dSEEat0wcpXhD2On3E=
+github.com/traefik/yaegi v0.16.1/go.mod h1:4eVhbPb3LnD2VigQjhYbEJ69vDRFdT2HQNrXx8eEwUY=
 github.com/valyala/bytebufferpool v1.0.0 h1:GqA5TC/0021Y/b9FG4Oi9Mr3q7XYx6KllzawFIhcdPw=
 github.com/valyala/bytebufferpool v1.0.0/go.mod h1:6bBcMArwyJ5K/AmCkWv1jt77kVWyCJ6HpOuEn7z0Csc=
 github.com/valyala/fasthttp v1.68.0 h1:v12Nx16iepr8r9ySOwqI+5RBJ/DqTxhOy1HrHoDFnok=

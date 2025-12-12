@@ -10,6 +10,7 @@ import (
 	"github.com/aaydin-tr/divisor/internal/proxy"
 	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/aaydin-tr/divisor/pkg/helper"
+	"github.com/aaydin-tr/divisor/pkg/middleware"
 	"github.com/valyala/fasthttp"
 	"go.uber.org/zap"
 )
@@ -41,13 +42,19 @@ func NewWRoundRobin(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBal
 		stopHealthChecker: make(chan bool),
 	}
 
+	middlewareExecutor, err := middleware.NewExecutor(config.Middlewares)
+	if err != nil {
+		zap.S().Errorf("Error creating middleware executor: %s", err)
+		return nil
+	}
+
 	for i, b := range config.Backends {
 		if !wRoundRobin.isHostAlive(b.GetHealthCheckURL()) {
 			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
 
-		proxy := proxyFunc(b, config.CustomHeaders)
+		proxy := proxyFunc(b, config.CustomHeaders, middlewareExecutor)
 		for i := 0; i < int(b.Weight); i++ {
 			wRoundRobin.servers = append(wRoundRobin.servers, proxy)
 		}
