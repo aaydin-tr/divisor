@@ -14,7 +14,6 @@ type MockProxy struct {
 	Addr               string
 	IsCalled           bool
 	CloseCalled        bool
-	pendingRequests    int
 	middlewareExecutor *middleware.Executor
 }
 
@@ -48,7 +47,7 @@ func (m *MockProxy) Close() error {
 	return nil
 }
 
-func CreateNewMockProxy(b config.Backend, h map[string]string, middlewareExecutor *middleware.Executor) proxy.IProxyClient {
+func CreateNewMockProxy(b *config.Backend, h map[string]string, middlewareExecutor *middleware.Executor) proxy.IProxyClient {
 	return &MockProxy{Addr: b.Url, IsCalled: false, middlewareExecutor: middlewareExecutor}
 }
 

@@ -33,47 +33,47 @@ type WRoundRobin struct {
 	healthCheckerTime time.Duration
 }
 
-func NewWRoundRobin(config *config.Config, middlewareExecutor *middleware.Executor, proxyFunc proxy.ProxyFunc) types.IBalancer {
+func NewWRoundRobin(cfg *config.Config, middlewareExecutor *middleware.Executor, proxyFunc proxy.ProxyFunc) types.IBalancer {
 	wRoundRobin := &WRoundRobin{
-		isHostAlive:       config.HealthCheckerFunc,
-		healthCheckerTime: config.HealthCheckerTime,
+		isHostAlive:       cfg.HealthCheckerFunc,
+		healthCheckerTime: cfg.HealthCheckerTime,
 		serversMap:        make(map[uint32]*serverMap),
-		hashFunc:          config.HashFunc,
+		hashFunc:          cfg.HashFunc,
 		stopHealthChecker: make(chan bool),
 	}
 
-	for i, b := range config.Backends {
+	for i, b := range cfg.Backends {
 		if !wRoundRobin.isHostAlive(b.GetHealthCheckURL()) {
 			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
 
-		proxy := proxyFunc(b, config.CustomHeaders, middlewareExecutor)
+		proxyClient := proxyFunc(&b, cfg.CustomHeaders, middlewareExecutor)
 		for range int(b.Weight) {
-			wRoundRobin.servers = append(wRoundRobin.servers, proxy)
+			wRoundRobin.servers = append(wRoundRobin.servers, proxyClient)
 		}
 
-		wRoundRobin.serversMap[wRoundRobin.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxy, weight: b.Weight, isHostAlive: true, i: i}
+		wRoundRobin.serversMap[wRoundRobin.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxyClient, weight: b.Weight, isHostAlive: true, i: i}
 		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
 	}
 
-	if len(wRoundRobin.servers) <= 0 {
+	if len(wRoundRobin.servers) == 0 {
 		return nil
 	}
-	wRoundRobin.len = uint64(len(wRoundRobin.servers))
 
-	rand.New(rand.NewSource(time.Now().UnixNano())).Shuffle(len(wRoundRobin.servers), func(i, j int) {
+	wRoundRobin.len = uint64(len(wRoundRobin.servers))
+	rand.New(rand.NewSource(time.Now().UnixNano())).Shuffle(len(wRoundRobin.servers), func(i, j int) { //nolint:gosec
 		wRoundRobin.servers[i], wRoundRobin.servers[j] = wRoundRobin.servers[j], wRoundRobin.servers[i]
 	})
 
-	go wRoundRobin.healthChecker(config.Backends)
+	go wRoundRobin.healthChecker(cfg.Backends)
 
 	return wRoundRobin
 }
 
 func (w *WRoundRobin) Serve() func(ctx *fasthttp.RequestCtx) {
 	return func(ctx *fasthttp.RequestCtx) {
-		w.next().ReverseProxyHandler(ctx)
+		w.next().ReverseProxyHandler(ctx) //nolint:errcheck
 	}
 }
 
@@ -90,13 +90,13 @@ func (w *WRoundRobin) healthChecker(backends []config.Backend) {
 		default:
 			time.Sleep(w.healthCheckerTime)
 			for i, backend := range backends {
-				w.healthCheck(backend, i)
+				w.healthCheck(&backend, i)
 			}
 		}
 	}
 }
 
-func (w *WRoundRobin) healthCheck(backend config.Backend, index int) {
+func (w *WRoundRobin) healthCheck(backend *config.Backend, index int) {
 	status := w.isHostAlive(backend.GetHealthCheckURL())
 	backendHash := w.hashFunc(helper.S2B(backend.Url + strconv.Itoa(index)))
 	proxyMap, ok := w.serversMap[backendHash]
@@ -104,7 +104,7 @@ func (w *WRoundRobin) healthCheck(backend config.Backend, index int) {
 	if ok && (!status && proxyMap.isHostAlive) {
 		w.servers = helper.RemoveByValue(w.servers, proxyMap.proxy)
 
-		w.len = w.len - uint64(proxyMap.weight)
+		w.len -= uint64(proxyMap.weight)
 		proxyMap.isHostAlive = false
 
 		zap.S().Infof("Server is down, removing from load balancer, Addr: %s", backend.Url)
@@ -116,11 +116,11 @@ func (w *WRoundRobin) healthCheck(backend config.Backend, index int) {
 			w.servers = append(w.servers, proxyMap.proxy)
 		}
 
-		rand.New(rand.NewSource(time.Now().UnixNano())).Shuffle(len(w.servers), func(i, j int) {
+		rand.New(rand.NewSource(time.Now().UnixNano())).Shuffle(len(w.servers), func(i, j int) { //nolint:gosec
 			w.servers[i], w.servers[j] = w.servers[j], w.servers[i]
 		})
 
-		w.len = w.len + uint64(proxyMap.weight)
+		w.len += uint64(proxyMap.weight)
 		proxyMap.isHostAlive = true
 		zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s", backend.Url)
 	}

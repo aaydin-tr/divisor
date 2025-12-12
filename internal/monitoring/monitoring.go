@@ -13,7 +13,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/mem"
-	"github.com/shirou/gopsutil/v4/process"
+	gopsutilProcess "github.com/shirou/gopsutil/v4/process"
 	"github.com/valyala/fasthttp"
 	"github.com/valyala/fasthttp/fasthttpadaptor"
 	"github.com/valyala/fasthttp/reuseport"
@@ -48,7 +48,7 @@ func getServerStats(server any, proxiesStats []types.ProxyStat) Monitoring {
 	})
 
 	monitoring := Monitoring{}
-	process, err := process.NewProcess(int32(pid))
+	process, err := gopsutilProcess.NewProcess(int32(pid))
 	if err != nil {
 		zap.S().Errorf("Error while getting process, err: %v", err)
 		return Monitoring{}
@@ -76,7 +76,7 @@ func getServerStats(server any, proxiesStats []types.ProxyStat) Monitoring {
 		return Monitoring{}
 	}
 
-	monitoring.Memory.ProcessMB = float64(per * float32(ByteToMB(vm.Total)) / 100)
+	monitoring.Memory.ProcessMB = float64(per * float32(ByteToMB(vm.Total)) / 100) //nolint:mnd
 	monitoring.Memory.ProcessPercent = per
 	monitoring.Memory.TotalPercent = vm.UsedPercent
 	monitoring.TotalGoroutine = runtime.NumGoroutine()
@@ -96,12 +96,14 @@ func getServerStats(server any, proxiesStats []types.ProxyStat) Monitoring {
 }
 
 func StartMonitoringServer(server any, proxies types.IBalancer, addr string) {
+	const sleepDuration = 5 * time.Second
 	r := router.New()
 	init_prometheus()
 	go func() {
 		for {
-			updatePrometheusMetrics(getServerStats(server, proxies.Stats()))
-			time.Sleep(5 * time.Second)
+			stats := getServerStats(server, proxies.Stats())
+			updatePrometheusMetrics(&stats)
+			time.Sleep(sleepDuration)
 		}
 	}()
 
@@ -146,5 +148,5 @@ func StartMonitoringServer(server any, proxies types.IBalancer, addr string) {
 }
 
 func ByteToMB(b uint64) uint64 {
-	return b / 1024 / 1024
+	return b / 1024 / 1024 //nolint:mnd
 }

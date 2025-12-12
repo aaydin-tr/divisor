@@ -14,6 +14,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+var (
+	ErrAtLeastOneBackend = errors.New("At least one backend must be set")
+	ErrInvalidPort       = errors.New("Please choose valid port")
+	ErrInvalidWeight     = errors.New("When using the weighted-round-robin algorithm, a weight must be specified for each backend")
+	ErrHttp2WithoutTls   = errors.New("The HTTP/2 connection can be only established if the server is using TLS. Please provide cert and key file")
+)
+
 var ValidTypes = []string{"round-robin", "w-round-robin", "ip-hash", "random", "least-connection", "least-response-time"}
 var ValidCustomHeaders = []string{"$remote_addr", "$time", "$uuid", "$incremental"}
 
@@ -124,7 +131,7 @@ func ParseConfigFile(path string) (*Config, error) {
 
 func (c *Config) PrepareConfig() error {
 	if len(c.Backends) == 0 {
-		return errors.New("At least one backend must be set")
+		return ErrAtLeastOneBackend
 	}
 
 	if c.Host == "" {
@@ -132,7 +139,7 @@ func (c *Config) PrepareConfig() error {
 	}
 
 	if c.Port == "" {
-		return errors.New("Please choose valid port")
+		return ErrInvalidPort
 	}
 
 	if c.Type == "" {
@@ -140,7 +147,7 @@ func (c *Config) PrepareConfig() error {
 	}
 
 	if !helper.Contains(ValidTypes, c.Type) {
-		return errors.New(fmt.Sprintf("Please choose valid load balancing type e.g %v", ValidTypes))
+		return fmt.Errorf("Please choose valid load balancing type e.g %v", ValidTypes)
 	}
 
 	if c.Type == "w-round-robin" && len(c.Backends) == 1 {
@@ -161,7 +168,7 @@ func (c *Config) PrepareConfig() error {
 
 	for _, value := range c.CustomHeaders {
 		if !helper.Contains(ValidCustomHeaders, value) {
-			return errors.New(fmt.Sprintf("Please choose valid custom header, e.g %v", ValidCustomHeaders))
+			return fmt.Errorf("Please choose valid custom header, e.g %v", ValidCustomHeaders)
 		}
 	}
 
@@ -188,7 +195,7 @@ func (c *Config) prepareBackends() error {
 		b.Url = protocolRegex.ReplaceAllString(b.Url, "")
 
 		if c.Type == "w-round-robin" && b.Weight <= 0 {
-			return errors.New("When using the weighted-round-robin algorithm, a weight must be specified for each backend.")
+			return ErrInvalidWeight
 		}
 
 		if b.HealthCheckPath == "" {
@@ -225,7 +232,7 @@ func (s *Server) prepareServer() error {
 	}
 
 	if s.HttpVersion == Http2 && (s.CertFile == "" || s.KeyFile == "") {
-		return errors.New("The HTTP/2 connection can be only established if the server is using TLS. Please provide cert and key file")
+		return ErrHttp2WithoutTls
 	}
 
 	if err := helper.IsFileExist(s.CertFile); err != nil && s.CertFile != "" {

@@ -5,22 +5,23 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
-  # linter:
-  #   name: Linter
-  #   uses: ./.github/workflows/linter.yml
+  linter:
+    name: Linter
+    uses: ./.github/workflows/linter.yml
 
   test:
     name: Test
     uses: ./.github/workflows/test.yml
-    # needs: linter
+    needs: linter
 
   review:
+    if: github.actor != 'dependabot[bot]'
     permissions:
       contents: read
       pull-requests: write
       id-token: write
     name: Review
-    needs: [test]
+    needs: [test, linter]
     uses: ./.github/workflows/review.yml
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

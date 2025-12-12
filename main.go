@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	balancer "github.com/aaydin-tr/divisor/core"
+	"github.com/aaydin-tr/divisor/core"
 	"github.com/aaydin-tr/divisor/core/types"
 	"github.com/aaydin-tr/divisor/internal/monitoring"
 	"github.com/aaydin-tr/divisor/internal/proxy"
@@ -62,7 +62,7 @@ func main() {
 	}
 
 	zap.S().Info("Proxies are being prepared.")
-	proxies := balancer.NewBalancer(config, middlewareExecutor, proxy.NewProxyClient)
+	proxies := core.NewBalancer(config, middlewareExecutor, proxy.NewProxyClient)
 
 	if proxies == nil {
 		zap.S().Error("No available servers")
@@ -173,7 +173,8 @@ func startNetHttpServer(config *cfg.Config, proxies types.IBalancer, ln net.List
 }
 
 func performGracefulShutdown(server any, balancer types.IBalancer) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	const timeout = 30 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	shutdownComplete := make(chan error, 1)

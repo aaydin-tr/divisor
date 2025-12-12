@@ -181,8 +181,7 @@ func TestPrepareBackends(t *testing.T) {
 		}}, Type: "w-round-robin", Port: "8000"}
 
 		err := config.prepareBackends()
-		fmt.Println(err)
-		assert.EqualError(t, err, "When using the weighted-round-robin algorithm, a weight must be specified for each backend.")
+		assert.EqualError(t, err, ErrInvalidWeight.Error())
 	})
 
 }
@@ -209,7 +208,7 @@ func TestPrepareServer(t *testing.T) {
 		basic.Server.HttpVersion = Http2
 		err = basic.Server.prepareServer()
 
-		assert.EqualError(t, err, "The HTTP/2 connection can be only established if the server is using TLS. Please provide cert and key file")
+		assert.EqualError(t, err, ErrHttp2WithoutTls.Error())
 	})
 
 	t.Run("cert file does not exist", func(t *testing.T) {
