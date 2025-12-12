@@ -165,6 +165,10 @@ func (c *Config) PrepareConfig() error {
 		}
 	}
 
+	if err := c.validateMiddlewares(); err != nil {
+		return err
+	}
+
 	// Default funcs
 	// TODO make more flexible
 	c.HashFunc = helper.HashFunc
@@ -240,5 +244,22 @@ func (s *Server) prepareServer() error {
 		s.Concurrency = fasthttp.DefaultConcurrency
 	}
 
+	return nil
+}
+
+func (c *Config) validateMiddlewares() error {
+	for i, mw := range c.Middlewares {
+		if mw.Name == "" {
+			return fmt.Errorf("middleware at index %d: name is required", i)
+		}
+		if !mw.Disabled {
+			if mw.Code == "" && mw.File == "" {
+				return fmt.Errorf("middleware '%s': either code or file must be specified", mw.Name)
+			}
+			if mw.Code != "" && mw.File != "" {
+				return fmt.Errorf("middleware '%s': cannot specify both code and file", mw.Name)
+			}
+		}
+	}
 	return nil
 }
