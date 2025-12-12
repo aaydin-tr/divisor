@@ -1,0 +1,155 @@
+version: "2"
+run:
+  go: 1.25.3
+linters:
+  default: none
+  enable:
+    - bodyclose
+    - depguard
+    - dogsled
+    - errcheck
+    - funlen
+    - gochecknoinits
+    - goconst
+    - gocritic
+    - gocyclo
+    - goprintffuncname
+    - gosec
+    - ineffassign
+    - lll
+    - misspell
+    - mnd
+    - nakedret
+    - noctx
+    - nolintlint
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+    - whitespace
+  settings:
+    depguard:
+      rules:
+        main:
+          deny:
+            - pkg: io/ioutil
+              desc: ioutil is deprecated starting with Go 1.16
+    dupl:
+      threshold: 100
+    funlen:
+      lines: 200
+      statements: 64
+    goconst:
+      min-len: 2
+      min-occurrences: 3
+    gocritic:
+      disabled-checks:
+        - dupImport
+        - ifElseChain
+        - octalLiteral
+        - whyNoLint
+        - commentedOutCode
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+    gocyclo:
+      min-complexity: 26
+    gosec:
+      excludes:
+        - G115
+    govet:
+      settings:
+        printf:
+          funcs:
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Infof
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Warnf
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Errorf
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Fatalf
+    lll:
+      line-length: 170
+    misspell:
+      locale: US
+    nolintlint:
+      require-explanation: false
+      require-specific: false
+      allow-unused: false
+    mnd:
+      checks:
+        - argument
+        - case
+        - condition
+        - return
+      ignored-numbers:
+        - '0'
+        - '1'
+        - '2'
+        - '3'
+      ignored-functions:
+        - strings.SplitN
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - bodyclose
+          - depguard
+          - dogsled
+          - dupl
+          - errcheck
+          - exportloopref
+          - funlen
+          - gochecknoinits
+          - goconst
+          - gocritic
+          - gocyclo
+          - goprintffuncname
+          - gosec
+          - govet
+          - ineffassign
+          - lll
+          - misspell
+          - mnd
+          - nakedret
+          - noctx
+          - nolintlint
+          - staticcheck
+          - unconvert
+          - unparam
+          - unused
+          - whitespace
+        path: _test\.go
+      - linters:
+          - unused
+        path: docs\.go
+      - linters:
+          - staticcheck
+        text: 'ST1003: should not use underscores in package names'
+      - linters:
+          - gosec
+        text: 'G101: Potential hardcoded credentials'
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/golangci/golangci-lint
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+      - _test\.go
