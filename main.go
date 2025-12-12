@@ -155,6 +155,7 @@ func startNetHttpServer(config *cfg.Config, proxies types.IBalancer, ln net.List
 		server.SetKeepAlivesEnabled(true)
 	}
 
+	// TODO add configuration for HTTP/2 server
 	err := http2.ConfigureServer(server, &http2.Server{})
 	if err != nil {
 		zap.S().Errorf("Error while configuring HTTP/2 server %s", err)
