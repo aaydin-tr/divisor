@@ -73,7 +73,7 @@ func NewExecutor(configs []config.Middleware) (*Executor, error) {
 				if err != nil {
 					return nil, err
 				}
-				code = helper.B2s(b)
+				code = helper.B2S(b)
 			}
 
 			program, err := i.Compile(code)
