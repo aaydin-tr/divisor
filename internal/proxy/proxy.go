@@ -84,8 +84,8 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 		}
 	}
 
+	h.postRes(res)
 	if serverErr != nil {
-		h.postRes(res)
 		h.serverError(res, serverErr.Error())
 		return serverErr
 	}
