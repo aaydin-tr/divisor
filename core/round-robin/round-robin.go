@@ -31,23 +31,23 @@ type RoundRobin struct {
 	healthCheckerTime time.Duration
 }
 
-func NewRoundRobin(config *config.Config, middlewareExecutor *middleware.Executor, proxyFunc proxy.ProxyFunc) types.IBalancer {
+func NewRoundRobin(cfg *config.Config, middlewareExecutor *middleware.Executor, proxyFunc proxy.ProxyFunc) types.IBalancer {
 	roundRobin := &RoundRobin{
 		serversMap:        make(map[uint32]*serverMap),
-		isHostAlive:       config.HealthCheckerFunc,
-		healthCheckerTime: config.HealthCheckerTime,
-		hashFunc:          config.HashFunc,
+		isHostAlive:       cfg.HealthCheckerFunc,
+		healthCheckerTime: cfg.HealthCheckerTime,
+		hashFunc:          cfg.HashFunc,
 		stopHealthChecker: make(chan bool),
 	}
 
-	for i, b := range config.Backends {
+	for i, b := range cfg.Backends {
 		if !roundRobin.isHostAlive(b.GetHealthCheckURL()) {
 			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
-		proxy := proxyFunc(b, config.CustomHeaders, middlewareExecutor)
-		roundRobin.servers = append(roundRobin.servers, proxy)
-		roundRobin.serversMap[roundRobin.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxy, isHostAlive: true, i: i}
+		proxyClient := proxyFunc(&b, cfg.CustomHeaders, middlewareExecutor)
+		roundRobin.servers = append(roundRobin.servers, proxyClient)
+		roundRobin.serversMap[roundRobin.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxyClient, isHostAlive: true, i: i}
 		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
 		roundRobin.len++
 	}
@@ -56,14 +56,14 @@ func NewRoundRobin(config *config.Config, middlewareExecutor *middleware.Executo
 		return nil
 	}
 
-	go roundRobin.healthChecker(config.Backends)
+	go roundRobin.healthChecker(cfg.Backends)
 
 	return roundRobin
 }
 
 func (r *RoundRobin) Serve() func(ctx *fasthttp.RequestCtx) {
 	return func(ctx *fasthttp.RequestCtx) {
-		r.next().ReverseProxyHandler(ctx)
+		r.next().ReverseProxyHandler(ctx) //nolint:errcheck
 	}
 }
 
@@ -80,19 +80,19 @@ func (r *RoundRobin) healthChecker(backends []config.Backend) {
 		default:
 			time.Sleep(r.healthCheckerTime)
 			for i, backend := range backends {
-				r.healthCheck(backend, i)
+				r.healthCheck(&backend, i)
 			}
 		}
 	}
 }
 
-func (r *RoundRobin) healthCheck(backend config.Backend, index int) {
+func (r *RoundRobin) healthCheck(backend *config.Backend, index int) {
 	status := r.isHostAlive(backend.GetHealthCheckURL())
 	backendHash := r.hashFunc(helper.S2B(backend.Url + strconv.Itoa(index)))
 	proxyMap, ok := r.serversMap[backendHash]
 	if ok && (!status && proxyMap.isHostAlive) {
 		r.servers = helper.RemoveByValue(r.servers, proxyMap.proxy)
-		r.len = r.len - 1
+		r.len--
 		proxyMap.isHostAlive = false
 
 		zap.S().Infof("Server is down, removing from load balancer, Addr: %s", backend.Url)

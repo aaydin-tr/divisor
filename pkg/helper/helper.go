@@ -94,7 +94,7 @@ func CreateLogDirIfNotExist(logDir string) error {
 func IsFileExist(file string) error {
 	info, err := os.Stat(file)
 	if err != nil {
-		return errors.New(fmt.Sprintf("%s file does not exist", file))
+		return fmt.Errorf("%s file does not exist", file)
 	}
 	if info.IsDir() {
 		return errors.New("Provided a dir not file")

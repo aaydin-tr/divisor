@@ -1,4 +1,4 @@
-package balancer
+package core
 
 import (
 	ip_hash "github.com/aaydin-tr/divisor/core/ip-hash"
@@ -23,6 +23,6 @@ var balancers = map[string]func(config *config.Config, middlewareExecutor *middl
 	"least-response-time": least_algorithm.NewLeastAlgorithm,
 }
 
-func NewBalancer(config *config.Config, middlewareExecutor *middleware.Executor, proxyFunc proxy.ProxyFunc) types.IBalancer {
-	return balancers[config.Type](config, middlewareExecutor, proxyFunc)
+func NewBalancer(cfg *config.Config, middlewareExecutor *middleware.Executor, proxyFunc proxy.ProxyFunc) types.IBalancer {
+	return balancers[cfg.Type](cfg, middlewareExecutor, proxyFunc)
 }

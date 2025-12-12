@@ -31,7 +31,7 @@ func (a *NetHttpAdapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Server", "divisor")
 
 	w.WriteHeader(ctx.Response.StatusCode())
-	w.Write(ctx.Response.Body())
+	w.Write(ctx.Response.Body()) //nolint:errcheck
 }
 
 func ConvertNetHttpRequestToFastHttpRequest(r *http.Request, ctx *fasthttp.RequestCtx) {
@@ -64,7 +64,6 @@ func ConvertNetHttpRequestToFastHttpRequest(r *http.Request, ctx *fasthttp.Reque
 		addr := parseRemoteAddr(r.RemoteAddr)
 		ctx.SetRemoteAddr(addr)
 	}
-
 }
 
 func parseRemoteAddr(addr string) net.Addr {

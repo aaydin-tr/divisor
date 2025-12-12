@@ -15,7 +15,7 @@ import (
 	"go.uber.org/zap"
 )
 
-type ProxyFunc func(config.Backend, map[string]string, *middlewarePkg.Executor) IProxyClient
+type ProxyFunc func(*config.Backend, map[string]string, *middlewarePkg.Executor) IProxyClient
 
 type IProxyClient interface {
 	ReverseProxyHandler(ctx *fasthttp.RequestCtx) error
@@ -75,7 +75,6 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 	var serverErr error
 	if err := h.proxy.Do(req, res); err != nil {
 		serverErr = err
-
 	}
 
 	if h.middlewareExecutor != nil {
@@ -122,13 +121,14 @@ func (h *ProxyClient) serverError(res *fasthttp.Response, err string) {
 
 func (h *ProxyClient) setCustomHeaders(req *fasthttp.Request, clientIP []byte) {
 	for k, v := range h.customHeaders {
-		if v == "$remote_addr" {
+		switch v {
+		case "$remote_addr":
 			req.Header.SetBytesV(k, clientIP)
-		} else if v == "$time" {
+		case "$time":
 			req.Header.Set(k, time.Now().Local().Format("2006-01-02T15:04:05.000Z"))
-		} else if v == "$incremental" {
+		case "$incremental":
 			req.Header.Set(k, strconv.FormatUint(atomic.LoadUint64(h.totalRequestCount), 10))
-		} else if v == "$uuid" {
+		case "$uuid":
 			req.Header.Set(k, uuid.New().String())
 		}
 	}
@@ -165,7 +165,11 @@ func (h *ProxyClient) Close() error {
 	return nil
 }
 
-func NewProxyClient(backend config.Backend, customHeaders map[string]string, middlewareExecutor *middlewarePkg.Executor) IProxyClient {
+func NewProxyClient(backend *config.Backend, customHeaders map[string]string, middlewareExecutor *middlewarePkg.Executor) IProxyClient {
+	if backend == nil {
+		return nil
+	}
+
 	proxyClient := &fasthttp.HostClient{
 		Addr:                      backend.Url,
 		MaxConns:                  backend.MaxConnection,

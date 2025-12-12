@@ -132,6 +132,9 @@ linters:
           - staticcheck
         text: 'ST1003: should not use underscores in package names'
       - linters:
+          - staticcheck
+        text: 'ST1005: error strings should not be capitalized'
+      - linters:
           - gosec
         text: 'G101: Potential hardcoded credentials'
     paths:

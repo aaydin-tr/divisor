@@ -32,24 +32,24 @@ type LeastAlgorithm struct {
 	nextFunc          func() proxy.IProxyClient
 }
 
-func NewLeastAlgorithm(config *config.Config, middlewareExecutor *middleware.Executor, proxyFunc proxy.ProxyFunc) types.IBalancer {
+func NewLeastAlgorithm(cfg *config.Config, middlewareExecutor *middleware.Executor, proxyFunc proxy.ProxyFunc) types.IBalancer {
 	leastAlgorithm := &LeastAlgorithm{
 		serversMap:        make(map[uint32]*serverMap),
-		isHostAlive:       config.HealthCheckerFunc,
-		healthCheckerTime: config.HealthCheckerTime,
-		hashFunc:          config.HashFunc,
+		isHostAlive:       cfg.HealthCheckerFunc,
+		healthCheckerTime: cfg.HealthCheckerTime,
+		hashFunc:          cfg.HashFunc,
 		stopHealthChecker: make(chan bool),
 		lastIndex:         new(uint32),
 	}
 
-	for i, b := range config.Backends {
+	for i, b := range cfg.Backends {
 		if !leastAlgorithm.isHostAlive(b.GetHealthCheckURL()) {
 			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
-		proxy := proxyFunc(b, config.CustomHeaders, middlewareExecutor)
-		leastAlgorithm.servers = append(leastAlgorithm.servers, proxy)
-		leastAlgorithm.serversMap[leastAlgorithm.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxy, isHostAlive: true, i: i}
+		proxyClient := proxyFunc(&b, cfg.CustomHeaders, middlewareExecutor)
+		leastAlgorithm.servers = append(leastAlgorithm.servers, proxyClient)
+		leastAlgorithm.serversMap[leastAlgorithm.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxyClient, isHostAlive: true, i: i}
 		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
 		leastAlgorithm.len++
 	}
@@ -58,48 +58,49 @@ func NewLeastAlgorithm(config *config.Config, middlewareExecutor *middleware.Exe
 		return nil
 	}
 
-	if config.Type == "least-connection" {
+	switch cfg.Type {
+	case "least-connection":
 		leastAlgorithm.nextFunc = leastAlgorithm.leastConnectionNext
-	} else if config.Type == "least-response-time" {
+	case "least-response-time":
 		leastAlgorithm.nextFunc = leastAlgorithm.leastResponseTimeNext
-	} else {
+	default:
 		zap.S().Error("Invalid balancer type for least algorithms")
 		return nil
 	}
 
-	go leastAlgorithm.healthChecker(config.Backends)
+	go leastAlgorithm.healthChecker(cfg.Backends)
 
 	return leastAlgorithm
 }
 
 func (l *LeastAlgorithm) Serve() func(ctx *fasthttp.RequestCtx) {
 	return func(ctx *fasthttp.RequestCtx) {
-		l.nextFunc().ReverseProxyHandler(ctx)
+		l.nextFunc().ReverseProxyHandler(ctx) //nolint:errcheck
 	}
 }
 
 func (l *LeastAlgorithm) leastConnectionNext() proxy.IProxyClient {
-	min := l.servers[atomic.LoadUint32(l.lastIndex)]
+	proxyClient := l.servers[atomic.LoadUint32(l.lastIndex)]
 	for i, proxy := range l.servers {
-		if proxy.PendingRequests() < min.PendingRequests() {
-			min = proxy
+		if proxy.PendingRequests() < proxyClient.PendingRequests() {
+			proxyClient = proxy
 			atomic.StoreUint32(l.lastIndex, uint32(i))
 			break
 		}
 	}
-	return min
+	return proxyClient
 }
 
 func (l *LeastAlgorithm) leastResponseTimeNext() proxy.IProxyClient {
-	min := l.servers[atomic.LoadUint32(l.lastIndex)]
+	proxyClient := l.servers[atomic.LoadUint32(l.lastIndex)]
 	for i, proxy := range l.servers {
-		if proxy.AvgResponseTime() < min.AvgResponseTime() {
-			min = proxy
+		if proxy.AvgResponseTime() < proxyClient.AvgResponseTime() {
+			proxyClient = proxy
 			atomic.StoreUint32(l.lastIndex, uint32(i))
 		}
 	}
 
-	return min
+	return proxyClient
 }
 
 func (l *LeastAlgorithm) healthChecker(backends []config.Backend) {
@@ -110,19 +111,19 @@ func (l *LeastAlgorithm) healthChecker(backends []config.Backend) {
 		default:
 			time.Sleep(l.healthCheckerTime)
 			for i, backend := range backends {
-				l.healthCheck(backend, i)
+				l.healthCheck(&backend, i)
 			}
 		}
 	}
 }
 
-func (l *LeastAlgorithm) healthCheck(backend config.Backend, index int) {
+func (l *LeastAlgorithm) healthCheck(backend *config.Backend, index int) {
 	status := l.isHostAlive(backend.GetHealthCheckURL())
 	backendHash := l.hashFunc(helper.S2B(backend.Url + strconv.Itoa(index)))
 	proxyMap, ok := l.serversMap[backendHash]
 	if ok && (!status && proxyMap.isHostAlive) {
 		l.servers = helper.RemoveByValue(l.servers, proxyMap.proxy)
-		l.len = l.len - 1
+		l.len--
 		proxyMap.isHostAlive = false
 
 		if atomic.LoadUint32(l.lastIndex) >= uint32(l.len) {
