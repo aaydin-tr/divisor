@@ -208,42 +208,86 @@ middlewares:
 
 ### Request/Response Lifecycle
 
-The middleware execution flow allows you to intercept and control the request/response lifecycle.
+The middleware execution flow allows you to intercept and control the complete request/response lifecycle. Here's exactly what happens when a request is processed:
 
-1.  **OnRequest**:
-    -   Executed **before** the request is sent to the backend.
-    -   If `OnRequest` returns an `error`:
-        -   The execution chain stops immediately.
-        -   The request is **not** sent to the backend.
-        -   `OnResponse` is **not** called.
-        -   The error is returned to the client.
+#### Complete Request Flow
 
-2.  **OnResponse**:
-    -   Executed **after** the backend responds (or fails).
-    -   It receives the `error` from the backend (if any) as the second argument.
-    -   If `OnResponse` returns an `error`:
-        -   It overrides any backend error.
-        -   The standard error handling is skipped.
-        -   This allows you to customize error responses or handling.
+1.  **Pre-Request Setup**
+    -   Internal request preprocessing occurs
+    -   Headers and request context are prepared
+
+2.  **OnRequest Middleware Execution**
+    -   Executed **before** the request is sent to the backend
+    -   Receives the middleware context with full access to request/response
+    -   **If `OnRequest` returns an error:**
+        -   ⛔ The execution chain stops **immediately**
+        -   ⛔ The request is **NOT** sent to the backend
+        -   ⛔ `OnResponse` is **NOT** called
+        -   ⛔ Post-response cleanup occurs
+        -   ⛔ The error is returned to the client
+    -   **If `OnRequest` succeeds (returns `nil`):**
+        -   ✅ Execution continues to backend proxy
+
+3.  **Backend Proxy**
+    -   The request is forwarded to the selected backend server
+    -   The response (or error) is captured and stored
+    -   **Important:** Even if the backend fails, execution continues to `OnResponse`
+
+4.  **OnResponse Middleware Execution**
+    -   **Always** executed after the proxy attempt (success or failure)
+    -   Receives **two arguments:**
+        1. The middleware context
+        2. The backend error (if any) - will be `nil` on success
+    -   You can inspect the backend error and decide how to handle it
+    -   **If `OnResponse` returns an error:**
+        -   ⚠️ It **overrides** any backend error
+        -   ⚠️ Post-response cleanup occurs
+        -   ⚠️ This error is returned to the client
+        -   ⚠️ The standard error response is replaced
+    -   **If `OnResponse` returns `nil`:**
+        -   Execution continues normally
+        -   If backend error exists, standard 500 error response is generated
+        -   If no error, the backend response is sent to client
+
+5.  **Post-Response Cleanup**
+    -   Internal response postprocessing occurs
+    -   Always executed regardless of success or failure
+
+6.  **Response Sent**
+    -   Final response is sent to the client
+
+#### Key Takeaways
+
+-   🎯 **OnRequest** acts as a gatekeeper - it can block requests before they reach the backend
+-   🔄 **OnResponse** always runs after the proxy attempt, giving you a chance to handle backend errors
+-   🛡️ **OnResponse** can override backend errors, allowing custom error handling and responses
+-   ⏱️ Both middlewares have access to the full request/response context for inspection and modification
 
 ### Request/Response Diagram
 
 ```mermaid
 flowchart TD
-    Start([Request Received]) --> PreReq[Pre-Request Setup]
+    Start([Client Request]) --> PreReq[Pre-Request Setup]
     PreReq --> OnReq{OnRequest Middleware}
     
-    OnReq -->|Error| PostRes[Post-Request Setup] --> ReturnErr([Return Error])
-    OnReq -->|Success| Proxy[Proxy to Backend]
+    OnReq -->|Returns Error| PostRes1[Post-Response Cleanup]
+    PostRes1 --> ReturnErr([Return OnRequest Error])
     
-    Proxy --> CaptureErr[Capture Response/Error]
+    OnReq -->|Returns nil| Proxy[Forward to Backend Server]
+    
+    Proxy --> CaptureErr[Capture Backend Response/Error]
     CaptureErr --> OnRes{OnResponse Middleware}
     
-    OnRes -->|Error| Cleanup1[Post-Request Setup] --> ReturnMwErr([Middleware Error])
-    OnRes -->|Success| CheckErr{Server Error?}
+    OnRes -->|Returns Error| PostRes2[Post-Response Cleanup]
+    PostRes2 --> ReturnMwErr([Return OnResponse Error<br/>Backend error overridden])
     
-    CheckErr -->|Yes| Cleanup2[Post-Request Setup] --> ReturnServerErr([500 Error])
-    CheckErr -->|No| Cleanup2[Post-Request Setup] --> ReturnOK([Success])
+    OnRes -->|Returns nil| PostRes3[Post-Response Cleanup]
+    PostRes3 --> CheckBackendErr{Backend Error Exists?}
+    
+    CheckBackendErr -->|Yes| GenerateErr[Generate 500 Error Response]
+    GenerateErr --> ReturnServerErr([Return Server Error])
+    
+    CheckBackendErr -->|No| ReturnOK([Return Success Response])
 ```
 
 ## Limitations
