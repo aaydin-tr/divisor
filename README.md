@@ -129,9 +129,11 @@ Divisor supports custom middleware written in Go. You can define middleware to i
 
 The middleware is executed using the [Yaegi](https://github.com/traefik/yaegi) interpreter.
 
-### Interface
+### Usage
 
 Your middleware must implement the `Middleware` interface and provide a `New` function constructor.
+
+> :warning: Make sure you run `go get github.com/aaydin-tr/divisor/middleware` to import the middleware package. 
 
 ```go
 package middleware
@@ -203,7 +205,7 @@ middlewares:
       }
 ```
 
-### Flow Control
+### Request/Response Lifecycle
 
 The middleware execution flow allows you to intercept and control the request/response lifecycle.
 
@@ -223,35 +225,24 @@ The middleware execution flow allows you to intercept and control the request/re
         -   The standard error handling is skipped.
         -   This allows you to customize error responses or handling.
 
-### Request/Response Flow Diagram
+### Request/Response Diagram
 
 ```mermaid
 flowchart TD
-    %% STYLE
-    classDef step fill:#e7f0fd,stroke:#5b8def,stroke-width:1px;
-    classDef decision fill:#fff3cd,stroke:#e0a800,stroke-width:1px;
-    classDef terminus fill:#d4edda,stroke:#28a745,stroke-width:1px;
-    classDef error fill:#f8d7da,stroke:#dc3545,stroke-width:1px;
-
-    Start([Request Received]):::step --> PreReq[Pre-Request Setup]:::step
-    PreReq --> OnReq{{OnRequest<br>Middleware}}:::decision
-
-    OnReq -- Error --> ReturnErr([Return Error<br>Chain Stops]):::error
-    OnReq -- Success --> Proxy[Proxy Request to Backend]:::step
-
-    Proxy --> ProxyResult{{Backend Error?}}:::decision
-    ProxyResult -- Yes --> CaptureErr[Capture Server Error]:::error
-    ProxyResult -- No --> CaptureErr
-
-    CaptureErr --> OnRes{{OnResponse<br>Middleware}}:::decision
-
-    OnRes -- Error --> MwCleanup[Post-Response Cleanup]:::step --> ReturnMwErr([Return Middleware Error]):::error
-
-    OnRes -- Success --> CheckServerErr{{Captured Server Error?}}:::decision
-
-    CheckServerErr -- Yes --> ErrCleanup[Post-Response Cleanup]:::step --> DefaultErr([Default Error Handler<br>500 Internal Server Error]):::error --> ReturnServerErr([Return Server Error]):::error
-
-    CheckServerErr -- No --> ErrCleanup[Post-Response Cleanup]:::step --> ReturnOK([Return Success]):::terminus
+    Start([Request Received]) --> PreReq[Pre-Request Setup]
+    PreReq --> OnReq{OnRequest Middleware}
+    
+    OnReq -->|Error| PostRes[Post-Request Setup] --> ReturnErr([Return Error])
+    OnReq -->|Success| Proxy[Proxy to Backend]
+    
+    Proxy --> CaptureErr[Capture Response/Error]
+    CaptureErr --> OnRes{OnResponse Middleware}
+    
+    OnRes -->|Error| Cleanup1[Post-Request Setup] --> ReturnMwErr([Middleware Error])
+    OnRes -->|Success| CheckErr{Server Error?}
+    
+    CheckErr -->|Yes| Cleanup2[Post-Request Setup] --> ReturnServerErr([500 Error])
+    CheckErr -->|No| Cleanup2[Post-Request Setup] --> ReturnOK([Success])
 ```
 
 ## Limitations
