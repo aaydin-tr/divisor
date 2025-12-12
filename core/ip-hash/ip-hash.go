@@ -31,26 +31,26 @@ type IPHash struct {
 	healthCheckerTime time.Duration
 }
 
-func NewIPHash(config *config.Config, middlewareExecutor *middleware.Executor, proxyFunc proxy.ProxyFunc) types.IBalancer {
+func NewIPHash(cfg *config.Config, middlewareExecutor *middleware.Executor, proxyFunc proxy.ProxyFunc) types.IBalancer {
 	ipHash := &IPHash{
 		servers: *consistent.NewConsistentHash(
-			int(math.Pow(float64(len(config.Backends)), float64(2))),
-			config.HashFunc,
+			int(math.Pow(float64(len(cfg.Backends)), float64(2))),
+			cfg.HashFunc,
 		),
 		serversMap:        make(map[uint32]*serverMap),
-		isHostAlive:       config.HealthCheckerFunc,
-		healthCheckerTime: config.HealthCheckerTime,
-		hashFunc:          config.HashFunc,
+		isHostAlive:       cfg.HealthCheckerFunc,
+		healthCheckerTime: cfg.HealthCheckerTime,
+		hashFunc:          cfg.HashFunc,
 		stopHealthChecker: make(chan bool),
 	}
 
-	for i, b := range config.Backends {
+	for i, b := range cfg.Backends {
 		if !ipHash.isHostAlive(b.GetHealthCheckURL()) {
 			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
-		proxy := proxyFunc(b, config.CustomHeaders, middlewareExecutor)
-		node := &consistent.Node{Id: i, Proxy: proxy, Addr: b.Url}
+		proxyClient := proxyFunc(&b, cfg.CustomHeaders, middlewareExecutor)
+		node := &consistent.Node{Id: i, Proxy: proxyClient, Addr: b.Url}
 		ipHash.servers.AddNode(node)
 		ipHash.serversMap[ipHash.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{node: node, isHostAlive: true, i: i}
 		ipHash.len++
@@ -61,7 +61,7 @@ func NewIPHash(config *config.Config, middlewareExecutor *middleware.Executor, p
 		return nil
 	}
 
-	go ipHash.healthChecker(config.Backends)
+	go ipHash.healthChecker(cfg.Backends)
 
 	return ipHash
 }
@@ -69,8 +69,8 @@ func NewIPHash(config *config.Config, middlewareExecutor *middleware.Executor, p
 func (h *IPHash) Serve() func(ctx *fasthttp.RequestCtx) {
 	return func(ctx *fasthttp.RequestCtx) {
 		hashCode := h.hashFunc(helper.S2B(ctx.RemoteIP().String()))
-		proxy := h.get(hashCode)
-		proxy.ReverseProxyHandler(ctx)
+		proxyClient := h.get(hashCode)
+		proxyClient.ReverseProxyHandler(ctx) //nolint:errcheck
 	}
 }
 
@@ -87,13 +87,13 @@ func (h *IPHash) healthChecker(backends []config.Backend) {
 		default:
 			time.Sleep(h.healthCheckerTime)
 			for i, backend := range backends {
-				h.healthCheck(backend, i)
+				h.healthCheck(&backend, i)
 			}
 		}
 	}
 }
 
-func (h *IPHash) healthCheck(backend config.Backend, index int) {
+func (h *IPHash) healthCheck(backend *config.Backend, index int) {
 	status := h.isHostAlive(backend.GetHealthCheckURL())
 	backendHash := h.hashFunc(helper.S2B(backend.Url + strconv.Itoa(index)))
 	proxyMap, ok := h.serversMap[backendHash]
@@ -101,7 +101,7 @@ func (h *IPHash) healthCheck(backend config.Backend, index int) {
 	if ok && (!status && proxyMap.isHostAlive) {
 		h.servers.RemoveNode(proxyMap.node)
 		proxyMap.isHostAlive = false
-		h.len = h.len - 1
+		h.len--
 
 		zap.S().Infof("Server is down, removing from load balancer, Addr: %s", backend.Url)
 		if h.len == 0 {
@@ -110,7 +110,7 @@ func (h *IPHash) healthCheck(backend config.Backend, index int) {
 	} else if ok && (status && !proxyMap.isHostAlive) {
 		h.servers.AddNode(proxyMap.node)
 		proxyMap.isHostAlive = true
-		h.len = h.len + 1
+		h.len++
 		zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s", backend.Url)
 	}
 }

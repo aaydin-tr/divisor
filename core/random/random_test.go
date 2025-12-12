@@ -97,7 +97,7 @@ func TestRemoveOneServer(t *testing.T) {
 			return false
 		}
 		oldServerCount := random.len
-		random.healthCheck(backend, 0)
+		random.healthCheck(&backend, 0)
 
 		assert.False(t, b.isHostAlive, "expected isHostAlive equal to false, but got %v", b.isHostAlive)
 		assert.GreaterOrEqual(t, oldServerCount, random.len, "expected server to be removed after health check, but it did not.")
@@ -117,7 +117,7 @@ func TestRemoveAndAddServer(t *testing.T) {
 			return false
 		}
 		oldServerCount := random.len
-		random.healthCheck(backend, 0)
+		random.healthCheck(&backend, 0)
 
 		assert.False(t, b.isHostAlive, "expected isHostAlive equal to false, but got %v", b.isHostAlive)
 		assert.GreaterOrEqual(t, oldServerCount, random.len, "expected server to be removed after health check, but it did not.")
@@ -131,7 +131,7 @@ func TestRemoveAndAddServer(t *testing.T) {
 		}
 
 		oldServerCount := random.len
-		random.healthCheck(backend, 0)
+		random.healthCheck(&backend, 0)
 
 		assert.True(t, b.isHostAlive, "expected isHostAlive equal to true, but got %v", b.isHostAlive)
 		assert.GreaterOrEqual(t, random.len, oldServerCount, "expected server to be added after health check, but it did not.")
@@ -154,11 +154,11 @@ func TestRemmoveAllServers(t *testing.T) {
 			oldServerCount := random.len
 			if oldServerCount == 1 {
 				assert.Panics(t, func() {
-					random.healthCheck(backend, i)
+					random.healthCheck(&backend, i)
 				}, "expected panic after remove all servers")
 
 			} else {
-				random.healthCheck(backend, i)
+				random.healthCheck(&backend, i)
 				assert.GreaterOrEqual(t, oldServerCount, random.len, "expected server to be removed after health check, but it did not.")
 			}
 		}

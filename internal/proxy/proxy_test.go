@@ -90,7 +90,7 @@ func (m *mockMiddleware) getResponseCalls() int {
 // This helper directly creates a ProxyClient and injects the test executor
 func createTestProxyWithMiddlewares(backend config.Backend, customHeaders map[string]string, middlewares ...middleware.Middleware) *ProxyClient {
 	testExec := createTestExecutor(middlewares)
-	return NewProxyClient(backend, customHeaders, testExec).(*ProxyClient)
+	return NewProxyClient(&backend, customHeaders, testExec).(*ProxyClient)
 }
 
 // createTestExecutor creates an executor with the given middlewares for testing
@@ -119,7 +119,7 @@ var protocolRegex = regexp.MustCompile(`(^https?://)`)
 func TestNewProxyClient(t *testing.T) {
 
 	customHeaders := make(map[string]string)
-	p := NewProxyClient(backend, customHeaders, nil)
+	p := NewProxyClient(&backend, customHeaders, nil)
 	assert.IsType(t, &ProxyClient{}, p)
 	assert.Equal(t, backend.Url, p.(*ProxyClient).Addr)
 }
@@ -130,7 +130,7 @@ func TestStat(t *testing.T) {
 	bServer := httptest.NewServer(&handler)
 	defer bServer.Close()
 	backend.Url = protocolRegex.ReplaceAllString(bServer.URL, "")
-	p := NewProxyClient(backend, customHeaders, nil).(*ProxyClient)
+	p := NewProxyClient(&backend, customHeaders, nil).(*ProxyClient)
 
 	t.Run("with zero request", func(t *testing.T) {
 		stat := p.Stat()
@@ -173,7 +173,7 @@ func TestReverseProxyHandler(t *testing.T) {
 	bServer := httptest.NewServer(&handler)
 	defer bServer.Close()
 	backend.Url = protocolRegex.ReplaceAllString(bServer.URL, "")
-	p := NewProxyClient(backend, customHeaders, nil).(*ProxyClient)
+	p := NewProxyClient(&backend, customHeaders, nil).(*ProxyClient)
 
 	t.Run("should update totalRequestCount", func(t *testing.T) {
 		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
@@ -213,7 +213,7 @@ func TestReverseProxyHandler(t *testing.T) {
 	})
 
 	t.Run("with error", func(t *testing.T) {
-		pErr := NewProxyClient(config.Backend{}, customHeaders, nil).(*ProxyClient)
+		pErr := NewProxyClient(&config.Backend{}, customHeaders, nil).(*ProxyClient)
 		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
 		ctx.Request.SetHost("test")
 		err := pErr.ReverseProxyHandler(&ctx)
@@ -228,7 +228,7 @@ func TestReverseProxyHandler(t *testing.T) {
 		customHeaders["X-Incremental"] = "$incremental"
 		customHeaders["X-Uuid"] = "$uuid"
 
-		pHeader := NewProxyClient(backend, customHeaders, nil).(*ProxyClient)
+		pHeader := NewProxyClient(&backend, customHeaders, nil).(*ProxyClient)
 		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
 		pHeader.ReverseProxyHandler(&ctx)
 
@@ -257,7 +257,7 @@ func TestPendingRequests(t *testing.T) {
 	bServer := httptest.NewServer(&handler)
 	defer bServer.Close()
 	backend.Url = protocolRegex.ReplaceAllString(bServer.URL, "")
-	p := NewProxyClient(backend, customHeaders, nil).(*ProxyClient)
+	p := NewProxyClient(&backend, customHeaders, nil).(*ProxyClient)
 
 	assert.Equal(t, 0, p.PendingRequests())
 	concurrency := 10
@@ -283,7 +283,7 @@ func TestClose(t *testing.T) {
 	bServer := httptest.NewServer(&handler)
 	defer bServer.Close()
 	backend.Url = protocolRegex.ReplaceAllString(bServer.URL, "")
-	p := NewProxyClient(backend, customHeaders, nil).(*ProxyClient)
+	p := NewProxyClient(&backend, customHeaders, nil).(*ProxyClient)
 
 	// Make a request to establish connection
 	ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
@@ -696,7 +696,7 @@ func TestMiddlewareEdgeCases(t *testing.T) {
 	backend.Url = protocolRegex.ReplaceAllString(bServer.URL, "")
 
 	t.Run("should work normally with nil middlewareExecutor", func(t *testing.T) {
-		p := NewProxyClient(backend, customHeaders, nil).(*ProxyClient)
+		p := NewProxyClient(&backend, customHeaders, nil).(*ProxyClient)
 		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
 
 		err := p.ReverseProxyHandler(&ctx)
@@ -705,7 +705,7 @@ func TestMiddlewareEdgeCases(t *testing.T) {
 	})
 
 	t.Run("should not panic with nil middlewareExecutor on concurrent requests", func(t *testing.T) {
-		p := NewProxyClient(backend, customHeaders, nil).(*ProxyClient)
+		p := NewProxyClient(&backend, customHeaders, nil).(*ProxyClient)
 		var wg sync.WaitGroup
 		concurrency := 10
 

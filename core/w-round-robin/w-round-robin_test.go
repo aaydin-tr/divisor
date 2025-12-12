@@ -103,7 +103,7 @@ func TestRemoveOneServer(t *testing.T) {
 			return false
 		}
 		oldServerCount := wRoundRobin.len
-		wRoundRobin.healthCheck(backend, 0)
+		wRoundRobin.healthCheck(&backend, 0)
 
 		assert.False(t, b.isHostAlive, "expected isHostAlive equal to false, but got %v", b.isHostAlive)
 		assert.GreaterOrEqual(t, oldServerCount, wRoundRobin.len, "expected server to be removed after health check, but it did not.")
@@ -122,7 +122,7 @@ func TestRemoveAndAddServer(t *testing.T) {
 			return false
 		}
 		oldServerCount := wRoundRobin.len
-		wRoundRobin.healthCheck(backend, 0)
+		wRoundRobin.healthCheck(&backend, 0)
 
 		assert.False(t, b.isHostAlive, "expected isHostAlive equal to false, but got %v", b.isHostAlive)
 		assert.GreaterOrEqual(t, oldServerCount, wRoundRobin.len, "expected server to be removed after health check, but it did not.")
@@ -136,7 +136,7 @@ func TestRemoveAndAddServer(t *testing.T) {
 		}
 
 		oldServerCount := wRoundRobin.len
-		wRoundRobin.healthCheck(backend, 0)
+		wRoundRobin.healthCheck(&backend, 0)
 
 		assert.True(t, b.isHostAlive, "expected isHostAlive equal to true, but got %v", b.isHostAlive)
 		assert.GreaterOrEqual(t, wRoundRobin.len, oldServerCount, "expected server to be added after health check, but it did not.")
@@ -159,10 +159,10 @@ func TestRemmoveAllServers(t *testing.T) {
 			oldServerCount := wRoundRobin.len
 			if oldServerCount == 1 {
 				assert.Panics(t, func() {
-					wRoundRobin.healthCheck(backend, i)
+					wRoundRobin.healthCheck(&backend, i)
 				}, "expected panic after remove all servers")
 			} else {
-				wRoundRobin.healthCheck(backend, i)
+				wRoundRobin.healthCheck(&backend, i)
 				assert.GreaterOrEqual(t, oldServerCount, wRoundRobin.len, "expected server to be removed after health check, but it did not.")
 			}
 		}

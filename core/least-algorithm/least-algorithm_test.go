@@ -175,7 +175,7 @@ func TestRemoveOneServer(t *testing.T) {
 			return false
 		}
 		oldServerCount := leastAlgorithm.len
-		leastAlgorithm.healthCheck(backend, 0)
+		leastAlgorithm.healthCheck(&backend, 0)
 
 		assert.False(t, b.isHostAlive, "expected isHostAlive equal to false, but got %v", b.isHostAlive)
 		assert.GreaterOrEqual(t, oldServerCount, leastAlgorithm.len, "expected server to be removed after health check, but it did not.")
@@ -195,7 +195,7 @@ func TestRemoveAndAddServer(t *testing.T) {
 			return false
 		}
 		oldServerCount := leastAlgorithm.len
-		leastAlgorithm.healthCheck(backend, 0)
+		leastAlgorithm.healthCheck(&backend, 0)
 
 		assert.False(t, b.isHostAlive, "expected isHostAlive equal to false, but got %v", b.isHostAlive)
 		assert.GreaterOrEqual(t, oldServerCount, leastAlgorithm.len, "expected server to be removed after health check, but it did not.")
@@ -209,7 +209,7 @@ func TestRemoveAndAddServer(t *testing.T) {
 		}
 
 		oldServerCount := leastAlgorithm.len
-		leastAlgorithm.healthCheck(backend, 0)
+		leastAlgorithm.healthCheck(&backend, 0)
 
 		assert.True(t, b.isHostAlive, "expected isHostAlive equal to true, but got %v", b.isHostAlive)
 		assert.GreaterOrEqual(t, leastAlgorithm.len, oldServerCount, "expected server to be added after health check, but it did not.")
@@ -233,10 +233,10 @@ func TestRemmoveAllServers(t *testing.T) {
 			oldServerCount := leastAlgorithm.len
 			if oldServerCount == 1 {
 				assert.Panics(t, func() {
-					leastAlgorithm.healthCheck(backend, i)
+					leastAlgorithm.healthCheck(&backend, i)
 				}, "expected panic after remove all servers")
 			} else {
-				leastAlgorithm.healthCheck(backend, i)
+				leastAlgorithm.healthCheck(&backend, i)
 				assert.GreaterOrEqual(t, oldServerCount, leastAlgorithm.len, "expected server to be removed after health check, but it did not.")
 			}
 		}

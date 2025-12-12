@@ -30,23 +30,23 @@ type Random struct {
 	healthCheckerTime time.Duration
 }
 
-func NewRandom(config *config.Config, middlewareExecutor *middleware.Executor, proxyFunc proxy.ProxyFunc) types.IBalancer {
+func NewRandom(cfg *config.Config, middlewareExecutor *middleware.Executor, proxyFunc proxy.ProxyFunc) types.IBalancer {
 	random := &Random{
 		serversMap:        make(map[uint32]*serverMap),
-		isHostAlive:       config.HealthCheckerFunc,
-		healthCheckerTime: config.HealthCheckerTime,
-		hashFunc:          config.HashFunc,
+		isHostAlive:       cfg.HealthCheckerFunc,
+		healthCheckerTime: cfg.HealthCheckerTime,
+		hashFunc:          cfg.HashFunc,
 		stopHealthChecker: make(chan bool),
 	}
 
-	for i, b := range config.Backends {
+	for i, b := range cfg.Backends {
 		if !random.isHostAlive(b.GetHealthCheckURL()) {
 			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
-		proxy := proxyFunc(b, config.CustomHeaders, middlewareExecutor)
-		random.servers = append(random.servers, proxy)
-		random.serversMap[random.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxy, isHostAlive: true, i: i}
+		proxyClient := proxyFunc(&b, cfg.CustomHeaders, middlewareExecutor)
+		random.servers = append(random.servers, proxyClient)
+		random.serversMap[random.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxyClient, isHostAlive: true, i: i}
 		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
 		random.len++
 	}
@@ -55,19 +55,19 @@ func NewRandom(config *config.Config, middlewareExecutor *middleware.Executor, p
 		return nil
 	}
 
-	go random.healthChecker(config.Backends)
+	go random.healthChecker(cfg.Backends)
 
 	return random
 }
 
 func (r *Random) Serve() func(ctx *fasthttp.RequestCtx) {
 	return func(ctx *fasthttp.RequestCtx) {
-		r.next().ReverseProxyHandler(ctx)
+		r.next().ReverseProxyHandler(ctx) //nolint:errcheck
 	}
 }
 
 func (r *Random) next() proxy.IProxyClient {
-	return r.servers[rand.Uint32N(r.len)]
+	return r.servers[rand.Uint32N(r.len)] //nolint:gosec
 }
 
 func (r *Random) healthChecker(backends []config.Backend) {
@@ -78,19 +78,19 @@ func (r *Random) healthChecker(backends []config.Backend) {
 		default:
 			time.Sleep(r.healthCheckerTime)
 			for i, backend := range backends {
-				r.healthCheck(backend, i)
+				r.healthCheck(&backend, i)
 			}
 		}
 	}
 }
 
-func (r *Random) healthCheck(backend config.Backend, index int) {
+func (r *Random) healthCheck(backend *config.Backend, index int) {
 	status := r.isHostAlive(backend.GetHealthCheckURL())
 	backendHash := r.hashFunc(helper.S2B(backend.Url + strconv.Itoa(index)))
 	proxyMap, ok := r.serversMap[backendHash]
 	if ok && (!status && proxyMap.isHostAlive) {
 		r.servers = helper.RemoveByValue(r.servers, proxyMap.proxy)
-		r.len = r.len - 1
+		r.len--
 		proxyMap.isHostAlive = false
 
 		zap.S().Infof("Server is down, removing from load balancer, Addr: %s", backend.Url)
