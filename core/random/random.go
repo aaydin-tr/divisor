@@ -9,6 +9,7 @@ import (
 	"github.com/aaydin-tr/divisor/internal/proxy"
 	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/aaydin-tr/divisor/pkg/helper"
+	"github.com/aaydin-tr/divisor/pkg/middleware"
 	"github.com/valyala/fasthttp"
 	"go.uber.org/zap"
 )
@@ -29,7 +30,7 @@ type Random struct {
 	healthCheckerTime time.Duration
 }
 
-func NewRandom(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBalancer {
+func NewRandom(config *config.Config, middlewareExecutor *middleware.Executor, proxyFunc proxy.ProxyFunc) types.IBalancer {
 	random := &Random{
 		serversMap:        make(map[uint32]*serverMap),
 		isHostAlive:       config.HealthCheckerFunc,
@@ -43,7 +44,7 @@ func NewRandom(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBalancer
 			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
-		proxy := proxyFunc(b, config.CustomHeaders)
+		proxy := proxyFunc(b, config.CustomHeaders, middlewareExecutor)
 		random.servers = append(random.servers, proxy)
 		random.serversMap[random.hashFunc(helper.S2b(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxy, isHostAlive: true, i: i}
 		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)

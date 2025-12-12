@@ -9,6 +9,7 @@ import (
 	"github.com/aaydin-tr/divisor/internal/proxy"
 	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/aaydin-tr/divisor/pkg/helper"
+	"github.com/aaydin-tr/divisor/pkg/middleware"
 	"github.com/valyala/fasthttp"
 	"go.uber.org/zap"
 )
@@ -31,7 +32,7 @@ type LeastAlgorithm struct {
 	nextFunc          func() proxy.IProxyClient
 }
 
-func NewLeastAlgorithm(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBalancer {
+func NewLeastAlgorithm(config *config.Config, middlewareExecutor *middleware.Executor, proxyFunc proxy.ProxyFunc) types.IBalancer {
 	leastAlgorithm := &LeastAlgorithm{
 		serversMap:        make(map[uint32]*serverMap),
 		isHostAlive:       config.HealthCheckerFunc,
@@ -46,7 +47,7 @@ func NewLeastAlgorithm(config *config.Config, proxyFunc proxy.ProxyFunc) types.I
 			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
-		proxy := proxyFunc(b, config.CustomHeaders)
+		proxy := proxyFunc(b, config.CustomHeaders, middlewareExecutor)
 		leastAlgorithm.servers = append(leastAlgorithm.servers, proxy)
 		leastAlgorithm.serversMap[leastAlgorithm.hashFunc(helper.S2b(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxy, isHostAlive: true, i: i}
 		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)

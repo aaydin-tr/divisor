@@ -13,10 +13,10 @@ import (
 func TestNewRandom(t *testing.T) {
 	for _, rand := range mocks.TestCases {
 		if rand.ExpectedServerCount == 0 {
-			random := NewRandom(&rand.Config, rand.ProxyFunc)
+			random := NewRandom(&rand.Config, nil, rand.ProxyFunc)
 			assert.Nil(t, random)
 		} else {
-			random := NewRandom(&rand.Config, rand.ProxyFunc).(*Random)
+			random := NewRandom(&rand.Config, nil, rand.ProxyFunc).(*Random)
 			assert.Equal(t, rand.ExpectedServerCount, len(random.serversMap))
 		}
 	}
@@ -24,7 +24,7 @@ func TestNewRandom(t *testing.T) {
 
 func TestNext(t *testing.T) {
 	caseOne := mocks.TestCases[0]
-	balancer := NewRandom(&caseOne.Config, caseOne.ProxyFunc)
+	balancer := NewRandom(&caseOne.Config, nil, caseOne.ProxyFunc)
 	assert.NotNil(t, balancer)
 
 	random := balancer.(*Random)
@@ -35,7 +35,7 @@ func TestNext(t *testing.T) {
 
 func TestServer(t *testing.T) {
 	caseOne := mocks.TestCases[1]
-	balancer := NewRandom(&caseOne.Config, caseOne.ProxyFunc)
+	balancer := NewRandom(&caseOne.Config, nil, caseOne.ProxyFunc)
 	assert.NotNil(t, balancer)
 
 	random := balancer.(*Random)
@@ -52,7 +52,7 @@ func TestServer(t *testing.T) {
 
 func TestStats(t *testing.T) {
 	caseOne := mocks.TestCases[0]
-	balancer := NewRandom(&caseOne.Config, caseOne.ProxyFunc)
+	balancer := NewRandom(&caseOne.Config, nil, caseOne.ProxyFunc)
 	assert.NotNil(t, balancer)
 
 	random := balancer.(*Random)
@@ -87,7 +87,7 @@ func TestHealthChecker(t *testing.T) {
 
 func TestRemoveOneServer(t *testing.T) {
 	caseOne := mocks.TestCases[0]
-	random := NewRandom(&caseOne.Config, caseOne.ProxyFunc).(*Random)
+	random := NewRandom(&caseOne.Config, nil, caseOne.ProxyFunc).(*Random)
 	assert.Equal(t, caseOne.ExpectedServerCount, len(random.serversMap))
 
 	// Remove one server
@@ -107,7 +107,7 @@ func TestRemoveOneServer(t *testing.T) {
 
 func TestRemoveAndAddServer(t *testing.T) {
 	caseOne := mocks.TestCases[0]
-	random := NewRandom(&caseOne.Config, caseOne.ProxyFunc).(*Random)
+	random := NewRandom(&caseOne.Config, nil, caseOne.ProxyFunc).(*Random)
 	assert.Equal(t, caseOne.ExpectedServerCount, len(random.serversMap))
 
 	// Remove one server
@@ -141,7 +141,7 @@ func TestRemoveAndAddServer(t *testing.T) {
 
 func TestRemmoveAllServers(t *testing.T) {
 	caseOne := mocks.TestCases[0]
-	random := NewRandom(&caseOne.Config, caseOne.ProxyFunc).(*Random)
+	random := NewRandom(&caseOne.Config, nil, caseOne.ProxyFunc).(*Random)
 	assert.Equal(t, caseOne.ExpectedServerCount, len(random.serversMap))
 
 	// Remove All
@@ -168,7 +168,7 @@ func TestRemmoveAllServers(t *testing.T) {
 func TestShutdown(t *testing.T) {
 	t.Run("shutdown calls close on all proxies", func(t *testing.T) {
 		caseOne := mocks.TestCases[0]
-		random := NewRandom(&caseOne.Config, caseOne.ProxyFunc).(*Random)
+		random := NewRandom(&caseOne.Config, nil, caseOne.ProxyFunc).(*Random)
 		assert.NotNil(t, random)
 
 		// Verify proxy Close() methods are not called yet
@@ -190,7 +190,7 @@ func TestShutdown(t *testing.T) {
 
 	t.Run("shutdown with no servers", func(t *testing.T) {
 		emptyCase := mocks.TestCases[3] // Case with 0 servers
-		emptyRandom := NewRandom(&emptyCase.Config, emptyCase.ProxyFunc)
+		emptyRandom := NewRandom(&emptyCase.Config, nil, emptyCase.ProxyFunc)
 		if emptyRandom != nil {
 			err := emptyRandom.Shutdown()
 			assert.NoError(t, err, "Shutdown() should not return an error even with no servers")
@@ -200,7 +200,7 @@ func TestShutdown(t *testing.T) {
 	t.Run("shutdown with actual health checker goroutine", func(t *testing.T) {
 		caseOne := mocks.TestCases[0]
 		caseOne.Config.HealthCheckerTime = 100 * time.Millisecond // Fast health check for testing
-		random := NewRandom(&caseOne.Config, caseOne.ProxyFunc).(*Random)
+		random := NewRandom(&caseOne.Config, nil, caseOne.ProxyFunc).(*Random)
 		assert.NotNil(t, random)
 
 		// Give health checker time to start

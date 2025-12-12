@@ -15,6 +15,7 @@ import (
 	cfg "github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/aaydin-tr/divisor/pkg/helper"
 	"github.com/aaydin-tr/divisor/pkg/logger"
+	"github.com/aaydin-tr/divisor/pkg/middleware"
 	"github.com/aaydin-tr/http2"
 	"github.com/valyala/fasthttp"
 	"github.com/valyala/fasthttp/reuseport"
@@ -52,8 +53,14 @@ func main() {
 	}
 	zap.S().Info("Config file parsed successfully")
 
+	middlewareExecutor, err := middleware.NewExecutor(config.Middlewares)
+	if err != nil {
+		zap.S().Error(err)
+		return
+	}
+
 	zap.S().Info("Proxies are being prepared.")
-	proxies := balancer.NewBalancer(config, proxy.NewProxyClient)
+	proxies := balancer.NewBalancer(config, middlewareExecutor, proxy.NewProxyClient)
 
 	if proxies == nil {
 		zap.S().Error("No available servers")

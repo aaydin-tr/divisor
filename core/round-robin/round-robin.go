@@ -9,6 +9,7 @@ import (
 	"github.com/aaydin-tr/divisor/internal/proxy"
 	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/aaydin-tr/divisor/pkg/helper"
+	"github.com/aaydin-tr/divisor/pkg/middleware"
 	"github.com/valyala/fasthttp"
 	"go.uber.org/zap"
 )
@@ -30,7 +31,7 @@ type RoundRobin struct {
 	healthCheckerTime time.Duration
 }
 
-func NewRoundRobin(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBalancer {
+func NewRoundRobin(config *config.Config, middlewareExecutor *middleware.Executor, proxyFunc proxy.ProxyFunc) types.IBalancer {
 	roundRobin := &RoundRobin{
 		serversMap:        make(map[uint32]*serverMap),
 		isHostAlive:       config.HealthCheckerFunc,
@@ -44,7 +45,7 @@ func NewRoundRobin(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBala
 			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
-		proxy := proxyFunc(b, config.CustomHeaders)
+		proxy := proxyFunc(b, config.CustomHeaders, middlewareExecutor)
 		roundRobin.servers = append(roundRobin.servers, proxy)
 		roundRobin.serversMap[roundRobin.hashFunc(helper.S2b(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxy, isHostAlive: true, i: i}
 		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)

@@ -10,6 +10,7 @@ import (
 	"github.com/aaydin-tr/divisor/internal/proxy"
 	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/aaydin-tr/divisor/pkg/helper"
+	"github.com/aaydin-tr/divisor/pkg/middleware"
 	"github.com/valyala/fasthttp"
 	"go.uber.org/zap"
 )
@@ -32,7 +33,7 @@ type WRoundRobin struct {
 	healthCheckerTime time.Duration
 }
 
-func NewWRoundRobin(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBalancer {
+func NewWRoundRobin(config *config.Config, middlewareExecutor *middleware.Executor, proxyFunc proxy.ProxyFunc) types.IBalancer {
 	wRoundRobin := &WRoundRobin{
 		isHostAlive:       config.HealthCheckerFunc,
 		healthCheckerTime: config.HealthCheckerTime,
@@ -47,8 +48,8 @@ func NewWRoundRobin(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBal
 			continue
 		}
 
-		proxy := proxyFunc(b, config.CustomHeaders)
-		for i := 0; i < int(b.Weight); i++ {
+		proxy := proxyFunc(b, config.CustomHeaders, middlewareExecutor)
+		for range int(b.Weight) {
 			wRoundRobin.servers = append(wRoundRobin.servers, proxy)
 		}
 
@@ -61,8 +62,7 @@ func NewWRoundRobin(config *config.Config, proxyFunc proxy.ProxyFunc) types.IBal
 	}
 	wRoundRobin.len = uint64(len(wRoundRobin.servers))
 
-	rand.Seed(time.Now().UnixNano())
-	rand.Shuffle(len(wRoundRobin.servers), func(i, j int) {
+	rand.New(rand.NewSource(time.Now().UnixNano())).Shuffle(len(wRoundRobin.servers), func(i, j int) {
 		wRoundRobin.servers[i], wRoundRobin.servers[j] = wRoundRobin.servers[j], wRoundRobin.servers[i]
 	})
 
@@ -116,8 +116,7 @@ func (w *WRoundRobin) healthCheck(backend config.Backend, index int) {
 			w.servers = append(w.servers, proxyMap.proxy)
 		}
 
-		rand.Seed(time.Now().UnixNano())
-		rand.Shuffle(len(w.servers), func(i, j int) {
+		rand.New(rand.NewSource(time.Now().UnixNano())).Shuffle(len(w.servers), func(i, j int) {
 			w.servers[i], w.servers[j] = w.servers[j], w.servers[i]
 		})
 
