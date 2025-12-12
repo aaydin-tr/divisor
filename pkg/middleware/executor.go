@@ -13,6 +13,8 @@ import (
 
 var (
 	ErrNewFunctionNotFound = errors.New("new function not found")
+	ErrCodeAndFileEmpty    = errors.New("middleware code and file cannot both be empty")
+	ErrCodeAndFileBothSet  = errors.New("middleware code and file cannot both be set, choose one")
 )
 
 type Executor struct {
@@ -24,6 +26,14 @@ func NewExecutor(configs []config.Middleware) (*Executor, error) {
 	for _, cfg := range configs {
 		if cfg.Disabled {
 			continue
+		}
+
+		if cfg.Code == "" && cfg.File == "" {
+			return nil, ErrCodeAndFileEmpty
+		}
+
+		if cfg.Code != "" && cfg.File != "" {
+			return nil, ErrCodeAndFileBothSet
 		}
 
 		i := interp.New(interp.Options{})
@@ -45,8 +55,6 @@ func NewExecutor(configs []config.Middleware) (*Executor, error) {
 
 			code = helper.B2s(fileContent)
 		}
-
-		// TODO check code and file is not empty at the same time
 
 		if _, err := i.Eval(code); err != nil {
 			return nil, err
