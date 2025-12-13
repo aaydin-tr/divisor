@@ -82,44 +82,97 @@ You need a `config.yaml` file to use Divisor, you can give this file to Divisor 
 
 ## Configuration
 
-| Name | Description | Type | Default Value |
+### Minimal Example
+```yaml
+port: 8000  # Required
+backends:
+  - url: localhost:8080
+  - url: localhost:7070
+```
+
+### Core Settings
+
+| Name | Description | Type | Default | Required |
+| --- | --- | --- | --- | --- |
+| port | Server port | string | - | ⚠️ **Yes** |
+| host | Server host | string | `localhost` | No |
+| type | Load balancing algorithm | string | `round-robin` | No |
+| health_checker_time | Health check interval for backends | duration | `30s` | No |
+
+**Valid algorithm types**: `round-robin`, `w-round-robin`, `ip-hash`, `random`, `least-connection`, `least-response-time`
+
+### Backend Settings
+
+| Name | Description | Type | Default | Required |
+| --- | --- | --- | --- | --- |
+| backends | List of backend servers | array | - | ⚠️ **Yes** (min: 1) |
+| backends.url | Backend URL (without protocol) | string | - | ⚠️ **Yes** |
+| backends.health_check_path | Health check endpoint | string | `/` | No |
+| backends.weight | Backend weight (w-round-robin only) | int | - | ⚠️ **w-round-robin** |
+| backends.max_conn | Max connections per backend | int | `512` | No |
+| backends.max_conn_timeout | Max wait time for free connection | duration | `30s` | No |
+| backends.max_conn_duration | Connection keep-alive duration | duration | `10s` | No |
+| backends.max_idle_conn_duration | Idle connection timeout | duration | `10s` | No |
+| backends.max_idemponent_call_attempts | Retry attempts for idempotent calls | int | `5` | No |
+
+### Monitoring Settings
+
+| Name | Description | Type | Default |
 | --- | --- | --- | --- |
-| type | Load balancing algorithm | string | round-robin |
-| port | Server port | int | 8000 |
-| host | Server host | string | localhost |
-| health_checker_time | Time interval to perform health check for backends | time.Duration | 30s |
-| backends | List of backends with their configurations | array |  |
-| backends.url | Backend URL | string |  |
-| backends.health_check_path | Health check path for backends | string | / |
-| backends.weight | Only mandatory for w-round-robin algorithm | int |  |
-| backends.max_conn | Maximum number of connections which may be established to host listed in Addr | int | 512 |
-| backends.max_conn_timeout | Maximum duration for waiting for a free connection | time.Duration | 30s |
-| backends.max_conn_duration | Keep-alive connections are closed after this duration | time.Duration | 10s |
-| backends.max_idle_conn_duration | Idle keep-alive connections are closed after this duration | time.Duration | 10s |
-| backends.max_idemponent_call_attempts | Maximum number of attempts for idempotent calls | int | 5 |
-| monitoring | Monitoring server configurations | object |  |
-| monitoring.port | Monitoring server port | int | 8001 |
-| monitoring.host | Monitoring server host | string | localhost |
-| custom_headers | Custom headers will be set on request sent to backend | object |  |
-| custom_headers.header-name | Valid values are `$remote_addr`, `$time`, `$incremental`, `$uuid`, The Header name can be whatever you want as long as it's a string | string |  |
-| server | Server configurations | object | |
-| server.http_version | Http version for frontend server, http1 and http2 is supported (http1 mean HTTP/1.1) | string | http1 |
-| server.cert_file | TLS cert file | string |  |
-| server.key_file | TLS key file | string |  |
-| server.max_idle_worker_duration | MaxIdleWorkerDuration is the maximum idle time of a single worker in the underlying worker pool of the Server | time.Duration | 10s |
-| server.tcp_keepalive_period | Period between tcp keep-alive messages. TCP keep-alive period is determined by operation system by default | time.Duration |  |
-| server.concurrency | The maximum number of concurrent connections the server may serve | int | 262144 |
-| server.read_timeout | ReadTimeout is the amount of time allowed to read the full request including body | time.Duration | unlimited |
-| server.write_timeout | WriteTimeout is the maximum duration before timing out writes of the response | time.Duration | unlimited |
-| server.idle_timeout | IdleTimeout is the maximum amount of time to wait for the next request when keep-alive is enabled | time.Duration | unlimited |
-| server.disable_keepalive | The server will close all the incoming connections after sending the first response to client if this option is set to true | bool | false |
-| server.disable_header_names_normalizing | Header names are passed as-is without normalization if this option is set true | bool | false |
-| middlewares | List of custom middlewares | array | |
-| middlewares.name | Name of the middleware | string | |
-| middlewares.disabled | If set to true, the middleware will be disabled | bool | false |
-| middlewares.code | Go code for the middleware (content) | string | |
-| middlewares.file | Path to the file containing Go code for the middleware | string | |
-| middlewares.config | Configuration map passed to the middleware's New function | map[string]any | |
+| monitoring.host | Metrics server host | string | `localhost` |
+| monitoring.port | Metrics server port | string | `8001` |
+
+### Server Settings
+
+| Name | Description | Type | Default |
+| --- | --- | --- | --- |
+| server.http_version | HTTP protocol version (`http1` or `http2`) | string | `http1` |
+| server.cert_file | TLS certificate file path | string | - |
+| server.key_file | TLS private key file path | string | - |
+| server.max_idle_worker_duration | Worker pool idle timeout | duration | `10s` |
+| server.tcp_keepalive_period | TCP keep-alive interval (OS default if unset) | duration | - |
+| server.concurrency | Max concurrent connections | int | `262144` |
+| server.read_timeout | Request read timeout | duration | unlimited |
+| server.write_timeout | Response write timeout | duration | unlimited |
+| server.idle_timeout | Keep-alive idle timeout | duration | unlimited |
+| server.disable_keepalive | Force connection close after response | bool | `false` |
+| server.disable_header_names_normalizing | Preserve original header name casing | bool | `false` |
+
+### Custom Headers
+
+| Name | Description | Type |
+| --- | --- | --- |
+| custom_headers | Headers injected into backend requests | map |
+| custom_headers.`<name>` | Header value (special variables supported) | string |
+
+**Special variables**: `$remote_addr` (client IP), `$time` (request timestamp), `$uuid` (request UUID), `$incremental` (per-backend counter)
+
+**Example**:
+```yaml
+custom_headers:
+  x-client-ip: $remote_addr
+  x-request-id: $uuid
+```
+
+### Middlewares
+
+| Name | Description | Type | Default | Required |
+| --- | --- | --- | --- | --- |
+| middlewares | List of custom middleware | array | - | No |
+| middlewares.name | Middleware identifier | string | - | ⚠️ **Yes** |
+| middlewares.disabled | Skip middleware execution | bool | `false` | No |
+| middlewares.code | Inline Go code | string | - | ⚠️ **Yes** (or file) |
+| middlewares.file | Path to Go code file | string | - | ⚠️ **Yes** (or code) |
+| middlewares.config | Config passed to middleware constructor | map | - | No |
+
+### Important Notes
+
+- **Protocol stripping**: Backend URLs automatically have `http://` or `https://` removed
+- **HTTP/2 requirement**: `server.http_version: http2` requires both `cert_file` and `key_file`
+- **Weighted round-robin**: Single backend auto-converts to regular round-robin
+- **Middleware validation**: Must specify either `code` OR `file` (not both), unless `disabled: true`
+- **Custom header validation**: Only accepts the 4 special variables listed above
+- **Default algorithm**: If `type` is omitted or invalid, defaults to `round-robin`
 
 
 Please see [example config files](https://github.com/aaydin-tr/divisor/tree/main/examples)

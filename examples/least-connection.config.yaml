@@ -1,0 +1,44 @@
+# Least-Connection Configuration
+# Use Case: Dynamic load balancing - routes to backend with fewest active connections
+# Perfect for backends with varying processing times or mixed workloads
+
+type: least-connection
+port: 8000
+host: localhost
+
+health_checker_time: 20s  # More frequent checks for dynamic balancing
+
+backends:
+  # Requests automatically route to backend with lowest active connection count
+  - url: worker-1:8080
+    health_check_path: /health
+    max_conn: 500
+
+  - url: worker-2:8080
+    health_check_path: /health
+    max_conn: 500
+
+  - url: worker-3:8080
+    health_check_path: /health
+    max_conn: 500
+
+  - url: worker-4:8080
+    health_check_path: /health
+    max_conn: 500
+
+monitoring:
+  port: 8001
+  host: localhost
+
+# Track connection distribution
+custom_headers:
+  x-request-id: $uuid
+  x-timestamp: $time
+
+server:
+  http_version: http1
+
+  # Moderate timeouts for balanced workloads
+  read_timeout: 60s
+  write_timeout: 60s
+  idle_timeout: 180s

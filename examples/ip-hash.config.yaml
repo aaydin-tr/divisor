@@ -1,0 +1,39 @@
+# IP-Hash Configuration
+# Use Case: Session affinity - same client always routes to same backend
+# Perfect for stateful applications with session data stored on backend servers
+
+type: ip-hash
+port: 8000
+host: localhost
+
+health_checker_time: 30s
+
+backends:
+  # Client IP determines which backend handles the request
+  # Same IP always goes to same backend (as long as it's healthy)
+  - url: session-server-1:8080
+    health_check_path: /health
+
+  - url: session-server-2:8080
+    health_check_path: /health
+
+  - url: session-server-3:8080
+    health_check_path: /health
+
+  - url: session-server-4:8080
+    health_check_path: /health
+
+monitoring:
+  port: 8001
+  host: localhost
+
+# Track which backend each client is routed to
+custom_headers:
+  x-client-ip: $remote_addr
+
+server:
+  http_version: http1
+
+  # Longer timeouts for session-based applications
+  idle_timeout: 300s
+  disable_keepalive: false

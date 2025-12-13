@@ -1,0 +1,24 @@
+# HTTP/2 with TLS Configuration
+# Demonstrates HTTP/2 setup (requires TLS certificates)
+
+type: round-robin
+port: 443
+host: 0.0.0.0
+
+backends:
+  - url: backend1.local:8080
+    health_check_path: /health
+  - url: backend2.local:8080
+    health_check_path: /health
+  - url: backend3.local:8080
+    health_check_path: /health
+
+monitoring:
+  port: 8001
+  host: localhost
+
+server:
+  # HTTP/2 requires TLS - both cert_file and key_file are mandatory
+  http_version: http2
+  cert_file: /path/to/server.crt
+  key_file: /path/to/server.key

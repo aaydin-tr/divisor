@@ -1,0 +1,80 @@
+# Middleware Configuration Example
+# Demonstrates custom middleware for request/response processing
+
+type: round-robin
+port: 8000
+host: localhost
+
+backends:
+  - url: localhost:8080
+  - url: localhost:7070
+
+monitoring:
+  port: 8001
+  host: localhost
+
+# Custom middleware chain (executed in order)
+middlewares:
+  # Example 1: Rate limiting middleware
+  - name: rate-limiter
+    disabled: false
+    file: /path/to/middleware/rate_limiter.go
+    config:
+      requests_per_second: 100
+      burst: 20
+
+  # Example 2: Authentication middleware
+  - name: auth-validator
+    disabled: false
+    file: /path/to/middleware/auth.go
+    config:
+      api_key_header: X-API-Key
+      required_paths:
+        - /api/v1/*
+        - /admin/*
+
+  # Example 3: Request logger (inline code)
+  - name: request-logger
+    disabled: false
+    code: |
+      package middleware
+
+      import (
+          "github.com/aaydin-tr/divisor/middleware"
+          "log"
+      )
+
+      type RequestLogger struct{}
+
+      func New(config map[string]any) middleware.Middleware {
+          return &RequestLogger{}
+      }
+
+      func (r *RequestLogger) OnRequest(ctx *middleware.Context) error {
+          log.Printf("Request: %s %s from %s",
+              ctx.Request.Header.Method(), ctx.Request.URI().Path(), ctx.Request.RemoteAddr())
+          return nil
+      }
+
+      func (r *RequestLogger) OnResponse(ctx *middleware.Context, err error) error {
+          log.Printf("Response: %d for %s", ctx.Response.StatusCode(), ctx.Request.URI().Path())
+          return nil
+      }
+
+  # Example 4: Custom headers injector
+  - name: header-injector
+    disabled: false
+    file: /path/to/middleware/headers.go
+    config:
+      headers:
+        X-Powered-By: Divisor
+        X-Version: 1.0.0
+
+  # Example 5: Disabled middleware (for testing)
+  - name: debug-middleware
+    disabled: true  # Skip this middleware
+    file: /path/to/middleware/debug.go
+
+server:
+  http_version: http1
+  concurrency: 262144
