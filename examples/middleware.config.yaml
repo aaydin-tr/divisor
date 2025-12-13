@@ -52,7 +52,7 @@ middlewares:
 
       func (r *RequestLogger) OnRequest(ctx *middleware.Context) error {
           log.Printf("Request: %s %s from %s",
-              ctx.Request.Header.Method(), ctx.Request.URI().Path(), ctx.Request.RemoteAddr())
+              ctx.Request.Header.Method(), ctx.Request.URI().Path(), ctx.RemoteAddr())
           return nil
       }
 
