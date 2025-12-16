@@ -12,8 +12,11 @@ import (
 
 	"github.com/aaydin-tr/divisor/core"
 	"github.com/aaydin-tr/divisor/core/types"
+	"github.com/aaydin-tr/divisor/internal/balancer"
 	"github.com/aaydin-tr/divisor/internal/monitoring"
 	"github.com/aaydin-tr/divisor/internal/proxy"
+	"github.com/aaydin-tr/divisor/internal/reloader"
+	"github.com/aaydin-tr/divisor/internal/watcher"
 	cfg "github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/aaydin-tr/divisor/pkg/helper"
 	"github.com/aaydin-tr/divisor/pkg/logger"
@@ -62,12 +65,15 @@ func main() {
 	}
 
 	zap.S().Info("Proxies are being prepared.")
-	proxies := core.NewBalancer(config, middlewareExecutor, proxy.NewProxyClient)
+	initialBalancer := core.NewBalancer(config, middlewareExecutor, proxy.NewProxyClient)
 
-	if proxies == nil {
+	if initialBalancer == nil {
 		zap.S().Error("No available servers")
 		return
 	}
+
+	// Wrap in swappable balancer for hot-reload capability
+	swappableBalancer := balancer.NewSwappableBalancer(initialBalancer)
 	zap.S().Infof("All proxies are ready, divisor will use `%s` algorithm health checker func will trigger every %v", config.Type, config.HealthCheckerTime)
 
 	ln, err := reuseport.Listen("tcp4", config.GetAddr())
@@ -82,10 +88,10 @@ func main() {
 	var server any
 	if config.Server.HttpVersion == cfg.Http2 {
 		zap.S().Info("Starting net/http server with HTTP/2")
-		server = startNetHttpServer(config, proxies, ln)
+		server = startNetHttpServer(config, swappableBalancer, ln)
 	} else {
 		zap.S().Info("Starting fasthttp server with HTTP/1.1")
-		server = startFasthttpServer(config, proxies, ln)
+		server = startFasthttpServer(config, swappableBalancer, ln)
 	}
 
 	if server == nil {
@@ -93,12 +99,42 @@ func main() {
 		return
 	}
 
-	go monitoring.StartMonitoringServer(server, proxies, config.GetMonitoringAddr())
+	go monitoring.StartMonitoringServer(server, swappableBalancer, config.GetMonitoringAddr())
+
+	// Setup config file watcher for hot-reload
+	ctx, cancelWatcher := context.WithCancel(context.Background())
+	defer cancelWatcher()
+
+	configWatcher, err := watcher.NewConfigWatcher(*configFile)
+	if err != nil {
+		zap.S().Errorf("Failed to create config watcher: %s (continuing without hot-reload)", err)
+	} else {
+		if err := configWatcher.Start(ctx); err != nil {
+			zap.S().Errorf("Failed to start config watcher: %s (continuing without hot-reload)", err)
+		} else {
+			zap.S().Info("Config file watcher started, hot-reload enabled")
+
+			configReloader := reloader.NewConfigReloader(
+				*configFile,
+				swappableBalancer,
+				middlewareExecutor,
+				proxy.NewProxyClient,
+			)
+
+			go func() {
+				for range configWatcher.ReloadChan() {
+					if err := configReloader.Reload(); err != nil {
+						zap.S().Errorf("Config reload failed: %s", err)
+					}
+				}
+			}()
+		}
+	}
 
 	<-shutdown
 	zap.S().Info("Shutdown signal received, initiating graceful shutdown...")
 
-	if err := performGracefulShutdown(server, proxies); err != nil {
+	if err := performGracefulShutdown(server, swappableBalancer); err != nil {
 		zap.S().Errorf("Error during graceful shutdown: %s", err)
 		os.Exit(1)
 	}

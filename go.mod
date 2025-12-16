@@ -4,6 +4,7 @@ go 1.25.3
 
 require (
 	github.com/fasthttp/router v1.5.4
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/google/uuid v1.6.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/shirou/gopsutil/v4 v4.25.11
