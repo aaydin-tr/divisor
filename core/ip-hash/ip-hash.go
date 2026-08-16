@@ -26,14 +26,14 @@ type IPHash struct {
 	isHostAlive       types.IsHostAlive
 	hashFunc          types.HashFunc
 	stopHealthChecker chan bool
-	servers           consistent.ConsistentHash
+	servers           *consistent.ConsistentHash
 	len               int
 	healthCheckerTime time.Duration
 }
 
 func NewIPHash(cfg *config.Config, middlewareExecutor *middleware.Executor, proxyFunc proxy.ProxyFunc) types.IBalancer {
 	ipHash := &IPHash{
-		servers: *consistent.NewConsistentHash(
+		servers: consistent.NewConsistentHash(
 			int(math.Pow(float64(len(cfg.Backends)), float64(2))),
 			cfg.HashFunc,
 		),
