@@ -2,9 +2,11 @@ package w_round_robin
 
 import (
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/aaydin-tr/divisor/internal/proxy"
 	"github.com/aaydin-tr/divisor/mocks"
 	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/stretchr/testify/assert"
@@ -103,11 +105,11 @@ func TestRemoveOneServer(t *testing.T) {
 		wRoundRobin.isHostAlive = func(s string) bool {
 			return false
 		}
-		oldServerCount := wRoundRobin.len
+		oldServerCount := len(*wRoundRobin.servers.Load())
 		wRoundRobin.healthCheck(&backend, 0)
 
 		assert.False(t, b.isHostAlive, "expected isHostAlive equal to false, but got %v", b.isHostAlive)
-		assert.GreaterOrEqual(t, oldServerCount, wRoundRobin.len, "expected server to be removed after health check, but it did not.")
+		assert.GreaterOrEqual(t, oldServerCount, len(*wRoundRobin.servers.Load()), "expected server to be removed after health check, but it did not.")
 	}
 }
 
@@ -122,11 +124,11 @@ func TestRemoveAndAddServer(t *testing.T) {
 		wRoundRobin.isHostAlive = func(s string) bool {
 			return false
 		}
-		oldServerCount := wRoundRobin.len
+		oldServerCount := len(*wRoundRobin.servers.Load())
 		wRoundRobin.healthCheck(&backend, 0)
 
 		assert.False(t, b.isHostAlive, "expected isHostAlive equal to false, but got %v", b.isHostAlive)
-		assert.GreaterOrEqual(t, oldServerCount, wRoundRobin.len, "expected server to be removed after health check, but it did not.")
+		assert.GreaterOrEqual(t, oldServerCount, len(*wRoundRobin.servers.Load()), "expected server to be removed after health check, but it did not.")
 	}
 
 	// Add one server
@@ -136,11 +138,11 @@ func TestRemoveAndAddServer(t *testing.T) {
 			return true
 		}
 
-		oldServerCount := wRoundRobin.len
+		oldServerCount := len(*wRoundRobin.servers.Load())
 		wRoundRobin.healthCheck(&backend, 0)
 
 		assert.True(t, b.isHostAlive, "expected isHostAlive equal to true, but got %v", b.isHostAlive)
-		assert.GreaterOrEqual(t, wRoundRobin.len, oldServerCount, "expected server to be added after health check, but it did not.")
+		assert.GreaterOrEqual(t, len(*wRoundRobin.servers.Load()), oldServerCount, "expected server to be added after health check, but it did not.")
 
 	}
 }
@@ -157,14 +159,14 @@ func TestRemmoveAllServers(t *testing.T) {
 				return false
 			}
 
-			oldServerCount := wRoundRobin.len
+			oldServerCount := len(*wRoundRobin.servers.Load())
 			if oldServerCount == 1 {
 				assert.Panics(t, func() {
 					wRoundRobin.healthCheck(&backend, i)
 				}, "expected panic after remove all servers")
 			} else {
 				wRoundRobin.healthCheck(&backend, i)
-				assert.GreaterOrEqual(t, oldServerCount, wRoundRobin.len, "expected server to be removed after health check, but it did not.")
+				assert.GreaterOrEqual(t, oldServerCount, len(*wRoundRobin.servers.Load()), "expected server to be removed after health check, but it did not.")
 			}
 		}
 	}
@@ -248,4 +250,43 @@ func TestStatsWhenBackendDownAtStartup(t *testing.T) {
 	assert.Len(t, stats, 1)
 	assert.Equal(t, "localhost:80", stats[0].Addr)
 	assert.True(t, stats[0].IsHostAlive)
+}
+
+func TestNextConcurrentWithHealthCheck(t *testing.T) {
+	hashFunc := func(b []byte) uint32 { return uint32(len(b)) }
+	p1 := &mocks.MockProxy{Addr: "localhost:8080"}
+	p2 := &mocks.MockProxy{Addr: "localhost:80"}
+
+	var alive atomic.Bool
+	wRoundRobin := &WRoundRobin{
+		hashFunc:    hashFunc,
+		isHostAlive: func(string) bool { return alive.Load() },
+		serversMap: map[uint32]*serverMap{
+			hashFunc([]byte("localhost:8080" + "0")): {proxy: p1, weight: 1, isHostAlive: true, statsIdx: 0},
+			hashFunc([]byte("localhost:80" + "1")):   {proxy: p2, weight: 1, isHostAlive: true, statsIdx: 1},
+		},
+	}
+	servers := []proxy.IProxyClient{p1, p2}
+	wRoundRobin.servers.Store(&servers)
+
+	backend := config.Backend{Url: "localhost:8080"}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 500; i++ {
+			alive.Store(false)
+			wRoundRobin.healthCheck(&backend, 0)
+			alive.Store(true)
+			wRoundRobin.healthCheck(&backend, 0)
+		}
+	}()
+
+	for {
+		select {
+		case <-done:
+			return
+		default:
+			wRoundRobin.next()
+		}
+	}
 }

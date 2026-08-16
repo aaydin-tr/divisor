@@ -27,8 +27,7 @@ type WRoundRobin struct {
 	isHostAlive       types.IsHostAlive
 	hashFunc          types.HashFunc
 	stopHealthChecker chan bool
-	servers           []proxy.IProxyClient
-	len               uint64
+	servers           atomic.Pointer[[]proxy.IProxyClient]
 	i                 uint64
 	healthCheckerTime time.Duration
 }
@@ -42,6 +41,7 @@ func NewWRoundRobin(cfg *config.Config, middlewareExecutor *middleware.Executor,
 		stopHealthChecker: make(chan bool),
 	}
 
+	servers := make([]proxy.IProxyClient, 0)
 	for i, b := range cfg.Backends {
 		if !wRoundRobin.isHostAlive(b.GetHealthCheckURL()) {
 			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
@@ -50,21 +50,21 @@ func NewWRoundRobin(cfg *config.Config, middlewareExecutor *middleware.Executor,
 
 		proxyClient := proxyFunc(&b, cfg.CustomHeaders, middlewareExecutor)
 		for range int(b.Weight) {
-			wRoundRobin.servers = append(wRoundRobin.servers, proxyClient)
+			servers = append(servers, proxyClient)
 		}
 
 		wRoundRobin.serversMap[wRoundRobin.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxyClient, weight: b.Weight, isHostAlive: true, statsIdx: len(wRoundRobin.serversMap)}
 		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
 	}
 
-	if len(wRoundRobin.servers) == 0 {
+	if len(servers) == 0 {
 		return nil
 	}
 
-	wRoundRobin.len = uint64(len(wRoundRobin.servers))
-	rand.New(rand.NewSource(time.Now().UnixNano())).Shuffle(len(wRoundRobin.servers), func(i, j int) { //nolint:gosec
-		wRoundRobin.servers[i], wRoundRobin.servers[j] = wRoundRobin.servers[j], wRoundRobin.servers[i]
+	rand.New(rand.NewSource(time.Now().UnixNano())).Shuffle(len(servers), func(i, j int) { //nolint:gosec
+		servers[i], servers[j] = servers[j], servers[i]
 	})
+	wRoundRobin.servers.Store(&servers)
 
 	go wRoundRobin.healthChecker(cfg.Backends)
 
@@ -78,8 +78,9 @@ func (w *WRoundRobin) Serve() func(ctx *fasthttp.RequestCtx) {
 }
 
 func (w *WRoundRobin) next() proxy.IProxyClient {
+	servers := *w.servers.Load()
 	v := atomic.AddUint64(&w.i, 1)
-	return w.servers[v%w.len]
+	return servers[v%uint64(len(servers))]
 }
 
 func (w *WRoundRobin) healthChecker(backends []config.Backend) {
@@ -102,25 +103,27 @@ func (w *WRoundRobin) healthCheck(backend *config.Backend, index int) {
 	proxyMap, ok := w.serversMap[backendHash]
 
 	if ok && (!status && proxyMap.isHostAlive) {
-		w.servers = helper.RemoveByValue(w.servers, proxyMap.proxy)
-
-		w.len -= uint64(proxyMap.weight)
+		newServers := helper.RemoveByValue(*w.servers.Load(), proxyMap.proxy)
+		w.servers.Store(&newServers)
 		proxyMap.isHostAlive = false
 
 		zap.S().Infof("Server is down, removing from load balancer, Addr: %s", backend.Url)
-		if w.len == 0 {
+		if len(newServers) == 0 {
 			panic("All backends are down")
 		}
 	} else if ok && (status && !proxyMap.isHostAlive) {
+		oldServers := *w.servers.Load()
+		newServers := make([]proxy.IProxyClient, 0, len(oldServers)+int(proxyMap.weight))
+		newServers = append(newServers, oldServers...)
 		for i := 0; i < int(proxyMap.weight); i++ {
-			w.servers = append(w.servers, proxyMap.proxy)
+			newServers = append(newServers, proxyMap.proxy)
 		}
 
-		rand.New(rand.NewSource(time.Now().UnixNano())).Shuffle(len(w.servers), func(i, j int) { //nolint:gosec
-			w.servers[i], w.servers[j] = w.servers[j], w.servers[i]
+		rand.New(rand.NewSource(time.Now().UnixNano())).Shuffle(len(newServers), func(i, j int) { //nolint:gosec
+			newServers[i], newServers[j] = newServers[j], newServers[i]
 		})
 
-		w.len += uint64(proxyMap.weight)
+		w.servers.Store(&newServers)
 		proxyMap.isHostAlive = true
 		zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s", backend.Url)
 	}

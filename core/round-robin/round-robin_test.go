@@ -2,9 +2,11 @@ package round_robin
 
 import (
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/aaydin-tr/divisor/internal/proxy"
 	"github.com/aaydin-tr/divisor/mocks"
 	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/stretchr/testify/assert"
@@ -97,11 +99,11 @@ func TestRemoveOneServer(t *testing.T) {
 		roundRobin.isHostAlive = func(s string) bool {
 			return false
 		}
-		oldServerCount := roundRobin.len
+		oldServerCount := len(*roundRobin.servers.Load())
 		roundRobin.healthCheck(&backend, 0)
 
 		assert.False(t, b.isHostAlive, "expected isHostAlive equal to false, but got %v", b.isHostAlive)
-		assert.GreaterOrEqual(t, oldServerCount, roundRobin.len, "expected server to be removed after health check, but it did not.")
+		assert.GreaterOrEqual(t, oldServerCount, len(*roundRobin.servers.Load()), "expected server to be removed after health check, but it did not.")
 	}
 }
 
@@ -116,11 +118,11 @@ func TestRemoveAndAddServer(t *testing.T) {
 		roundRobin.isHostAlive = func(s string) bool {
 			return false
 		}
-		oldServerCount := roundRobin.len
+		oldServerCount := len(*roundRobin.servers.Load())
 		roundRobin.healthCheck(&backend, 0)
 
 		assert.False(t, b.isHostAlive, "expected isHostAlive equal to false, but got %v", b.isHostAlive)
-		assert.GreaterOrEqual(t, oldServerCount, roundRobin.len, "expected server to be removed after health check, but it did not.")
+		assert.GreaterOrEqual(t, oldServerCount, len(*roundRobin.servers.Load()), "expected server to be removed after health check, but it did not.")
 	}
 
 	// Add one server
@@ -130,11 +132,11 @@ func TestRemoveAndAddServer(t *testing.T) {
 			return true
 		}
 
-		oldServerCount := roundRobin.len
+		oldServerCount := len(*roundRobin.servers.Load())
 		roundRobin.healthCheck(&backend, 0)
 
 		assert.True(t, b.isHostAlive, "expected isHostAlive equal to true, but got %v", b.isHostAlive)
-		assert.GreaterOrEqual(t, roundRobin.len, oldServerCount, "expected server to be added after health check, but it did not.")
+		assert.GreaterOrEqual(t, len(*roundRobin.servers.Load()), oldServerCount, "expected server to be added after health check, but it did not.")
 
 	}
 }
@@ -151,14 +153,14 @@ func TestRemmoveAllServers(t *testing.T) {
 				return false
 			}
 
-			oldServerCount := roundRobin.len
+			oldServerCount := len(*roundRobin.servers.Load())
 			if oldServerCount == 1 {
 				assert.Panics(t, func() {
 					roundRobin.healthCheck(&backend, i)
 				}, "expected panic after remove all servers")
 			} else {
 				roundRobin.healthCheck(&backend, i)
-				assert.GreaterOrEqual(t, oldServerCount, roundRobin.len, "expected server to be removed after health check, but it did not.")
+				assert.GreaterOrEqual(t, oldServerCount, len(*roundRobin.servers.Load()), "expected server to be removed after health check, but it did not.")
 			}
 		}
 	}
@@ -271,4 +273,53 @@ func TestStatsWhenBackendDownAtStartup(t *testing.T) {
 	assert.Len(t, stats, 1)
 	assert.Equal(t, "localhost:80", stats[0].Addr)
 	assert.True(t, stats[0].IsHostAlive)
+}
+
+func TestNextConcurrentWithHealthCheck(t *testing.T) {
+	hashFunc := func(b []byte) uint32 { return uint32(len(b)) }
+	p1 := &mocks.MockProxy{Addr: "localhost:8080"}
+	p2 := &mocks.MockProxy{Addr: "localhost:80"}
+
+	var alive atomic.Bool
+	roundRobin := &RoundRobin{
+		hashFunc:    hashFunc,
+		isHostAlive: func(string) bool { return alive.Load() },
+		serversMap: map[uint32]*serverMap{
+			hashFunc([]byte("localhost:8080" + "0")): {proxy: p1, isHostAlive: true, statsIdx: 0},
+			hashFunc([]byte("localhost:80" + "1")):   {proxy: p2, isHostAlive: true, statsIdx: 1},
+		},
+	}
+	servers := []proxy.IProxyClient{p1, p2}
+	roundRobin.servers.Store(&servers)
+
+	backend := config.Backend{Url: "localhost:8080"}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 500; i++ {
+			alive.Store(false)
+			roundRobin.healthCheck(&backend, 0)
+			alive.Store(true)
+			roundRobin.healthCheck(&backend, 0)
+		}
+	}()
+
+	for {
+		select {
+		case <-done:
+			return
+		default:
+			roundRobin.next()
+		}
+	}
+}
+
+func BenchmarkNext(b *testing.B) {
+	caseOne := mocks.TestCases[0]
+	roundRobin := NewRoundRobin(&caseOne.Config, nil, caseOne.ProxyFunc).(*RoundRobin)
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			roundRobin.next()
+		}
+	})
 }

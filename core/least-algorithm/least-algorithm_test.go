@@ -2,9 +2,11 @@ package least_algorithm
 
 import (
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/aaydin-tr/divisor/internal/proxy"
 	"github.com/aaydin-tr/divisor/mocks"
 	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/stretchr/testify/assert"
@@ -31,7 +33,7 @@ func TestNewLeastAlgorithm(t *testing.T) {
 
 			leastAlgorithm := NewLeastAlgorithm(&testConfig, nil, l.ProxyFunc).(*LeastAlgorithm)
 			assert.Equal(t, l.ExpectedServerCount, len(leastAlgorithm.serversMap))
-			assert.Equal(t, l.ExpectedServerCount, leastAlgorithm.len)
+			assert.Equal(t, l.ExpectedServerCount, len(*leastAlgorithm.servers.Load()))
 		}
 	}
 }
@@ -175,11 +177,11 @@ func TestRemoveOneServer(t *testing.T) {
 		leastAlgorithm.isHostAlive = func(s string) bool {
 			return false
 		}
-		oldServerCount := leastAlgorithm.len
+		oldServerCount := len(*leastAlgorithm.servers.Load())
 		leastAlgorithm.healthCheck(&backend, 0)
 
 		assert.False(t, b.isHostAlive, "expected isHostAlive equal to false, but got %v", b.isHostAlive)
-		assert.GreaterOrEqual(t, oldServerCount, leastAlgorithm.len, "expected server to be removed after health check, but it did not.")
+		assert.GreaterOrEqual(t, oldServerCount, len(*leastAlgorithm.servers.Load()), "expected server to be removed after health check, but it did not.")
 	}
 }
 
@@ -195,11 +197,11 @@ func TestRemoveAndAddServer(t *testing.T) {
 		leastAlgorithm.isHostAlive = func(s string) bool {
 			return false
 		}
-		oldServerCount := leastAlgorithm.len
+		oldServerCount := len(*leastAlgorithm.servers.Load())
 		leastAlgorithm.healthCheck(&backend, 0)
 
 		assert.False(t, b.isHostAlive, "expected isHostAlive equal to false, but got %v", b.isHostAlive)
-		assert.GreaterOrEqual(t, oldServerCount, leastAlgorithm.len, "expected server to be removed after health check, but it did not.")
+		assert.GreaterOrEqual(t, oldServerCount, len(*leastAlgorithm.servers.Load()), "expected server to be removed after health check, but it did not.")
 	}
 
 	// Add one server
@@ -209,11 +211,11 @@ func TestRemoveAndAddServer(t *testing.T) {
 			return true
 		}
 
-		oldServerCount := leastAlgorithm.len
+		oldServerCount := len(*leastAlgorithm.servers.Load())
 		leastAlgorithm.healthCheck(&backend, 0)
 
 		assert.True(t, b.isHostAlive, "expected isHostAlive equal to true, but got %v", b.isHostAlive)
-		assert.GreaterOrEqual(t, leastAlgorithm.len, oldServerCount, "expected server to be added after health check, but it did not.")
+		assert.GreaterOrEqual(t, len(*leastAlgorithm.servers.Load()), oldServerCount, "expected server to be added after health check, but it did not.")
 
 	}
 }
@@ -231,14 +233,14 @@ func TestRemmoveAllServers(t *testing.T) {
 				return false
 			}
 
-			oldServerCount := leastAlgorithm.len
+			oldServerCount := len(*leastAlgorithm.servers.Load())
 			if oldServerCount == 1 {
 				assert.Panics(t, func() {
 					leastAlgorithm.healthCheck(&backend, i)
 				}, "expected panic after remove all servers")
 			} else {
 				leastAlgorithm.healthCheck(&backend, i)
-				assert.GreaterOrEqual(t, oldServerCount, leastAlgorithm.len, "expected server to be removed after health check, but it did not.")
+				assert.GreaterOrEqual(t, oldServerCount, len(*leastAlgorithm.servers.Load()), "expected server to be removed after health check, but it did not.")
 			}
 		}
 	}
@@ -349,4 +351,45 @@ func TestStatsWhenBackendDownAtStartup(t *testing.T) {
 	assert.Len(t, stats, 1)
 	assert.Equal(t, "localhost:80", stats[0].Addr)
 	assert.True(t, stats[0].IsHostAlive)
+}
+
+func TestNextConcurrentWithHealthCheck(t *testing.T) {
+	hashFunc := func(b []byte) uint32 { return uint32(len(b)) }
+	p1 := &mocks.MockProxy{Addr: "localhost:8080"}
+	p2 := &mocks.MockProxy{Addr: "localhost:80"}
+
+	var alive atomic.Bool
+	leastAlgorithm := &LeastAlgorithm{
+		hashFunc:    hashFunc,
+		isHostAlive: func(string) bool { return alive.Load() },
+		lastIndex:   new(uint32),
+		serversMap: map[uint32]*serverMap{
+			hashFunc([]byte("localhost:8080" + "0")): {proxy: p1, isHostAlive: true, statsIdx: 0},
+			hashFunc([]byte("localhost:80" + "1")):   {proxy: p2, isHostAlive: true, statsIdx: 1},
+		},
+	}
+	servers := []proxy.IProxyClient{p1, p2}
+	leastAlgorithm.servers.Store(&servers)
+
+	backend := config.Backend{Url: "localhost:8080"}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 500; i++ {
+			alive.Store(false)
+			leastAlgorithm.healthCheck(&backend, 0)
+			alive.Store(true)
+			leastAlgorithm.healthCheck(&backend, 0)
+		}
+	}()
+
+	for {
+		select {
+		case <-done:
+			return
+		default:
+			leastAlgorithm.leastConnectionNext()
+			leastAlgorithm.leastResponseTimeNext()
+		}
+	}
 }
