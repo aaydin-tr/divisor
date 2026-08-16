@@ -776,3 +776,46 @@ func TestRunOnResponse(t *testing.T) {
 		assert.NoError(t, err)
 	})
 }
+
+// Middleware that passes load-time validation but panics at request time
+const panicMiddlewareCode = `
+package middleware
+
+import (
+	"github.com/aaydin-tr/divisor/middleware"
+)
+
+type PanicMiddleware struct{}
+
+func (m *PanicMiddleware) OnRequest(ctx *middleware.Context) error {
+	var s []int
+	_ = s[3]
+	return nil
+}
+
+func (m *PanicMiddleware) OnResponse(ctx *middleware.Context, err error) error {
+	panic("panic on response")
+}
+
+func New(config map[string]any) middleware.Middleware {
+	return &PanicMiddleware{}
+}
+`
+
+func TestMiddlewarePanicRecovered(t *testing.T) {
+	executor, err := NewExecutor([]config.Middleware{
+		{Name: "panic-middleware", Code: panicMiddlewareCode},
+	})
+	assert.NoError(t, err)
+	assert.NotNil(t, executor)
+
+	assert.NotPanics(t, func() {
+		err = executor.RunOnRequest(createTestContext())
+	})
+	assert.Error(t, err, "expected request-time panic to be converted into an error")
+
+	assert.NotPanics(t, func() {
+		err = executor.RunOnResponse(createTestContext(), nil)
+	})
+	assert.Error(t, err, "expected response-time panic to be converted into an error")
+}

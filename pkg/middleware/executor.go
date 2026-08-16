@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime/debug"
 
 	"github.com/aaydin-tr/divisor/middleware"
 	"github.com/aaydin-tr/divisor/pkg/config"
@@ -122,7 +123,7 @@ func NewExecutor(configs []config.Middleware) (*Executor, error) {
 
 func (e *Executor) RunOnRequest(ctx *middleware.Context) error {
 	for _, mw := range e.middlewares {
-		if err := mw.OnRequest(ctx); err != nil {
+		if err := runProtected(func() error { return mw.OnRequest(ctx) }); err != nil {
 			return err
 		}
 	}
@@ -132,9 +133,19 @@ func (e *Executor) RunOnRequest(ctx *middleware.Context) error {
 
 func (e *Executor) RunOnResponse(ctx *middleware.Context, err error) error {
 	for _, mw := range e.middlewares {
-		if err := mw.OnResponse(ctx, err); err != nil {
-			return err
+		if resErr := runProtected(func() error { return mw.OnResponse(ctx, err) }); resErr != nil {
+			return resErr
 		}
 	}
 	return nil
+}
+
+func runProtected(fn func() error) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			zap.S().Errorf("Recovered panic in middleware: %v\n%s", r, debug.Stack())
+			err = fmt.Errorf("middleware panic: %v", r)
+		}
+	}()
+	return fn()
 }
