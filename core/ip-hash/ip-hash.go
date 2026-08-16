@@ -18,7 +18,7 @@ import (
 type serverMap struct {
 	node        *consistent.Node
 	isHostAlive bool
-	i           int
+	statsIdx    int
 }
 
 type IPHash struct {
@@ -26,14 +26,14 @@ type IPHash struct {
 	isHostAlive       types.IsHostAlive
 	hashFunc          types.HashFunc
 	stopHealthChecker chan bool
-	servers           consistent.ConsistentHash
+	servers           *consistent.ConsistentHash
 	len               int
 	healthCheckerTime time.Duration
 }
 
 func NewIPHash(cfg *config.Config, middlewareExecutor *middleware.Executor, proxyFunc proxy.ProxyFunc) types.IBalancer {
 	ipHash := &IPHash{
-		servers: *consistent.NewConsistentHash(
+		servers: consistent.NewConsistentHash(
 			int(math.Pow(float64(len(cfg.Backends)), float64(2))),
 			cfg.HashFunc,
 		),
@@ -52,7 +52,7 @@ func NewIPHash(cfg *config.Config, middlewareExecutor *middleware.Executor, prox
 		proxyClient := proxyFunc(&b, cfg.CustomHeaders, middlewareExecutor)
 		node := &consistent.Node{Id: i, Proxy: proxyClient, Addr: b.Url}
 		ipHash.servers.AddNode(node)
-		ipHash.serversMap[ipHash.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{node: node, isHostAlive: true, i: i}
+		ipHash.serversMap[ipHash.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{node: node, isHostAlive: true, statsIdx: len(ipHash.serversMap)}
 		ipHash.len++
 		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
 	}
@@ -119,7 +119,7 @@ func (h *IPHash) Stats() []types.ProxyStat {
 	stats := make([]types.ProxyStat, len(h.serversMap))
 	for hash, p := range h.serversMap {
 		s := p.node.Proxy.Stat()
-		stats[p.i] = types.ProxyStat{
+		stats[p.statsIdx] = types.ProxyStat{
 			Addr:          s.Addr,
 			TotalReqCount: s.TotalReqCount,
 			AvgResTime:    s.AvgResTime,

@@ -2,10 +2,13 @@ package random
 
 import (
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/aaydin-tr/divisor/internal/proxy"
 	"github.com/aaydin-tr/divisor/mocks"
+	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/valyala/fasthttp"
 )
@@ -96,11 +99,11 @@ func TestRemoveOneServer(t *testing.T) {
 		random.isHostAlive = func(s string) bool {
 			return false
 		}
-		oldServerCount := random.len
+		oldServerCount := len(*random.servers.Load())
 		random.healthCheck(&backend, 0)
 
 		assert.False(t, b.isHostAlive, "expected isHostAlive equal to false, but got %v", b.isHostAlive)
-		assert.GreaterOrEqual(t, oldServerCount, random.len, "expected server to be removed after health check, but it did not.")
+		assert.GreaterOrEqual(t, oldServerCount, len(*random.servers.Load()), "expected server to be removed after health check, but it did not.")
 	}
 
 }
@@ -116,11 +119,11 @@ func TestRemoveAndAddServer(t *testing.T) {
 		random.isHostAlive = func(s string) bool {
 			return false
 		}
-		oldServerCount := random.len
+		oldServerCount := len(*random.servers.Load())
 		random.healthCheck(&backend, 0)
 
 		assert.False(t, b.isHostAlive, "expected isHostAlive equal to false, but got %v", b.isHostAlive)
-		assert.GreaterOrEqual(t, oldServerCount, random.len, "expected server to be removed after health check, but it did not.")
+		assert.GreaterOrEqual(t, oldServerCount, len(*random.servers.Load()), "expected server to be removed after health check, but it did not.")
 	}
 
 	// Add one server
@@ -130,11 +133,11 @@ func TestRemoveAndAddServer(t *testing.T) {
 			return true
 		}
 
-		oldServerCount := random.len
+		oldServerCount := len(*random.servers.Load())
 		random.healthCheck(&backend, 0)
 
 		assert.True(t, b.isHostAlive, "expected isHostAlive equal to true, but got %v", b.isHostAlive)
-		assert.GreaterOrEqual(t, random.len, oldServerCount, "expected server to be added after health check, but it did not.")
+		assert.GreaterOrEqual(t, len(*random.servers.Load()), oldServerCount, "expected server to be added after health check, but it did not.")
 
 	}
 }
@@ -151,7 +154,7 @@ func TestRemmoveAllServers(t *testing.T) {
 				return false
 			}
 
-			oldServerCount := random.len
+			oldServerCount := len(*random.servers.Load())
 			if oldServerCount == 1 {
 				assert.Panics(t, func() {
 					random.healthCheck(&backend, i)
@@ -159,7 +162,7 @@ func TestRemmoveAllServers(t *testing.T) {
 
 			} else {
 				random.healthCheck(&backend, i)
-				assert.GreaterOrEqual(t, oldServerCount, random.len, "expected server to be removed after health check, but it did not.")
+				assert.GreaterOrEqual(t, oldServerCount, len(*random.servers.Load()), "expected server to be removed after health check, but it did not.")
 			}
 		}
 	}
@@ -219,4 +222,67 @@ func TestShutdown(t *testing.T) {
 		// Give some time for health checker to actually stop
 		time.Sleep(150 * time.Millisecond)
 	})
+}
+
+func TestStatsWhenBackendDownAtStartup(t *testing.T) {
+	cfg := config.Config{
+		Backends: []config.Backend{
+			{Url: "localhost:8080", Weight: 1},
+			{Url: "localhost:80", Weight: 1},
+		},
+		HealthCheckerTime: time.Second * 5,
+		HealthCheckerFunc: func(url string) bool {
+			return url != "http://localhost:8080"
+		},
+		HashFunc: func(b []byte) uint32 {
+			return uint32(len(b))
+		},
+	}
+
+	balancer := NewRandom(&cfg, nil, mocks.CreateNewMockProxy)
+	assert.NotNil(t, balancer)
+
+	stats := balancer.Stats()
+	assert.Len(t, stats, 1)
+	assert.Equal(t, "localhost:80", stats[0].Addr)
+	assert.True(t, stats[0].IsHostAlive)
+}
+
+func TestNextConcurrentWithHealthCheck(t *testing.T) {
+	hashFunc := func(b []byte) uint32 { return uint32(len(b)) }
+	p1 := &mocks.MockProxy{Addr: "localhost:8080"}
+	p2 := &mocks.MockProxy{Addr: "localhost:80"}
+
+	var alive atomic.Bool
+	random := &Random{
+		hashFunc:    hashFunc,
+		isHostAlive: func(string) bool { return alive.Load() },
+		serversMap: map[uint32]*serverMap{
+			hashFunc([]byte("localhost:8080" + "0")): {proxy: p1, isHostAlive: true, statsIdx: 0},
+			hashFunc([]byte("localhost:80" + "1")):   {proxy: p2, isHostAlive: true, statsIdx: 1},
+		},
+	}
+	servers := []proxy.IProxyClient{p1, p2}
+	random.servers.Store(&servers)
+
+	backend := config.Backend{Url: "localhost:8080"}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 500; i++ {
+			alive.Store(false)
+			random.healthCheck(&backend, 0)
+			alive.Store(true)
+			random.healthCheck(&backend, 0)
+		}
+	}()
+
+	for {
+		select {
+		case <-done:
+			return
+		default:
+			random.next()
+		}
+	}
 }

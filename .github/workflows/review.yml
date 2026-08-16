@@ -13,7 +13,7 @@ jobs:
       pull-requests: write
       id-token: write
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     steps:
       - name: Checkout repository
@@ -21,14 +21,24 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Check changed files
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            run_review:
+              - "**/*.go"
+
       - name: Auto review PR
-        uses: anthropics/claude-code-action@v1.0.7
+        if: steps.changes.outputs.run_review == 'true'
+        uses: anthropics/claude-code-action@v1.0.57
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           prompt: "/review-pr REPO: ${{ github.repository }} PR_NUMBER: ${{ github.event.pull_request.number }}"
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           track_progress: true
           claude_args: |
-            --model claude-sonnet-4-5-20250929
-            --allowed-tools "mcp__github_inline_comment__create_inline_comment,mcp__sequential-thinking__sequentialthinking,mcp__github__create_pending_pull_request_review,mcp__github__add_pull_request_review_comment_to_pending_review,mcp__github__submit_pending_pull_request_review,mcp__github__get_pull_request_diff,mcp__github_ci__get_ci_status,mcp__github_comment__update_claude_comment"
+            --model claude-sonnet-5
+            --allowed-tools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),mcp__github_inline_comment__create_inline_comment,mcp__sequential-thinking__sequentialthinking,mcp__github__create_pending_pull_request_review,mcp__github__add_pull_request_review_comment_to_pending_review,mcp__github__submit_pending_pull_request_review,mcp__github__get_pull_request_diff,mcp__github_ci__get_ci_status,mcp__github_comment__update_claude_comment"
+            --disallowed-tools "Read(./docs/**),Read(docs/**),Glob(docs/**),Grep(docs/**),Bash(cat docs/*),Bash(ls docs*),Bash(find docs*),Bash(rg * docs*),Bash(grep * docs*)"
             --mcp-config '{ "mcpServers": { "sequential-thinking": { "command": "npx", "args": [ "-y", "@modelcontextprotocol/server-sequential-thinking" ] } } }'

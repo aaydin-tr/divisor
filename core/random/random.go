@@ -3,6 +3,7 @@ package random
 import (
 	rand "math/rand/v2"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	types "github.com/aaydin-tr/divisor/core/types"
@@ -17,7 +18,7 @@ import (
 type serverMap struct {
 	proxy       proxy.IProxyClient
 	isHostAlive bool
-	i           int
+	statsIdx    int
 }
 
 type Random struct {
@@ -25,8 +26,7 @@ type Random struct {
 	isHostAlive       types.IsHostAlive
 	hashFunc          types.HashFunc
 	stopHealthChecker chan bool
-	servers           []proxy.IProxyClient
-	len               uint32
+	servers           atomic.Pointer[[]proxy.IProxyClient]
 	healthCheckerTime time.Duration
 }
 
@@ -39,21 +39,22 @@ func NewRandom(cfg *config.Config, middlewareExecutor *middleware.Executor, prox
 		stopHealthChecker: make(chan bool),
 	}
 
+	servers := make([]proxy.IProxyClient, 0, len(cfg.Backends))
 	for i, b := range cfg.Backends {
 		if !random.isHostAlive(b.GetHealthCheckURL()) {
 			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
 			continue
 		}
 		proxyClient := proxyFunc(&b, cfg.CustomHeaders, middlewareExecutor)
-		random.servers = append(random.servers, proxyClient)
-		random.serversMap[random.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxyClient, isHostAlive: true, i: i}
+		servers = append(servers, proxyClient)
+		random.serversMap[random.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxyClient, isHostAlive: true, statsIdx: len(random.serversMap)}
 		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
-		random.len++
 	}
 
-	if random.len <= 0 {
+	if len(servers) == 0 {
 		return nil
 	}
+	random.servers.Store(&servers)
 
 	go random.healthChecker(cfg.Backends)
 
@@ -67,7 +68,8 @@ func (r *Random) Serve() func(ctx *fasthttp.RequestCtx) {
 }
 
 func (r *Random) next() proxy.IProxyClient {
-	return r.servers[rand.Uint32N(r.len)] //nolint:gosec
+	servers := *r.servers.Load()
+	return servers[rand.IntN(len(servers))] //nolint:gosec
 }
 
 func (r *Random) healthChecker(backends []config.Backend) {
@@ -89,17 +91,20 @@ func (r *Random) healthCheck(backend *config.Backend, index int) {
 	backendHash := r.hashFunc(helper.S2B(backend.Url + strconv.Itoa(index)))
 	proxyMap, ok := r.serversMap[backendHash]
 	if ok && (!status && proxyMap.isHostAlive) {
-		r.servers = helper.RemoveByValue(r.servers, proxyMap.proxy)
-		r.len--
+		newServers := helper.RemoveByValue(*r.servers.Load(), proxyMap.proxy)
+		r.servers.Store(&newServers)
 		proxyMap.isHostAlive = false
 
 		zap.S().Infof("Server is down, removing from load balancer, Addr: %s", backend.Url)
-		if r.len == 0 {
+		if len(newServers) == 0 {
 			panic("All backends are down")
 		}
 	} else if ok && (status && !proxyMap.isHostAlive) {
-		r.servers = append(r.servers, proxyMap.proxy)
-		r.len++
+		oldServers := *r.servers.Load()
+		newServers := make([]proxy.IProxyClient, 0, len(oldServers)+1)
+		newServers = append(newServers, oldServers...)
+		newServers = append(newServers, proxyMap.proxy)
+		r.servers.Store(&newServers)
 		proxyMap.isHostAlive = true
 		zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s", backend.Url)
 	}
@@ -109,7 +114,7 @@ func (r *Random) Stats() []types.ProxyStat {
 	stats := make([]types.ProxyStat, len(r.serversMap))
 	for hash, p := range r.serversMap {
 		s := p.proxy.Stat()
-		stats[p.i] = types.ProxyStat{
+		stats[p.statsIdx] = types.ProxyStat{
 			Addr:          s.Addr,
 			TotalReqCount: s.TotalReqCount,
 			AvgResTime:    s.AvgResTime,
