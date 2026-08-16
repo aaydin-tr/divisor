@@ -32,6 +32,11 @@ go test ./internal/proxy
 
 # Run single test
 go test -run TestFunctionName ./package/path
+
+# Run the black-box integration suite (requires a running Docker daemon;
+# opt-in via env var; its own Go module, so plain `go test ./...` never
+# touches it)
+DIVISOR_INTEGRATION=1 go -C integration-test test -v -timeout 20m .
 ```
 
 ### Install
@@ -122,7 +127,7 @@ Each algorithm maintains `stopHealthChecker` channel and runs periodic health ch
 Uses `pkg/consistent` package implementing consistent hashing ring for stable IP-to-backend mapping.
 
 ### HTTP/2 Support
-Configured via custom fork `github.com/aaydin-tr/http2` applied to fasthttp server when `server.http_version: http2`.
+When `server.http_version: http2`, divisor serves via `net/http` + `golang.org/x/net/http2` instead of fasthttp; `internal/proxy/nethttp_adapter.go` bridges each request into a synthetic `fasthttp.RequestCtx` so the balancer/proxy path stays shared. TLS is mandatory on this path (no h2c). Backends always speak HTTP/1.1 over plain HTTP.
 
 ## Testing Notes
 
@@ -130,3 +135,12 @@ Configured via custom fork `github.com/aaydin-tr/http2` applied to fasthttp serv
 - Each algorithm has `*_test.go` with unit tests
 - Config validation tested in `pkg/config/config_test.go`
 - Proxy behavior tested in `internal/proxy/proxy_test.go`
+- `integration-test/` is a black-box Docker suite (dockertest): divisor and
+  purpose-built echo backends run as containers, driven over real HTTP/1.1,
+  HTTP/2, and TLS (see `docs/adr/0001-black-box-integration-suite.md` and
+  `CONTEXT.md` for its vocabulary). Gated by `DIVISOR_INTEGRATION=1`; runs in
+  CI via `.github/workflows/integration.yml`. Some tests intentionally assert
+  the agreed 1.0 spec and stay red until the behavior ships: startup-down
+  backends rejoining, 502 (not 500) for unreachable backends, staying up when
+  all backends are down, bounded failure for hanging backends, 413 for
+  oversized bodies.
