@@ -52,6 +52,7 @@ func isHopHeader(key []byte) bool {
 	return false
 }
 
+//nolint:gocyclo
 func ConvertNetHTTPRequestToFastHTTPRequest(r *http.Request, ctx *fasthttp.RequestCtx) {
 	ctx.Request.Header.SetMethod(r.Method)
 

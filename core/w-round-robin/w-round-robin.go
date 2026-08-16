@@ -53,7 +53,8 @@ func NewWRoundRobin(cfg *config.Config, middlewareExecutor *middleware.Executor,
 			servers = append(servers, proxyClient)
 		}
 
-		wRoundRobin.serversMap[wRoundRobin.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxyClient, weight: b.Weight, isHostAlive: true, statsIdx: len(wRoundRobin.serversMap)}
+		wRoundRobin.serversMap[wRoundRobin.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] =
+			&serverMap{proxy: proxyClient, weight: b.Weight, isHostAlive: true, statsIdx: len(wRoundRobin.serversMap)}
 		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
 	}
 

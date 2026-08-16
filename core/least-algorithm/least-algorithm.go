@@ -49,7 +49,8 @@ func NewLeastAlgorithm(cfg *config.Config, middlewareExecutor *middleware.Execut
 		}
 		proxyClient := proxyFunc(&b, cfg.CustomHeaders, middlewareExecutor)
 		servers = append(servers, proxyClient)
-		leastAlgorithm.serversMap[leastAlgorithm.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxyClient, isHostAlive: true, statsIdx: len(leastAlgorithm.serversMap)}
+		leastAlgorithm.serversMap[leastAlgorithm.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] =
+			&serverMap{proxy: proxyClient, isHostAlive: true, statsIdx: len(leastAlgorithm.serversMap)}
 		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
 	}
 
