@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/aaydin-tr/divisor/mocks"
+	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/valyala/fasthttp"
 )
@@ -323,4 +324,29 @@ func TestShutdown(t *testing.T) {
 		// Give some time for health checker to actually stop
 		time.Sleep(150 * time.Millisecond)
 	})
+}
+
+func TestStatsWhenBackendDownAtStartup(t *testing.T) {
+	cfg := config.Config{
+		Type: "least-connection",
+		Backends: []config.Backend{
+			{Url: "localhost:8080", Weight: 1},
+			{Url: "localhost:80", Weight: 1},
+		},
+		HealthCheckerTime: time.Second * 5,
+		HealthCheckerFunc: func(url string) bool {
+			return url != "http://localhost:8080"
+		},
+		HashFunc: func(b []byte) uint32 {
+			return uint32(len(b))
+		},
+	}
+
+	balancer := NewLeastAlgorithm(&cfg, nil, mocks.CreateNewMockProxy)
+	assert.NotNil(t, balancer)
+
+	stats := balancer.Stats()
+	assert.Len(t, stats, 1)
+	assert.Equal(t, "localhost:80", stats[0].Addr)
+	assert.True(t, stats[0].IsHostAlive)
 }

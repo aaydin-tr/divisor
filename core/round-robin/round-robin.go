@@ -17,7 +17,7 @@ import (
 type serverMap struct {
 	proxy       proxy.IProxyClient
 	isHostAlive bool
-	i           int
+	statsIdx    int
 }
 
 type RoundRobin struct {
@@ -47,7 +47,7 @@ func NewRoundRobin(cfg *config.Config, middlewareExecutor *middleware.Executor, 
 		}
 		proxyClient := proxyFunc(&b, cfg.CustomHeaders, middlewareExecutor)
 		roundRobin.servers = append(roundRobin.servers, proxyClient)
-		roundRobin.serversMap[roundRobin.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxyClient, isHostAlive: true, i: i}
+		roundRobin.serversMap[roundRobin.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxyClient, isHostAlive: true, statsIdx: len(roundRobin.serversMap)}
 		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
 		roundRobin.len++
 	}
@@ -111,7 +111,7 @@ func (r *RoundRobin) Stats() []types.ProxyStat {
 	stats := make([]types.ProxyStat, len(r.serversMap))
 	for hash, p := range r.serversMap {
 		s := p.proxy.Stat()
-		stats[p.i] = types.ProxyStat{
+		stats[p.statsIdx] = types.ProxyStat{
 			Addr:          s.Addr,
 			TotalReqCount: s.TotalReqCount,
 			AvgResTime:    s.AvgResTime,

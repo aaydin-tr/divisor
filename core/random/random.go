@@ -17,7 +17,7 @@ import (
 type serverMap struct {
 	proxy       proxy.IProxyClient
 	isHostAlive bool
-	i           int
+	statsIdx    int
 }
 
 type Random struct {
@@ -46,7 +46,7 @@ func NewRandom(cfg *config.Config, middlewareExecutor *middleware.Executor, prox
 		}
 		proxyClient := proxyFunc(&b, cfg.CustomHeaders, middlewareExecutor)
 		random.servers = append(random.servers, proxyClient)
-		random.serversMap[random.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxyClient, isHostAlive: true, i: i}
+		random.serversMap[random.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxyClient, isHostAlive: true, statsIdx: len(random.serversMap)}
 		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
 		random.len++
 	}
@@ -109,7 +109,7 @@ func (r *Random) Stats() []types.ProxyStat {
 	stats := make([]types.ProxyStat, len(r.serversMap))
 	for hash, p := range r.serversMap {
 		s := p.proxy.Stat()
-		stats[p.i] = types.ProxyStat{
+		stats[p.statsIdx] = types.ProxyStat{
 			Addr:          s.Addr,
 			TotalReqCount: s.TotalReqCount,
 			AvgResTime:    s.AvgResTime,

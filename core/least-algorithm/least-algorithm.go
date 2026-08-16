@@ -17,7 +17,7 @@ import (
 type serverMap struct {
 	proxy       proxy.IProxyClient
 	isHostAlive bool
-	i           int
+	statsIdx    int
 }
 
 type LeastAlgorithm struct {
@@ -49,7 +49,7 @@ func NewLeastAlgorithm(cfg *config.Config, middlewareExecutor *middleware.Execut
 		}
 		proxyClient := proxyFunc(&b, cfg.CustomHeaders, middlewareExecutor)
 		leastAlgorithm.servers = append(leastAlgorithm.servers, proxyClient)
-		leastAlgorithm.serversMap[leastAlgorithm.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxyClient, isHostAlive: true, i: i}
+		leastAlgorithm.serversMap[leastAlgorithm.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxyClient, isHostAlive: true, statsIdx: len(leastAlgorithm.serversMap)}
 		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
 		leastAlgorithm.len++
 	}
@@ -146,7 +146,7 @@ func (l *LeastAlgorithm) Stats() []types.ProxyStat {
 	stats := make([]types.ProxyStat, len(l.serversMap))
 	for hash, p := range l.serversMap {
 		s := p.proxy.Stat()
-		stats[p.i] = types.ProxyStat{
+		stats[p.statsIdx] = types.ProxyStat{
 			Addr:          s.Addr,
 			TotalReqCount: s.TotalReqCount,
 			AvgResTime:    s.AvgResTime,
