@@ -153,9 +153,9 @@ func TestUnreachableBackendGets502(t *testing.T) {
 
 func TestAllBackendsDownStaysUp(t *testing.T) {
 	// SPEC (1.0, grilling Q14): with every backend Down, divisor must stay
-	// up, answer with a gateway error, and let backends Rejoin. BORN RED:
-	// the health checker currently calls panic("All backends are down"),
-	// killing the process — every request below fails at transport level.
+	// up, answer with a gateway error, and let backends Rejoin. Born red
+	// (the health checker used to panic("All backends are down")); green
+	// since the balancers started serving 503 on an empty rotation.
 	s := startScenario(t, ScenarioSpec{
 		Name:              "foall",
 		Type:              "round-robin",

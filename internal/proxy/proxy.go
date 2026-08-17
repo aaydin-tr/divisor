@@ -111,6 +111,15 @@ func (h *ProxyClient) postRes(res *fasthttp.Response) {
 	}
 }
 
+// NoAliveBackends answers a request that arrived while every Backend is Down:
+// 503 until a Probe lets one Rejoin.
+func NoAliveBackends(ctx *fasthttp.RequestCtx) {
+	ctx.Response.SetStatusCode(fasthttp.StatusServiceUnavailable)
+	ctx.Response.SetConnectionClose()
+	ctx.Response.Header.Set("Content-Type", "application/json")
+	ctx.Response.SetBodyString(`{"message":"no backends available"}`)
+}
+
 func (h *ProxyClient) serverError(res *fasthttp.Response, err string) {
 	zap.S().Infof("error when proxying the request: %s", err)
 	res.SetStatusCode(fasthttp.StatusBadGateway)

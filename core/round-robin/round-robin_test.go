@@ -141,29 +141,42 @@ func TestRemoveAndAddServer(t *testing.T) {
 	}
 }
 
-func TestRemmoveAllServers(t *testing.T) {
+func TestAllBackendsDownStaysUp(t *testing.T) {
+	// SPEC (1.0): losing the last live backend must not kill the process;
+	// requests get 503 until a Probe lets a backend Rejoin.
 	caseOne := mocks.TestCases[0]
 	roundRobin := NewRoundRobin(&caseOne.Config, nil, caseOne.ProxyFunc).(*RoundRobin)
 	assert.Equal(t, caseOne.ExpectedServerCount, len(roundRobin.serversMap))
 
-	// Remove All
-	for i, backend := range caseOne.Config.Backends {
-		if _, ok := roundRobin.serversMap[roundRobin.hashFunc([]byte(backend.Url+strconv.Itoa(i)))]; ok {
-			roundRobin.isHostAlive = func(s string) bool {
-				return false
-			}
-
-			oldServerCount := len(*roundRobin.servers.Load())
-			if oldServerCount == 1 {
-				assert.Panics(t, func() {
-					roundRobin.healthCheck(&backend, i)
-				}, "expected panic after remove all servers")
-			} else {
-				roundRobin.healthCheck(&backend, i)
-				assert.GreaterOrEqual(t, oldServerCount, len(*roundRobin.servers.Load()), "expected server to be removed after health check, but it did not.")
-			}
-		}
+	roundRobin.isHostAlive = func(s string) bool {
+		return false
 	}
+	for i, backend := range caseOne.Config.Backends {
+		assert.NotPanics(t, func() {
+			roundRobin.healthCheck(&backend, i)
+		}, "losing the last live backend must not panic")
+	}
+	assert.Empty(t, *roundRobin.servers.Load())
+
+	handler := roundRobin.Serve()
+	ctx := fasthttp.RequestCtx{
+		Request: *fasthttp.AcquireRequest(),
+	}
+	handler(&ctx)
+	assert.Equal(t, fasthttp.StatusServiceUnavailable, ctx.Response.StatusCode())
+
+	// Rejoin after the total outage.
+	roundRobin.isHostAlive = func(s string) bool {
+		return true
+	}
+	roundRobin.healthCheck(&caseOne.Config.Backends[0], 0)
+	assert.Len(t, *roundRobin.servers.Load(), 1)
+
+	ctx = fasthttp.RequestCtx{
+		Request: *fasthttp.AcquireRequest(),
+	}
+	handler(&ctx)
+	assert.Equal(t, fasthttp.StatusOK, ctx.Response.StatusCode())
 }
 
 func TestShutdown(t *testing.T) {

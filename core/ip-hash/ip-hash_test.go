@@ -141,30 +141,42 @@ func TestRemoveAndAddServer(t *testing.T) {
 	}
 }
 
-func TestRemmoveAllServers(t *testing.T) {
+func TestAllBackendsDownStaysUp(t *testing.T) {
+	// SPEC (1.0): losing the last live backend must not kill the process;
+	// requests get 503 until a Probe lets a backend Rejoin.
 	caseOne := mocks.TestCases[0]
 	ipHash := NewIPHash(&caseOne.Config, nil, caseOne.ProxyFunc).(*IPHash)
 	assert.Equal(t, caseOne.ExpectedServerCount, len(ipHash.serversMap))
 
-	// Remove All
-	for i, backend := range caseOne.Config.Backends {
-		if _, ok := ipHash.serversMap[ipHash.hashFunc([]byte(backend.Url+strconv.Itoa(i)))]; ok {
-			ipHash.isHostAlive = func(s string) bool {
-				return false
-			}
-
-			oldServerCount := ipHash.len
-			if oldServerCount == 1 {
-				assert.Panics(t, func() {
-					ipHash.healthCheck(&backend, i)
-				}, "expected panic after remove all servers")
-
-			} else {
-				ipHash.healthCheck(&backend, i)
-				assert.GreaterOrEqual(t, oldServerCount, ipHash.len, "expected server to be removed after health check, but it did not.")
-			}
-		}
+	ipHash.isHostAlive = func(s string) bool {
+		return false
 	}
+	for i, backend := range caseOne.Config.Backends {
+		assert.NotPanics(t, func() {
+			ipHash.healthCheck(&backend, i)
+		}, "losing the last live backend must not panic")
+	}
+	assert.Equal(t, 0, ipHash.len)
+
+	handler := ipHash.Serve()
+	ctx := fasthttp.RequestCtx{
+		Request: *fasthttp.AcquireRequest(),
+	}
+	handler(&ctx)
+	assert.Equal(t, fasthttp.StatusServiceUnavailable, ctx.Response.StatusCode())
+
+	// Rejoin after the total outage.
+	ipHash.isHostAlive = func(s string) bool {
+		return true
+	}
+	ipHash.healthCheck(&caseOne.Config.Backends[0], 0)
+	assert.Equal(t, 1, ipHash.len)
+
+	ctx = fasthttp.RequestCtx{
+		Request: *fasthttp.AcquireRequest(),
+	}
+	handler(&ctx)
+	assert.Equal(t, fasthttp.StatusOK, ctx.Response.StatusCode())
 }
 
 func TestShutdown(t *testing.T) {
@@ -273,4 +285,15 @@ func TestBackendDownAtStartupCanRejoin(t *testing.T) {
 	assert.Equal(t, 2, ipHash.len)
 	sm := ipHash.serversMap[ipHash.hashFunc([]byte("localhost:8080"+"0"))]
 	assert.True(t, sm.isHostAlive)
+}
+
+func BenchmarkNext(b *testing.B) {
+	caseOne := mocks.TestCases[0]
+	ipHash := NewIPHash(&caseOne.Config, nil, caseOne.ProxyFunc).(*IPHash)
+	hashCode := ipHash.hashFunc([]byte("192.168.1.1"))
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			ipHash.get(hashCode)
+		}
+	})
 }

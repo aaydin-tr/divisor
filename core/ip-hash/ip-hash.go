@@ -71,12 +71,19 @@ func (h *IPHash) Serve() func(ctx *fasthttp.RequestCtx) {
 	return func(ctx *fasthttp.RequestCtx) {
 		hashCode := h.hashFunc(helper.S2B(ctx.RemoteIP().String()))
 		proxyClient := h.get(hashCode)
+		if proxyClient == nil {
+			proxy.NoAliveBackends(ctx)
+			return
+		}
 		proxyClient.ReverseProxyHandler(ctx) //nolint:errcheck
 	}
 }
 
 func (h *IPHash) get(hashCode uint32) proxy.IProxyClient {
 	node := h.servers.GetNode(hashCode)
+	if node == nil {
+		return nil
+	}
 	return node.Proxy
 }
 
@@ -106,7 +113,7 @@ func (h *IPHash) healthCheck(backend *config.Backend, index int) {
 
 		zap.S().Infof("Server is down, removing from load balancer, Addr: %s", backend.Url)
 		if h.len == 0 {
-			panic("All backends are down")
+			zap.S().Warn("All backends are down, serving 503 until a backend rejoins")
 		}
 	} else if ok && (status && !proxyMap.isHostAlive) {
 		h.servers.AddNode(proxyMap.node)

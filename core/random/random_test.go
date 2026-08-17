@@ -142,30 +142,42 @@ func TestRemoveAndAddServer(t *testing.T) {
 	}
 }
 
-func TestRemmoveAllServers(t *testing.T) {
+func TestAllBackendsDownStaysUp(t *testing.T) {
+	// SPEC (1.0): losing the last live backend must not kill the process;
+	// requests get 503 until a Probe lets a backend Rejoin.
 	caseOne := mocks.TestCases[0]
 	random := NewRandom(&caseOne.Config, nil, caseOne.ProxyFunc).(*Random)
 	assert.Equal(t, caseOne.ExpectedServerCount, len(random.serversMap))
 
-	// Remove All
-	for i, backend := range caseOne.Config.Backends {
-		if _, ok := random.serversMap[random.hashFunc([]byte(backend.Url+strconv.Itoa(i)))]; ok {
-			random.isHostAlive = func(s string) bool {
-				return false
-			}
-
-			oldServerCount := len(*random.servers.Load())
-			if oldServerCount == 1 {
-				assert.Panics(t, func() {
-					random.healthCheck(&backend, i)
-				}, "expected panic after remove all servers")
-
-			} else {
-				random.healthCheck(&backend, i)
-				assert.GreaterOrEqual(t, oldServerCount, len(*random.servers.Load()), "expected server to be removed after health check, but it did not.")
-			}
-		}
+	random.isHostAlive = func(s string) bool {
+		return false
 	}
+	for i, backend := range caseOne.Config.Backends {
+		assert.NotPanics(t, func() {
+			random.healthCheck(&backend, i)
+		}, "losing the last live backend must not panic")
+	}
+	assert.Empty(t, *random.servers.Load())
+
+	handler := random.Serve()
+	ctx := fasthttp.RequestCtx{
+		Request: *fasthttp.AcquireRequest(),
+	}
+	handler(&ctx)
+	assert.Equal(t, fasthttp.StatusServiceUnavailable, ctx.Response.StatusCode())
+
+	// Rejoin after the total outage.
+	random.isHostAlive = func(s string) bool {
+		return true
+	}
+	random.healthCheck(&caseOne.Config.Backends[0], 0)
+	assert.Len(t, *random.servers.Load(), 1)
+
+	ctx = fasthttp.RequestCtx{
+		Request: *fasthttp.AcquireRequest(),
+	}
+	handler(&ctx)
+	assert.Equal(t, fasthttp.StatusOK, ctx.Response.StatusCode())
 }
 
 func TestShutdown(t *testing.T) {
@@ -313,4 +325,14 @@ func TestNextConcurrentWithHealthCheck(t *testing.T) {
 			random.next()
 		}
 	}
+}
+
+func BenchmarkNext(b *testing.B) {
+	caseOne := mocks.TestCases[0]
+	random := NewRandom(&caseOne.Config, nil, caseOne.ProxyFunc).(*Random)
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			random.next()
+		}
+	})
 }

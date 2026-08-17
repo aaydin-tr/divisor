@@ -48,9 +48,11 @@ hardcoded or silently left at library defaults):
   applies to both the fasthttp and HTTP/2 paths since the status is set on
   the shared `RequestCtx`. **[born-red:** `TestUnreachableBackendGets502`,
   `TestProxyMatrix/FailedProxyAttemptReturns502` **— now green]**
-- [ ] All Backends Down → stay up, serve 502/503, let Backends Rejoin — today
-  the health checker calls `panic("All backends are down")` and kills the
-  process. **[born-red:** `TestAllBackendsDownStaysUp`**]**
+- [x] All Backends Down → stay up, serve 502/503, let Backends Rejoin — fixed:
+  the health checker no longer panics when the last live backend leaves the
+  rotation (all five algorithms); requests hitting an empty rotation get
+  **503 Service Unavailable** (`types.NoAliveBackends`) until a Probe lets a
+  backend Rejoin. **[born-red:** `TestAllBackendsDownStaysUp` **— now green]**
 - [ ] Decide X-Forwarded-For semantics: current overwrite behavior is pinned by
   `TestProxyMatrix/XForwardedFor` as anti-spoofing; revisit whether 1.0 should
   append instead.

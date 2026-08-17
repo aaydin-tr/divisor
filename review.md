@@ -25,7 +25,7 @@ Tick items off as we fix them:
 - [ ] [H8 — net/http adapter forwards stale Content-Length](#h8)
 - [ ] [M1 — least-connection doesn't pick the least-connected server](#m1)
 - [ ] [M2 — `isHostAlive` data race between `Stats()` and health checker](#m2)
-- [ ] [M3 — "All backends are down" panic makes transient outages permanent](#m3)
+- [x] [M3 — "All backends are down" panic makes transient outages permanent](#m3)
 - [ ] [M4 — Virtual-node key collisions corrupt the ip-hash ring](#m4)
 - [ ] [M5 — `OnResponse` cannot override backend errors as documented](#m5)
 - [ ] [M6 — `https://` backends silently downgraded to plain HTTP](#m6)

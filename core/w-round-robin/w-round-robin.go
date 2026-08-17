@@ -74,12 +74,20 @@ func NewWRoundRobin(cfg *config.Config, middlewareExecutor *middleware.Executor,
 
 func (w *WRoundRobin) Serve() func(ctx *fasthttp.RequestCtx) {
 	return func(ctx *fasthttp.RequestCtx) {
-		w.next().ReverseProxyHandler(ctx) //nolint:errcheck
+		proxyClient := w.next()
+		if proxyClient == nil {
+			proxy.NoAliveBackends(ctx)
+			return
+		}
+		proxyClient.ReverseProxyHandler(ctx) //nolint:errcheck
 	}
 }
 
 func (w *WRoundRobin) next() proxy.IProxyClient {
 	servers := *w.servers.Load()
+	if len(servers) == 0 {
+		return nil
+	}
 	v := atomic.AddUint64(&w.i, 1)
 	return servers[v%uint64(len(servers))]
 }
@@ -110,7 +118,7 @@ func (w *WRoundRobin) healthCheck(backend *config.Backend, index int) {
 
 		zap.S().Infof("Server is down, removing from load balancer, Addr: %s", backend.Url)
 		if len(newServers) == 0 {
-			panic("All backends are down")
+			zap.S().Warn("All backends are down, serving 503 until a backend rejoins")
 		}
 	} else if ok && (status && !proxyMap.isHostAlive) {
 		oldServers := *w.servers.Load()
