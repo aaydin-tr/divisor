@@ -144,3 +144,13 @@ When `server.http_version: http2`, divisor serves via `net/http` + `golang.org/x
   all backends are down, bounded failure for hanging backends, 413 for
   oversized bodies. (Already shipped and green: startup-down backends
   rejoining, 502 (not 500) for unreachable backends.)
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as local markdown files under `.scratch/<feature>/` in this repo. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
