@@ -113,7 +113,7 @@ func (h *ProxyClient) postRes(res *fasthttp.Response) {
 
 func (h *ProxyClient) serverError(res *fasthttp.Response, err string) {
 	zap.S().Infof("error when proxying the request: %s", err)
-	res.SetStatusCode(fasthttp.StatusInternalServerError)
+	res.SetStatusCode(fasthttp.StatusBadGateway)
 	res.SetConnectionClose()
 	res.Header.Set("Content-Type", "application/json")
 	res.SetBody(helper.S2B(`{"message":"` + err + `"}`))

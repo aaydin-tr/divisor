@@ -43,9 +43,11 @@ hardcoded or silently left at library defaults):
   startup (down ones with `isHostAlive: false`, kept out of rotation until
   their Probe succeeds). **[born-red:** `TestBackendDownAtStartupCanRejoin`
   **— now green]**
-- [ ] Unreachable Backend → **502 Bad Gateway**, not 500
-  (`internal/proxy/proxy.go` `serverError`). **[born-red:**
-  `TestUnreachableBackendGets502`, `TestProxyMatrix/FailedProxyAttemptReturns502`**]**
+- [x] Unreachable Backend → **502 Bad Gateway**, not 500 — fixed:
+  `serverError` in `internal/proxy/proxy.go` now sets `StatusBadGateway`;
+  applies to both the fasthttp and HTTP/2 paths since the status is set on
+  the shared `RequestCtx`. **[born-red:** `TestUnreachableBackendGets502`,
+  `TestProxyMatrix/FailedProxyAttemptReturns502` **— now green]**
 - [ ] All Backends Down → stay up, serve 502/503, let Backends Rejoin — today
   the health checker calls `panic("All backends are down")` and kills the
   process. **[born-red:** `TestAllBackendsDownStaysUp`**]**

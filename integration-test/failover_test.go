@@ -120,7 +120,7 @@ func TestBackendDownAtStartupCanRejoin(t *testing.T) {
 func TestUnreachableBackendGets502(t *testing.T) {
 	// SPEC (1.0, grilling Q13): while a dead backend is still in rotation
 	// (long Probe interval), requests routed to it must surface 502 Bad
-	// Gateway. BORN RED: divisor currently returns 500.
+	// Gateway.
 	s := startScenario(t, ScenarioSpec{
 		Name:              "fo502",
 		Type:              "round-robin",
@@ -143,7 +143,7 @@ func TestUnreachableBackendGets502(t *testing.T) {
 		}
 		sawFailure = true
 		if res.StatusCode != http.StatusBadGateway {
-			t.Fatalf("request %d to the dead backend got %d, want 502 Bad Gateway (1.0 spec; currently 500)", i, res.StatusCode)
+			t.Fatalf("request %d to the Down Backend got %d, want 502 Bad Gateway (1.0 spec)", i, res.StatusCode)
 		}
 	}
 	if !sawFailure {

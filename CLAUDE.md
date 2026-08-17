@@ -140,7 +140,7 @@ When `server.http_version: http2`, divisor serves via `net/http` + `golang.org/x
   HTTP/2, and TLS (see `docs/adr/0001-black-box-integration-suite.md` and
   `CONTEXT.md` for its vocabulary). Gated by `DIVISOR_INTEGRATION=1`; runs in
   CI via `.github/workflows/integration.yml`. Some tests intentionally assert
-  the agreed 1.0 spec and stay red until the behavior ships: startup-down
-  backends rejoining, 502 (not 500) for unreachable backends, staying up when
+  the agreed 1.0 spec and stay red until the behavior ships: staying up when
   all backends are down, bounded failure for hanging backends, 413 for
-  oversized bodies.
+  oversized bodies. (Already shipped and green: startup-down backends
+  rejoining, 502 (not 500) for unreachable backends.)

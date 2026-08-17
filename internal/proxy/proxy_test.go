@@ -219,7 +219,7 @@ func TestReverseProxyHandler(t *testing.T) {
 		err := pErr.ReverseProxyHandler(&ctx)
 		assert.Error(t, err)
 		assert.Contains(t, string(ctx.Response.Body()), err.Error())
-		assert.Equal(t, ctx.Response.StatusCode(), fasthttp.StatusInternalServerError)
+		assert.Equal(t, fasthttp.StatusBadGateway, ctx.Response.StatusCode())
 	})
 
 	t.Run("set custom headers", func(t *testing.T) {
@@ -867,7 +867,7 @@ func TestMiddlewareErrorHandling(t *testing.T) {
 		assert.Equal(t, 1, mw.getRequestCalls())
 		assert.Equal(t, 1, mw.getResponseCalls())
 
-		// Verify custom response (not default 500)
+		// Verify custom response (not default 502)
 		assert.Equal(t, fasthttp.StatusServiceUnavailable, ctx.Response.StatusCode())
 		assert.Contains(t, string(ctx.Response.Body()), "custom error handling")
 		assert.Contains(t, string(ctx.Response.Body()), "backend unavailable")
@@ -901,8 +901,8 @@ func TestMiddlewareErrorHandling(t *testing.T) {
 		assert.True(t, middlewareExecuted)
 		assert.Equal(t, 1, mw.getResponseCalls())
 
-		// Verify default error handler ran (500 status code)
-		assert.Equal(t, fasthttp.StatusInternalServerError, ctx.Response.StatusCode())
+		// Verify default error handler ran (502 status code)
+		assert.Equal(t, fasthttp.StatusBadGateway, ctx.Response.StatusCode())
 		// Default handler sets JSON with "message" field
 		assert.Contains(t, string(ctx.Response.Body()), `"message":"`)
 		assert.Equal(t, "application/json", string(ctx.Response.Header.Peek("Content-Type")))
@@ -1045,7 +1045,7 @@ func TestMiddlewareErrorHandling(t *testing.T) {
 		assert.Equal(t, 1, mw.getResponseCalls())
 
 		// Verify default error handler ran
-		assert.Equal(t, fasthttp.StatusInternalServerError, ctx.Response.StatusCode())
+		assert.Equal(t, fasthttp.StatusBadGateway, ctx.Response.StatusCode())
 		assert.Contains(t, string(ctx.Response.Body()), `"message":"`)
 	})
 
@@ -1098,7 +1098,7 @@ func TestMiddlewareErrorHandling(t *testing.T) {
 		assert.Equal(t, 1, mw3.getResponseCalls())
 
 		// Default handler should have run
-		assert.Equal(t, fasthttp.StatusInternalServerError, ctx.Response.StatusCode())
+		assert.Equal(t, fasthttp.StatusBadGateway, ctx.Response.StatusCode())
 	})
 
 	t.Run("middleware can modify response even when handling error", func(t *testing.T) {

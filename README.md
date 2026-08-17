@@ -299,7 +299,7 @@ The middleware execution flow allows you to intercept and control the complete r
         -   ⚠️ The standard error response is replaced
     -   **If `OnResponse` returns `nil`:**
         -   Execution continues normally
-        -   If backend error exists, standard 500 error response is generated
+        -   If backend error exists, standard 502 error response is generated
         -   If no error, the backend response is sent to client
 
 5.  **Post-Response Cleanup**
@@ -337,7 +337,7 @@ flowchart TD
     OnRes -->|Returns nil| PostRes3[Post-Response Cleanup]
     PostRes3 --> CheckBackendErr{Backend Error Exists?}
     
-    CheckBackendErr -->|Yes| GenerateErr[Generate 500 Error Response]
+    CheckBackendErr -->|Yes| GenerateErr[Generate 502 Error Response]
     GenerateErr --> ReturnServerErr([Return Server Error])
     
     CheckBackendErr -->|No| ReturnOK([Return Success Response])

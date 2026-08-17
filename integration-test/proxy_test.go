@@ -374,9 +374,9 @@ func TestProxyMatrix(t *testing.T) {
 
 	t.Run("FailedProxyAttemptReturns502", func(t *testing.T) {
 		// SPEC (1.0, grilling Q13): a request divisor cannot complete
-		// against its Backend returns 502 Bad Gateway. Currently divisor
-		// returns 500 (internal/proxy/proxy.go serverError), so this is
-		// born red. fail_times=5 outlasts every possible retry.
+		// against its Backend returns 502 Bad Gateway
+		// (internal/proxy/proxy.go serverError). fail_times=5 outlasts
+		// every possible retry.
 		res, err := s.Request(http.MethodPost, "/retry?fail_key=pk&fail_times=5", bytes.NewReader([]byte("x")), nil)
 		if err != nil {
 			t.Fatalf("request failed at transport level: %v", err)
@@ -384,7 +384,7 @@ func TestProxyMatrix(t *testing.T) {
 		attempts := s.Backend("a").Counter(t, "pk") + s.Backend("b").Counter(t, "pk")
 		t.Logf("backend attempts for failing POST: %d", attempts)
 		if res.StatusCode != http.StatusBadGateway {
-			t.Errorf("Backend failure surfaced as %d, want 502 Bad Gateway (1.0 spec; currently 500)", res.StatusCode)
+			t.Errorf("Backend failure surfaced as %d, want 502 Bad Gateway (1.0 spec)", res.StatusCode)
 		}
 	})
 }
