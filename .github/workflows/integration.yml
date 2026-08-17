@@ -19,8 +19,83 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "1.25.3"
+          cache-dependency-path: |
+            go.sum
+            integration-test/go.sum
+
+      # The suite images are built here (instead of inside TestMain) so BuildKit
+      # can reuse layers from the GitHub Actions cache; DIVISOR_IT_PREBUILT=1
+      # tells the suite to skip its own `docker build`.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build divisor image (cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          tags: divisor-it:latest
+          load: true
+          cache-from: type=gha,scope=divisor-it
+          cache-to: type=gha,mode=max,scope=divisor-it
+
+      - name: Build echo backend image (cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: integration-test/echobackend
+          tags: divisor-echo-it:latest
+          load: true
+          cache-from: type=gha,scope=divisor-echo-it
+          cache-to: type=gha,mode=max,scope=divisor-echo-it
 
       - name: Run integration suite
         env:
           DIVISOR_INTEGRATION: "1"
+          DIVISOR_IT_PREBUILT: "1"
         run: go -C integration-test test -v -timeout 20m .
+
+  # Born-red 1.0 spec tests (see docs/adr/0002-spec-red-gating.md): they assert
+  # agreed behavior that has not shipped yet, so this job is expected to fail
+  # and must never block a PR (continue-on-error). When a spec item ships, its
+  # test loses the specRed marker and moves into the blocking job above.
+  spec-red:
+    name: Integration (spec-red, advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    continue-on-error: true
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.3"
+          cache-dependency-path: |
+            go.sum
+            integration-test/go.sum
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build divisor image (cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          tags: divisor-it:latest
+          load: true
+          cache-from: type=gha,scope=divisor-it
+
+      - name: Build echo backend image (cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: integration-test/echobackend
+          tags: divisor-echo-it:latest
+          load: true
+          cache-from: type=gha,scope=divisor-echo-it
+
+      - name: Run born-red spec tests (advisory)
+        env:
+          DIVISOR_INTEGRATION: "1"
+          DIVISOR_IT_PREBUILT: "1"
+          DIVISOR_INTEGRATION_SPEC_RED: "1"
+        run: go -C integration-test test -run 'TestPausedBackendBoundedFailure|TestProxyMatrix/BodyOverLimit413' -v -timeout 20m .

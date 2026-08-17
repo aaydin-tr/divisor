@@ -12,6 +12,7 @@ import (
 // its own IP on the suite network.
 
 func TestIPHashStickinessFromHost(t *testing.T) {
+	t.Parallel()
 	s := startScenario(t, ScenarioSpec{
 		Name: "ih",
 		Type: "ip-hash",
@@ -30,6 +31,7 @@ func TestIPHashStickinessFromHost(t *testing.T) {
 }
 
 func TestIPHashDistributionAndRemap(t *testing.T) {
+	t.Parallel()
 	s := startScenario(t, ScenarioSpec{
 		Name:              "ih2",
 		Type:              "ip-hash",

@@ -8,6 +8,7 @@ import (
 )
 
 func TestFailoverAfterKill(t *testing.T) {
+	t.Parallel()
 	s := startScenario(t, ScenarioSpec{
 		Name:              "fokill",
 		Type:              "round-robin",
@@ -48,6 +49,7 @@ func TestFailoverAfterKill(t *testing.T) {
 }
 
 func TestHealthToggleFailoverAndRejoin(t *testing.T) {
+	t.Parallel()
 	s := startScenario(t, ScenarioSpec{
 		Name:              "fotog",
 		Type:              "round-robin",
@@ -85,6 +87,7 @@ func TestHealthToggleFailoverAndRejoin(t *testing.T) {
 }
 
 func TestBackendDownAtStartupCanRejoin(t *testing.T) {
+	t.Parallel()
 	// SPEC (1.0): a backend that was Down when divisor booted must Rejoin
 	// once its Probe succeeds. BORN RED: divisor never adds such a backend
 	// to its server map (core/round-robin/round-robin.go healthCheck), so
@@ -118,6 +121,7 @@ func TestBackendDownAtStartupCanRejoin(t *testing.T) {
 }
 
 func TestUnreachableBackendGets502(t *testing.T) {
+	t.Parallel()
 	// SPEC (1.0, grilling Q13): while a dead backend is still in rotation
 	// (long Probe interval), requests routed to it must surface 502 Bad
 	// Gateway.
@@ -152,6 +156,7 @@ func TestUnreachableBackendGets502(t *testing.T) {
 }
 
 func TestAllBackendsDownStaysUp(t *testing.T) {
+	t.Parallel()
 	// SPEC (1.0, grilling Q14): with every backend Down, divisor must stay
 	// up, answer with a gateway error, and let backends Rejoin. Born red
 	// (the health checker used to panic("All backends are down")); green
@@ -194,6 +199,8 @@ func TestAllBackendsDownStaysUp(t *testing.T) {
 }
 
 func TestPausedBackendBoundedFailure(t *testing.T) {
+	t.Parallel()
+	specRed(t, "proxy timeout -> bounded failure for hanging backends")
 	// A paused container hangs instead of refusing connections. With
 	// server read/write timeouts configured, clients must see a bounded
 	// failure, and the Probe (5s timeout) must eventually evict the

@@ -139,11 +139,18 @@ When `server.http_version: http2`, divisor serves via `net/http` + `golang.org/x
   purpose-built echo backends run as containers, driven over real HTTP/1.1,
   HTTP/2, and TLS (see `docs/adr/0001-black-box-integration-suite.md` and
   `CONTEXT.md` for its vocabulary). Gated by `DIVISOR_INTEGRATION=1`; runs in
-  CI via `.github/workflows/integration.yml`. Some tests intentionally assert
-  the agreed 1.0 spec and stay red until the behavior ships: bounded failure
-  for hanging backends, 413 for oversized bodies. (Already shipped and green:
-  startup-down backends rejoining, 502 (not 500) for unreachable backends,
-  staying up with 503 when all backends are down.)
+  CI via `.github/workflows/integration.yml`. Scenarios run with `t.Parallel()`
+  (isolated container/network names). Some tests intentionally assert the
+  agreed 1.0 spec and stay red until the behavior ships (bounded failure for
+  hanging backends, 413 for oversized bodies); they call `specRed(t, ...)` and
+  skip unless `DIVISOR_INTEGRATION_SPEC_RED=1`, so the blocking CI job stays
+  green while an advisory job runs just the spec-red set — see
+  `docs/adr/0002-spec-red-gating.md`. CI pre-builds the suite images with
+  buildx layer caching and sets `DIVISOR_IT_PREBUILT=1` so `TestMain` skips
+  its own `docker build`; local runs build as before. (Already shipped and
+  green: startup-down backends rejoining, 502 (not 500) for unreachable
+  backends, staying up with 503 when all backends are down, non-zero exit on
+  missing/invalid config.)
 
 ## Agent skills
 

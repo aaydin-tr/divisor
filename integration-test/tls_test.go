@@ -12,6 +12,7 @@ import (
 // Divisor is a TLS-terminating proxy (see CONTEXT.md): TLS exists only on
 // the client->divisor edge, backends always speak plain HTTP.
 func TestTLSTermination(t *testing.T) {
+	t.Parallel()
 	s := startScenario(t, ScenarioSpec{
 		Name: "tls",
 		Type: "round-robin",

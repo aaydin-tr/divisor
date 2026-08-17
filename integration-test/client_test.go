@@ -212,25 +212,7 @@ func (s *Scenario) TerminateDivisor(t *testing.T) {
 // exit code.
 func (s *Scenario) WaitDivisorExit(t *testing.T, timeout time.Duration) int {
 	t.Helper()
-	type result struct {
-		code int
-		err  error
-	}
-	ch := make(chan result, 1)
-	go func() {
-		code, err := pool.Client.WaitContainer(s.Divisor.Container.ID)
-		ch <- result{code, err}
-	}()
-	select {
-	case r := <-ch:
-		if r.err != nil {
-			t.Fatalf("waiting for divisor exit: %v", r.err)
-		}
-		return r.code
-	case <-time.After(timeout):
-		t.Fatalf("divisor did not exit within %s", timeout)
-		return -1
-	}
+	return waitContainerExit(t, s.Divisor, timeout)
 }
 
 // ClientContainer is a curl-equipped container on the suite network. Each

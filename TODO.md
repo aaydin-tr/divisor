@@ -73,8 +73,8 @@ hardcoded or silently left at library defaults):
     before storing; removing the check naively nil-derefs in `next()`), then
     start the health checker and return the balancer. ip-hash: drop the
     `ipHash.len <= 0` bail (the consistent-hash ring handles empty).
-  - Keep `main.go`'s nil check as a defensive backstop but exit **non-zero**
-    (ties into the Dockerfile/entrypoint exit-code item below).
+  - Keep `main.go`'s nil check as a defensive backstop — already exits
+    non-zero since the Dockerfile/entrypoint exit-code item below shipped.
   - Unit tests to flip: constructor tests asserting nil for
     `mocks.TestCases[2]` (all Backends down, `ExpectedServerCount: 0`) now
     expect a live balancer serving 503; `TestCases[3]` (empty backend list)
@@ -88,16 +88,30 @@ hardcoded or silently left at library defaults):
 - [ ] Decide X-Forwarded-For semantics: current overwrite behavior is pinned by
   `TestProxyMatrix/XForwardedFor` as anti-spoofing; revisit whether 1.0 should
   append instead.
-- [ ] Dockerfile/entrypoint: divisor exits **0** when the config file is
-  missing or invalid — should exit non-zero so orchestrators notice.
+- [x] Dockerfile/entrypoint: divisor exits **0** when the config file is
+  missing or invalid — fixed: every startup-failure path in `main.go` (empty
+  flag, missing file, parse error, `PrepareConfig` error, middleware error,
+  nil balancer, listen/server-start error) now uses `zap.S().Fatal*`, which
+  exits 1 after syncing the log. **[born-red:**
+  `TestConfigErrorExitsNonZero` **— now green]**
 
 ## Suite / CI follow-ups
 
-- [ ] Docker layer caching for the Integration job (~2–4 min/run savings).
-- [ ] `t.Parallel` across scenarios (each already has isolated containers/network names).
-- [ ] Decide born-red gating: the Integration job stays red on every PR until
-  the spec items above ship; option is a second env var to skip spec-red tests
-  in PR CI and run them in a separate advisory job.
+- [x] Docker layer caching for the Integration job — CI now builds both suite
+  images with buildx + `type=gha` cache (`.github/workflows/integration.yml`)
+  and sets `DIVISOR_IT_PREBUILT=1` so `TestMain` skips its own `docker build`
+  (it verifies the images exist instead). Pushes to `main` also run the suite
+  (`go.yml`) to seed the base-branch cache, since PR-scoped caches are not
+  shared across PRs. Local runs are unchanged.
+- [x] `t.Parallel` across scenarios — every top-level test calls
+  `t.Parallel()`; scenarios were already isolated by container/network names.
+- [x] Born-red gating decided (see `docs/adr/0002-spec-red-gating.md`):
+  spec-red tests call `specRed(t, ...)` and skip unless
+  `DIVISOR_INTEGRATION_SPEC_RED=1`; the blocking Integration job stays green
+  while an advisory `continue-on-error` job runs just the spec-red set
+  (currently `TestPausedBackendBoundedFailure`,
+  `TestProxyMatrix/BodyOverLimit413`). Shipping a spec item = remove its
+  `specRed` call and drop it from the advisory job's `-run` pattern.
 - [ ] Monitoring server coverage (explicitly out of scope for the first suite);
   needs a readiness probe that doesn't conflate divisor liveness with Backend
   health before `/metrics` can be tested with zero Alive Backends.

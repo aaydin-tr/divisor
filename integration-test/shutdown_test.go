@@ -9,6 +9,7 @@ import (
 // SIGTERM must drain: in-flight requests complete, new connections are
 // refused, and the process exits 0 well inside its 30s shutdown budget.
 func TestGracefulShutdown(t *testing.T) {
+	t.Parallel()
 	s := startScenario(t, ScenarioSpec{
 		Name:     "shutdown",
 		Type:     "round-robin",

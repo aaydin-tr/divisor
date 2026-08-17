@@ -159,6 +159,7 @@ func New(config map[string]any) middleware.Middleware {
 `
 
 func TestMiddlewareRequestChain(t *testing.T) {
+	t.Parallel()
 	s := startScenario(t, ScenarioSpec{
 		Name:     "mwreq",
 		Type:     "round-robin",
@@ -186,6 +187,7 @@ func TestMiddlewareRequestChain(t *testing.T) {
 }
 
 func TestMiddlewareResponseAbortAndPanic(t *testing.T) {
+	t.Parallel()
 	s := startScenario(t, ScenarioSpec{
 		Name:     "mwres",
 		Type:     "round-robin",
@@ -246,6 +248,7 @@ func TestMiddlewareResponseAbortAndPanic(t *testing.T) {
 }
 
 func TestMiddlewareFromFile(t *testing.T) {
+	t.Parallel()
 	s := startScenario(t, ScenarioSpec{
 		Name:     "mwfile",
 		Type:     "round-robin",

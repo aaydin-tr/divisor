@@ -20,6 +20,7 @@ func countBackends(t *testing.T, s *Scenario, n int, path string) map[string]int
 }
 
 func TestRoundRobinDistribution(t *testing.T) {
+	t.Parallel()
 	s := startScenario(t, ScenarioSpec{
 		Name: "rr",
 		Type: "round-robin",
@@ -50,6 +51,7 @@ func TestRoundRobinDistribution(t *testing.T) {
 }
 
 func TestWeightedRoundRobinDistribution(t *testing.T) {
+	t.Parallel()
 	s := startScenario(t, ScenarioSpec{
 		Name: "wrr",
 		Type: "w-round-robin",
@@ -69,6 +71,7 @@ func TestWeightedRoundRobinDistribution(t *testing.T) {
 }
 
 func TestRandomDistribution(t *testing.T) {
+	t.Parallel()
 	s := startScenario(t, ScenarioSpec{
 		Name: "random",
 		Type: "random",
@@ -93,6 +96,7 @@ func TestRandomDistribution(t *testing.T) {
 }
 
 func TestLeastConnection(t *testing.T) {
+	t.Parallel()
 	s := startScenario(t, ScenarioSpec{
 		Name: "lc",
 		Type: "least-connection",
@@ -157,6 +161,7 @@ func TestLeastConnection(t *testing.T) {
 }
 
 func TestLeastResponseTime(t *testing.T) {
+	t.Parallel()
 	s := startScenario(t, ScenarioSpec{
 		Name: "lrt",
 		Type: "least-response-time",

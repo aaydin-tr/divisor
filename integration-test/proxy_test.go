@@ -35,6 +35,7 @@ func sha256Hex(b []byte) string {
 // round-robin Scenario. Subtests run sequentially and label their own
 // requests, so they never depend on cumulative state.
 func TestProxyMatrix(t *testing.T) {
+	t.Parallel()
 	s := startScenario(t, ScenarioSpec{
 		Name: "proxy",
 		Type: "round-robin",
@@ -120,6 +121,7 @@ func TestProxyMatrix(t *testing.T) {
 	})
 
 	t.Run("BodyOverLimit413", func(t *testing.T) {
+		specRed(t, "server.max_request_body_size -> 413")
 		// fasthttp's default MaxRequestBodySize is 4MB and divisor never
 		// overrides it. The client must observe a failure and the payload
 		// must never reach a backend; fasthttp may reset the connection

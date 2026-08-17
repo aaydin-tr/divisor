@@ -11,6 +11,7 @@ import (
 // behind internal/proxy/nethttp_adapter), so these tests target the adapter
 // seam rather than re-running the whole HTTP/1.1 matrix.
 func TestHTTP2(t *testing.T) {
+	t.Parallel()
 	s := startScenario(t, ScenarioSpec{
 		Name:  "h2",
 		Type:  "round-robin",
@@ -70,6 +71,7 @@ func TestHTTP2(t *testing.T) {
 }
 
 func TestHTTP2Failover(t *testing.T) {
+	t.Parallel()
 	s := startScenario(t, ScenarioSpec{
 		Name:              "h2fo",
 		Type:              "round-robin",
@@ -94,6 +96,7 @@ func TestHTTP2Failover(t *testing.T) {
 }
 
 func TestIPHashUnderHTTP2(t *testing.T) {
+	t.Parallel()
 	// ip-hash hashes ctx.RemoteIP(); on the HTTP/2 path that context is
 	// synthesized by nethttp_adapter, so this test proves the real client
 	// IP survives the conversion. If it does not, every client below maps
