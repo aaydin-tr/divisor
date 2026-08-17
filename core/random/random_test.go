@@ -243,9 +243,37 @@ func TestStatsWhenBackendDownAtStartup(t *testing.T) {
 	assert.NotNil(t, balancer)
 
 	stats := balancer.Stats()
-	assert.Len(t, stats, 1)
-	assert.Equal(t, "localhost:80", stats[0].Addr)
-	assert.True(t, stats[0].IsHostAlive)
+	assert.Len(t, stats, 2)
+	assert.Equal(t, "localhost:8080", stats[0].Addr)
+	assert.False(t, stats[0].IsHostAlive)
+	assert.Equal(t, "localhost:80", stats[1].Addr)
+	assert.True(t, stats[1].IsHostAlive)
+}
+
+func TestBackendDownAtStartupCanRejoin(t *testing.T) {
+	cfg := config.Config{
+		Backends: []config.Backend{
+			{Url: "localhost:8080", Weight: 1},
+			{Url: "localhost:80", Weight: 1},
+		},
+		HealthCheckerTime: time.Second * 5,
+		HealthCheckerFunc: func(url string) bool {
+			return url != "http://localhost:8080"
+		},
+		HashFunc: func(b []byte) uint32 {
+			return uint32(len(b))
+		},
+	}
+
+	random := NewRandom(&cfg, nil, mocks.CreateNewMockProxy).(*Random)
+	assert.Len(t, *random.servers.Load(), 1)
+
+	random.isHostAlive = func(string) bool { return true }
+	random.healthCheck(&cfg.Backends[0], 0)
+
+	assert.Len(t, *random.servers.Load(), 2)
+	sm := random.serversMap[random.hashFunc([]byte("localhost:8080"+"0"))]
+	assert.True(t, sm.isHostAlive)
 }
 
 func TestNextConcurrentWithHealthCheck(t *testing.T) {

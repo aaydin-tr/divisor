@@ -43,19 +43,19 @@ func NewWRoundRobin(cfg *config.Config, middlewareExecutor *middleware.Executor,
 
 	servers := make([]proxy.IProxyClient, 0)
 	for i, b := range cfg.Backends {
-		if !wRoundRobin.isHostAlive(b.GetHealthCheckURL()) {
-			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
-			continue
-		}
-
 		proxyClient := proxyFunc(&b, cfg.CustomHeaders, middlewareExecutor)
-		for range int(b.Weight) {
-			servers = append(servers, proxyClient)
+		isHostAlive := wRoundRobin.isHostAlive(b.GetHealthCheckURL())
+		if isHostAlive {
+			for range int(b.Weight) {
+				servers = append(servers, proxyClient)
+			}
+			zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
+		} else {
+			zap.S().Warnf("Server is not live, it will be added for load balancing when its health check succeeds, Addr: %s", b.Url)
 		}
 
 		wRoundRobin.serversMap[wRoundRobin.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] =
-			&serverMap{proxy: proxyClient, weight: b.Weight, isHostAlive: true, statsIdx: len(wRoundRobin.serversMap)}
-		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
+			&serverMap{proxy: proxyClient, weight: b.Weight, isHostAlive: isHostAlive, statsIdx: len(wRoundRobin.serversMap)}
 	}
 
 	if len(servers) == 0 {

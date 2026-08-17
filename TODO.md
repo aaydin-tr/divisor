@@ -38,9 +38,11 @@ hardcoded or silently left at library defaults):
 
 ## 1.0 behavior fixes (agreed spec, tests already red)
 
-- [ ] A Backend that is Down at startup must Rejoin once its Probe succeeds —
-  today it is never added to the server map, so it can never come back.
-  **[born-red:** `TestBackendDownAtStartupCanRejoin`**]**
+- [x] A Backend that is Down at startup must Rejoin once its Probe succeeds —
+  fixed: all five algorithms now register every backend in their server map at
+  startup (down ones with `isHostAlive: false`, kept out of rotation until
+  their Probe succeeds). **[born-red:** `TestBackendDownAtStartupCanRejoin`
+  **— now green]**
 - [ ] Unreachable Backend → **502 Bad Gateway**, not 500
   (`internal/proxy/proxy.go` `serverError`). **[born-red:**
   `TestUnreachableBackendGets502`, `TestProxyMatrix/FailedProxyAttemptReturns502`**]**

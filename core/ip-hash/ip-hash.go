@@ -45,16 +45,17 @@ func NewIPHash(cfg *config.Config, middlewareExecutor *middleware.Executor, prox
 	}
 
 	for i, b := range cfg.Backends {
-		if !ipHash.isHostAlive(b.GetHealthCheckURL()) {
-			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
-			continue
-		}
 		proxyClient := proxyFunc(&b, cfg.CustomHeaders, middlewareExecutor)
 		node := &consistent.Node{Id: i, Proxy: proxyClient, Addr: b.Url}
-		ipHash.servers.AddNode(node)
-		ipHash.serversMap[ipHash.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{node: node, isHostAlive: true, statsIdx: len(ipHash.serversMap)}
-		ipHash.len++
-		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
+		isHostAlive := ipHash.isHostAlive(b.GetHealthCheckURL())
+		if isHostAlive {
+			ipHash.servers.AddNode(node)
+			ipHash.len++
+			zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
+		} else {
+			zap.S().Warnf("Server is not live, it will be added for load balancing when its health check succeeds, Addr: %s", b.Url)
+		}
+		ipHash.serversMap[ipHash.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{node: node, isHostAlive: isHostAlive, statsIdx: len(ipHash.serversMap)}
 	}
 
 	if ipHash.len <= 0 {

@@ -41,14 +41,15 @@ func NewRandom(cfg *config.Config, middlewareExecutor *middleware.Executor, prox
 
 	servers := make([]proxy.IProxyClient, 0, len(cfg.Backends))
 	for i, b := range cfg.Backends {
-		if !random.isHostAlive(b.GetHealthCheckURL()) {
-			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
-			continue
-		}
 		proxyClient := proxyFunc(&b, cfg.CustomHeaders, middlewareExecutor)
-		servers = append(servers, proxyClient)
-		random.serversMap[random.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxyClient, isHostAlive: true, statsIdx: len(random.serversMap)}
-		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
+		isHostAlive := random.isHostAlive(b.GetHealthCheckURL())
+		if isHostAlive {
+			servers = append(servers, proxyClient)
+			zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
+		} else {
+			zap.S().Warnf("Server is not live, it will be added for load balancing when its health check succeeds, Addr: %s", b.Url)
+		}
+		random.serversMap[random.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxyClient, isHostAlive: isHostAlive, statsIdx: len(random.serversMap)}
 	}
 
 	if len(servers) == 0 {
