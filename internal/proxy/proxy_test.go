@@ -2,8 +2,10 @@ package proxy
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -187,6 +189,19 @@ func TestProxyTimeoutReturns504(t *testing.T) {
 	err := p.ReverseProxyHandler(&ctx)
 	assert.ErrorIs(t, err, fasthttp.ErrTimeout)
 	assert.Equal(t, fasthttp.StatusGatewayTimeout, ctx.Response.StatusCode())
+}
+
+func TestServerErrorStatusMapping(t *testing.T) {
+	p := &ProxyClient{}
+
+	dialTimeout := &net.OpError{Op: "dial", Net: "tcp", Err: os.ErrDeadlineExceeded}
+	res := fasthttp.AcquireResponse()
+	p.serverError(res, dialTimeout)
+	assert.Equal(t, fasthttp.StatusBadGateway, res.StatusCode())
+
+	res = fasthttp.AcquireResponse()
+	p.serverError(res, fasthttp.ErrTimeout)
+	assert.Equal(t, fasthttp.StatusGatewayTimeout, res.StatusCode())
 }
 
 func TestReverseProxyHandler(t *testing.T) {

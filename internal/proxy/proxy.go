@@ -96,7 +96,9 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 		return serverErr
 	}
 
-	atomic.AddUint64(h.totalResTime, uint64(time.Since(s).Milliseconds()))
+	// Microseconds: sub-millisecond Backends must not all average to zero,
+	// or least-response-time cannot tell them apart.
+	atomic.AddUint64(h.totalResTime, uint64(time.Since(s).Microseconds()))
 	return nil
 }
 
@@ -148,13 +150,13 @@ func ErrorHandler(ctx *fasthttp.RequestCtx, err error) {
 	}
 }
 
-// 504 means proxy_timeout expired on a hanging Backend; 502 covers everything
-// else, including dial timeouts (ErrDialTimeout is not a net.Error).
+// 504 means proxy_timeout expired on a hanging Backend, which fasthttp
+// reports as ErrTimeout; 502 covers everything else. Dial timeouts stay 502:
+// an unreachable Backend is Down, not hanging.
 func (h *ProxyClient) serverError(res *fasthttp.Response, err error) {
 	zap.S().Infof("error when proxying the request: %s", err)
 	status := fasthttp.StatusBadGateway
-	var netErr net.Error
-	if errors.Is(err, fasthttp.ErrTimeout) || (errors.As(err, &netErr) && netErr.Timeout()) {
+	if errors.Is(err, fasthttp.ErrTimeout) {
 		status = fasthttp.StatusGatewayTimeout
 	}
 	res.SetStatusCode(status)
@@ -194,6 +196,7 @@ func (h *ProxyClient) PendingRequests() int {
 	return h.proxy.PendingRequests()
 }
 
+// AvgResponseTime returns milliseconds; totalResTime accumulates microseconds.
 func (h *ProxyClient) AvgResponseTime() float64 {
 	rc := atomic.LoadUint64(h.totalRequestCount)
 	rt := atomic.LoadUint64(h.totalResTime)
@@ -201,7 +204,7 @@ func (h *ProxyClient) AvgResponseTime() float64 {
 		return 0
 	}
 
-	return float64(rt) / float64(rc)
+	return float64(rt) / 1000 / float64(rc)
 }
 
 func (h *ProxyClient) Close() error {
