@@ -32,6 +32,11 @@ go test ./internal/proxy
 
 # Run single test
 go test -run TestFunctionName ./package/path
+
+# Run the black-box integration suite (requires a running Docker daemon;
+# opt-in via env var; its own Go module, so plain `go test ./...` never
+# touches it)
+DIVISOR_INTEGRATION=1 go -C integration-test test -v -timeout 20m .
 ```
 
 ### Install
@@ -103,6 +108,12 @@ Implemented in `performGracefulShutdown()`:
 - Closes idle connections via `balancer.Shutdown()`
 - 30-second timeout enforced
 
+## Code style
+
+Code explains itself: put the meaning in names and structure. A comment earns
+its place only for a constraint the code cannot show (a non-obvious library
+behavior, a spec decision, a pointer to an ADR) and stays to one or two lines.
+
 ## Key Implementation Details
 
 ### Algorithm Selection
@@ -122,7 +133,7 @@ Each algorithm maintains `stopHealthChecker` channel and runs periodic health ch
 Uses `pkg/consistent` package implementing consistent hashing ring for stable IP-to-backend mapping.
 
 ### HTTP/2 Support
-Configured via custom fork `github.com/aaydin-tr/http2` applied to fasthttp server when `server.http_version: http2`.
+When `server.http_version: http2`, divisor serves via `net/http` + `golang.org/x/net/http2` instead of fasthttp; `internal/proxy/nethttp_adapter.go` bridges each request into a synthetic `fasthttp.RequestCtx` so the balancer/proxy path stays shared. TLS is mandatory on this path (no h2c). Backends always speak HTTP/1.1 over plain HTTP.
 
 ## Testing Notes
 
@@ -130,3 +141,34 @@ Configured via custom fork `github.com/aaydin-tr/http2` applied to fasthttp serv
 - Each algorithm has `*_test.go` with unit tests
 - Config validation tested in `pkg/config/config_test.go`
 - Proxy behavior tested in `internal/proxy/proxy_test.go`
+- `integration-test/` is a black-box Docker suite (dockertest): divisor and
+  purpose-built echo backends run as containers, driven over real HTTP/1.1,
+  HTTP/2, and TLS (see `docs/adr/0001-black-box-integration-suite.md` and
+  `CONTEXT.md` for its vocabulary). Gated by `DIVISOR_INTEGRATION=1`; runs in
+  CI via `.github/workflows/integration.yml`. Scenarios run with `t.Parallel()`,
+  each on its own docker network — on a shared network a killed backend's
+  freed IP could be claimed by another scenario's container while divisor's
+  dialer still held the DNS-cached IP. Spec-red gating (see
+  `docs/adr/0002-spec-red-gating.md` and CONTEXT.md): a test asserting agreed
+  1.0 spec behavior that has not shipped yet calls `specRed(t, ...)` and skips
+  unless `DIVISOR_INTEGRATION_SPEC_RED=1`, so the blocking CI job stays green
+  while an advisory job runs just the spec-red set. The set is currently
+  empty — the advisory job is removed from the workflow and the `specRed`
+  helper is dormant until the next spec-red test lands. CI pre-builds the
+  suite images with buildx layer caching and sets `DIVISOR_IT_PREBUILT=1` so
+  `TestMain` skips its own `docker build`; local runs build as before.
+  (Shipped and green: startup-down backends rejoining, 502 (not 500) for
+  unreachable backends, staying up with 503 when all backends are down,
+  non-zero exit on missing/invalid config, bounded failure with 504 for
+  hanging backends via `server.proxy_timeout`, 413 for oversized bodies via
+  `server.max_request_body_size`.)
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as local markdown files under `.scratch/<feature>/` in this repo. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.

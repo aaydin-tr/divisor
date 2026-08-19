@@ -31,49 +31,45 @@ func main() {
 	logFile := helper.GetLogFile()
 	logger.InitLogger(logFile)
 
+	// Startup failures must exit non-zero so orchestrators (compose restart
+	// policies, k8s CrashLoopBackOff) notice; zap's Fatal exits 1 after
+	// syncing the log entry.
 	if *configFile == "" {
-		zap.S().Error("Please provide a config file")
-		return
+		zap.S().Fatal("Please provide a config file")
 	}
 
 	_, err := os.Stat(*configFile)
 	if os.IsNotExist(err) {
-		zap.S().Errorf("This config file does not exist %s", *configFile)
-		return
+		zap.S().Fatalf("This config file does not exist %s", *configFile)
 	}
 
 	config, err := cfg.ParseConfigFile(*configFile)
 	if err != nil {
-		zap.S().Error(err)
-		return
+		zap.S().Fatal(err)
 	}
 	zap.S().Info("Parsing config file")
 	err = config.PrepareConfig()
 	if err != nil {
-		zap.S().Error(err)
-		return
+		zap.S().Fatal(err)
 	}
 	zap.S().Info("Config file parsed successfully")
 
 	middlewareExecutor, err := middleware.NewExecutor(config.Middlewares)
 	if err != nil {
-		zap.S().Error(err)
-		return
+		zap.S().Fatal(err)
 	}
 
 	zap.S().Info("Proxies are being prepared.")
 	proxies := core.NewBalancer(config, middlewareExecutor, proxy.NewProxyClient)
 
 	if proxies == nil {
-		zap.S().Error("No available servers")
-		return
+		zap.S().Fatal("No available servers")
 	}
 	zap.S().Infof("All proxies are ready, divisor will use `%s` algorithm health checker func will trigger every %v", config.Type, config.HealthCheckerTime)
 
 	ln, err := reuseport.Listen("tcp4", config.GetAddr())
 	if err != nil {
-		zap.S().Errorf("Error while starting divisor server %s", err)
-		return
+		zap.S().Fatalf("Error while starting divisor server %s", err)
 	}
 
 	shutdown := make(chan os.Signal, 1)
@@ -89,8 +85,7 @@ func main() {
 	}
 
 	if server == nil {
-		zap.S().Error("Failed to start server")
-		return
+		zap.S().Fatal("Failed to start server")
 	}
 
 	go monitoring.StartMonitoringServer(server, proxies, config.GetMonitoringAddr())
@@ -118,6 +113,8 @@ func startFasthttpServer(config *cfg.Config, proxies types.IBalancer, ln net.Lis
 		IdleTimeout:                   config.Server.IdleTimeout,
 		DisableKeepalive:              config.Server.DisableKeepalive,
 		DisableHeaderNamesNormalizing: config.Server.DisableHeaderNamesNormalizing,
+		MaxRequestBodySize:            config.Server.MaxRequestBodySize,
+		ErrorHandler:                  proxy.ErrorHandler,
 		Name:                          "divisor",
 	}
 
@@ -139,7 +136,7 @@ func startFasthttpServer(config *cfg.Config, proxies types.IBalancer, ln net.Lis
 }
 
 func startNetHttpServer(config *cfg.Config, proxies types.IBalancer, ln net.Listener) *http.Server {
-	adapter := proxy.NewNetHttpAdapter(proxies)
+	adapter := proxy.NewNetHttpAdapter(proxies, config.Server.MaxRequestBodySize)
 
 	server := &http.Server{
 		Addr:         config.GetAddr(),

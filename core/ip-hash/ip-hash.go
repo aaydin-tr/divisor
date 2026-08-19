@@ -45,16 +45,17 @@ func NewIPHash(cfg *config.Config, middlewareExecutor *middleware.Executor, prox
 	}
 
 	for i, b := range cfg.Backends {
-		if !ipHash.isHostAlive(b.GetHealthCheckURL()) {
-			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
-			continue
-		}
 		proxyClient := proxyFunc(&b, cfg.CustomHeaders, middlewareExecutor)
 		node := &consistent.Node{Id: i, Proxy: proxyClient, Addr: b.Url}
-		ipHash.servers.AddNode(node)
-		ipHash.serversMap[ipHash.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{node: node, isHostAlive: true, statsIdx: len(ipHash.serversMap)}
-		ipHash.len++
-		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
+		isHostAlive := ipHash.isHostAlive(b.GetHealthCheckURL())
+		if isHostAlive {
+			ipHash.servers.AddNode(node)
+			ipHash.len++
+			zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
+		} else {
+			zap.S().Warnf("Server is not live, it will be added for load balancing when its health check succeeds, Addr: %s", b.Url)
+		}
+		ipHash.serversMap[ipHash.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{node: node, isHostAlive: isHostAlive, statsIdx: len(ipHash.serversMap)}
 	}
 
 	if ipHash.len <= 0 {
@@ -70,12 +71,19 @@ func (h *IPHash) Serve() func(ctx *fasthttp.RequestCtx) {
 	return func(ctx *fasthttp.RequestCtx) {
 		hashCode := h.hashFunc(helper.S2B(ctx.RemoteIP().String()))
 		proxyClient := h.get(hashCode)
+		if proxyClient == nil {
+			proxy.NoAliveBackends(ctx)
+			return
+		}
 		proxyClient.ReverseProxyHandler(ctx) //nolint:errcheck
 	}
 }
 
 func (h *IPHash) get(hashCode uint32) proxy.IProxyClient {
 	node := h.servers.GetNode(hashCode)
+	if node == nil {
+		return nil
+	}
 	return node.Proxy
 }
 
@@ -105,7 +113,7 @@ func (h *IPHash) healthCheck(backend *config.Backend, index int) {
 
 		zap.S().Infof("Server is down, removing from load balancer, Addr: %s", backend.Url)
 		if h.len == 0 {
-			panic("All backends are down")
+			zap.S().Warn("All backends are down, serving 503 until a backend rejoins")
 		}
 	} else if ok && (status && !proxyMap.isHostAlive) {
 		h.servers.AddNode(proxyMap.node)

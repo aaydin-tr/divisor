@@ -100,6 +100,8 @@ server:
   key_file: /etc/divisor/certs/server.key
   read_timeout: 30s
   write_timeout: 30s
+  proxy_timeout: 30s
+  max_request_body_size: 4194304
 
 custom_headers:
   x-forwarded-for: $remote_addr

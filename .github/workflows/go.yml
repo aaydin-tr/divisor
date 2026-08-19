@@ -9,6 +9,14 @@ on:
 
 jobs:
 
+  # Runs the integration suite on main and, importantly, seeds the buildx
+  # type=gha layer cache from the base branch: caches written by PR runs are
+  # scoped to that PR, so without this a fresh PR's first Integration run
+  # would always miss the cache.
+  integration:
+    name: Integration
+    uses: ./.github/workflows/integration.yml
+
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 10

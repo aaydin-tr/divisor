@@ -141,29 +141,42 @@ func TestRemoveAndAddServer(t *testing.T) {
 	}
 }
 
-func TestRemmoveAllServers(t *testing.T) {
+func TestAllBackendsDownStaysUp(t *testing.T) {
+	// SPEC (1.0): losing the last live backend must not kill the process;
+	// requests get 503 until a Probe lets a backend Rejoin.
 	caseOne := mocks.TestCases[0]
 	roundRobin := NewRoundRobin(&caseOne.Config, nil, caseOne.ProxyFunc).(*RoundRobin)
 	assert.Equal(t, caseOne.ExpectedServerCount, len(roundRobin.serversMap))
 
-	// Remove All
-	for i, backend := range caseOne.Config.Backends {
-		if _, ok := roundRobin.serversMap[roundRobin.hashFunc([]byte(backend.Url+strconv.Itoa(i)))]; ok {
-			roundRobin.isHostAlive = func(s string) bool {
-				return false
-			}
-
-			oldServerCount := len(*roundRobin.servers.Load())
-			if oldServerCount == 1 {
-				assert.Panics(t, func() {
-					roundRobin.healthCheck(&backend, i)
-				}, "expected panic after remove all servers")
-			} else {
-				roundRobin.healthCheck(&backend, i)
-				assert.GreaterOrEqual(t, oldServerCount, len(*roundRobin.servers.Load()), "expected server to be removed after health check, but it did not.")
-			}
-		}
+	roundRobin.isHostAlive = func(s string) bool {
+		return false
 	}
+	for i, backend := range caseOne.Config.Backends {
+		assert.NotPanics(t, func() {
+			roundRobin.healthCheck(&backend, i)
+		}, "losing the last live backend must not panic")
+	}
+	assert.Empty(t, *roundRobin.servers.Load())
+
+	handler := roundRobin.Serve()
+	ctx := fasthttp.RequestCtx{
+		Request: *fasthttp.AcquireRequest(),
+	}
+	handler(&ctx)
+	assert.Equal(t, fasthttp.StatusServiceUnavailable, ctx.Response.StatusCode())
+
+	// Rejoin after the total outage.
+	roundRobin.isHostAlive = func(s string) bool {
+		return true
+	}
+	roundRobin.healthCheck(&caseOne.Config.Backends[0], 0)
+	assert.Len(t, *roundRobin.servers.Load(), 1)
+
+	ctx = fasthttp.RequestCtx{
+		Request: *fasthttp.AcquireRequest(),
+	}
+	handler(&ctx)
+	assert.Equal(t, fasthttp.StatusOK, ctx.Response.StatusCode())
 }
 
 func TestShutdown(t *testing.T) {
@@ -270,9 +283,37 @@ func TestStatsWhenBackendDownAtStartup(t *testing.T) {
 	assert.NotNil(t, balancer)
 
 	stats := balancer.Stats()
-	assert.Len(t, stats, 1)
-	assert.Equal(t, "localhost:80", stats[0].Addr)
-	assert.True(t, stats[0].IsHostAlive)
+	assert.Len(t, stats, 2)
+	assert.Equal(t, "localhost:8080", stats[0].Addr)
+	assert.False(t, stats[0].IsHostAlive)
+	assert.Equal(t, "localhost:80", stats[1].Addr)
+	assert.True(t, stats[1].IsHostAlive)
+}
+
+func TestBackendDownAtStartupCanRejoin(t *testing.T) {
+	cfg := config.Config{
+		Backends: []config.Backend{
+			{Url: "localhost:8080", Weight: 1},
+			{Url: "localhost:80", Weight: 1},
+		},
+		HealthCheckerTime: time.Second * 5,
+		HealthCheckerFunc: func(url string) bool {
+			return url != "http://localhost:8080"
+		},
+		HashFunc: func(b []byte) uint32 {
+			return uint32(len(b))
+		},
+	}
+
+	roundRobin := NewRoundRobin(&cfg, nil, mocks.CreateNewMockProxy).(*RoundRobin)
+	assert.Len(t, *roundRobin.servers.Load(), 1)
+
+	roundRobin.isHostAlive = func(string) bool { return true }
+	roundRobin.healthCheck(&cfg.Backends[0], 0)
+
+	assert.Len(t, *roundRobin.servers.Load(), 2)
+	sm := roundRobin.serversMap[roundRobin.hashFunc([]byte("localhost:8080"+"0"))]
+	assert.True(t, sm.isHostAlive)
 }
 
 func TestNextConcurrentWithHealthCheck(t *testing.T) {

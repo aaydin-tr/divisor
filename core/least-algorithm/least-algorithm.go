@@ -43,15 +43,16 @@ func NewLeastAlgorithm(cfg *config.Config, middlewareExecutor *middleware.Execut
 
 	servers := make([]proxy.IProxyClient, 0, len(cfg.Backends))
 	for i, b := range cfg.Backends {
-		if !leastAlgorithm.isHostAlive(b.GetHealthCheckURL()) {
-			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
-			continue
-		}
 		proxyClient := proxyFunc(&b, cfg.CustomHeaders, middlewareExecutor)
-		servers = append(servers, proxyClient)
+		isHostAlive := leastAlgorithm.isHostAlive(b.GetHealthCheckURL())
+		if isHostAlive {
+			servers = append(servers, proxyClient)
+			zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
+		} else {
+			zap.S().Warnf("Server is not live, it will be added for load balancing when its health check succeeds, Addr: %s", b.Url)
+		}
 		leastAlgorithm.serversMap[leastAlgorithm.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] =
-			&serverMap{proxy: proxyClient, isHostAlive: true, statsIdx: len(leastAlgorithm.serversMap)}
-		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
+			&serverMap{proxy: proxyClient, isHostAlive: isHostAlive, statsIdx: len(leastAlgorithm.serversMap)}
 	}
 
 	if len(servers) == 0 {
@@ -76,12 +77,20 @@ func NewLeastAlgorithm(cfg *config.Config, middlewareExecutor *middleware.Execut
 
 func (l *LeastAlgorithm) Serve() func(ctx *fasthttp.RequestCtx) {
 	return func(ctx *fasthttp.RequestCtx) {
-		l.nextFunc().ReverseProxyHandler(ctx) //nolint:errcheck
+		proxyClient := l.nextFunc()
+		if proxyClient == nil {
+			proxy.NoAliveBackends(ctx)
+			return
+		}
+		proxyClient.ReverseProxyHandler(ctx) //nolint:errcheck
 	}
 }
 
 func (l *LeastAlgorithm) leastConnectionNext() proxy.IProxyClient {
 	servers := *l.servers.Load()
+	if len(servers) == 0 {
+		return nil
+	}
 	lastIndex := atomic.LoadUint32(l.lastIndex)
 	if lastIndex >= uint32(len(servers)) {
 		lastIndex = 0
@@ -99,6 +108,9 @@ func (l *LeastAlgorithm) leastConnectionNext() proxy.IProxyClient {
 
 func (l *LeastAlgorithm) leastResponseTimeNext() proxy.IProxyClient {
 	servers := *l.servers.Load()
+	if len(servers) == 0 {
+		return nil
+	}
 	lastIndex := atomic.LoadUint32(l.lastIndex)
 	if lastIndex >= uint32(len(servers)) {
 		lastIndex = 0
@@ -142,7 +154,7 @@ func (l *LeastAlgorithm) healthCheck(backend *config.Backend, index int) {
 
 		zap.S().Infof("Server is down, removing from load balancer, Addr: %s", backend.Url)
 		if len(newServers) == 0 {
-			panic("All backends are down")
+			zap.S().Warn("All backends are down, serving 503 until a backend rejoins")
 		}
 	} else if ok && (status && !proxyMap.isHostAlive) {
 		oldServers := *l.servers.Load()

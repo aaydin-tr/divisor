@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"errors"
+	"net"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -52,6 +54,7 @@ type ProxyClient struct {
 	middlewareExecutor *middlewarePkg.Executor
 	Addr               string
 	addrB              []byte
+	proxyTimeout       time.Duration
 }
 
 func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
@@ -72,9 +75,12 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 		}
 	}
 
+	// fasthttp treats DoTimeout(0) as already expired, not "no deadline".
 	var serverErr error
-	if err := h.proxy.Do(req, res); err != nil {
-		serverErr = err
+	if h.proxyTimeout > 0 {
+		serverErr = h.proxy.DoTimeout(req, res, h.proxyTimeout)
+	} else {
+		serverErr = h.proxy.Do(req, res)
 	}
 
 	if h.middlewareExecutor != nil {
@@ -86,7 +92,7 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 
 	h.postRes(res)
 	if serverErr != nil {
-		h.serverError(res, serverErr.Error())
+		h.serverError(res, serverErr)
 		return serverErr
 	}
 
@@ -111,12 +117,50 @@ func (h *ProxyClient) postRes(res *fasthttp.Response) {
 	}
 }
 
-func (h *ProxyClient) serverError(res *fasthttp.Response, err string) {
+// NoAliveBackends answers a request that arrived while every Backend is Down:
+// 503 until a Probe lets one Rejoin.
+func NoAliveBackends(ctx *fasthttp.RequestCtx) {
+	ctx.Response.SetStatusCode(fasthttp.StatusServiceUnavailable)
+	ctx.Response.SetConnectionClose()
+	ctx.Response.Header.Set("Content-Type", "application/json")
+	ctx.Response.SetBodyString(`{"message":"no backends available"}`)
+}
+
+const bodyTooLargeMessage = `{"message":"request body too large"}`
+
+// ErrorHandler mirrors fasthttp's default request-error handling, except an
+// oversized body maps to 413 instead of the generic 400.
+func ErrorHandler(ctx *fasthttp.RequestCtx, err error) {
+	var smallBuffer *fasthttp.ErrSmallBuffer
+	var netErr *net.OpError
+	switch {
+	case errors.Is(err, fasthttp.ErrBodyTooLarge):
+		ctx.Response.Reset()
+		ctx.Response.SetStatusCode(fasthttp.StatusRequestEntityTooLarge)
+		ctx.Response.Header.Set("Content-Type", "application/json")
+		ctx.Response.SetBodyString(bodyTooLargeMessage)
+	case errors.As(err, &smallBuffer):
+		ctx.Error("Too big request header", fasthttp.StatusRequestHeaderFieldsTooLarge)
+	case errors.As(err, &netErr) && netErr.Timeout():
+		ctx.Error("Request timeout", fasthttp.StatusRequestTimeout)
+	default:
+		ctx.Error("Error when parsing request", fasthttp.StatusBadRequest)
+	}
+}
+
+// 504 means proxy_timeout expired on a hanging Backend; 502 covers everything
+// else, including dial timeouts (ErrDialTimeout is not a net.Error).
+func (h *ProxyClient) serverError(res *fasthttp.Response, err error) {
 	zap.S().Infof("error when proxying the request: %s", err)
-	res.SetStatusCode(fasthttp.StatusInternalServerError)
+	status := fasthttp.StatusBadGateway
+	var netErr net.Error
+	if errors.Is(err, fasthttp.ErrTimeout) || (errors.As(err, &netErr) && netErr.Timeout()) {
+		status = fasthttp.StatusGatewayTimeout
+	}
+	res.SetStatusCode(status)
 	res.SetConnectionClose()
 	res.Header.Set("Content-Type", "application/json")
-	res.SetBody(helper.S2B(`{"message":"` + err + `"}`))
+	res.SetBody(helper.S2B(`{"message":"` + err.Error() + `"}`))
 }
 
 func (h *ProxyClient) setCustomHeaders(req *fasthttp.Request, clientIP []byte) {
@@ -177,6 +221,10 @@ func NewProxyClient(backend *config.Backend, customHeaders map[string]string, mi
 		MaxIdleConnDuration:       backend.MaxIdleConnDuration,
 		MaxIdemponentCallAttempts: backend.MaxIdemponentCallAttempts,
 		MaxConnWaitTimeout:        backend.MaxConnWaitTimeout,
+		// Without a pinned dialer, fasthttp uses proxy_timeout as the
+		// per-dial bound, hanging on unreachable Backends instead of
+		// failing 502 within DefaultDialTimeout (3s).
+		Dial: fasthttp.Dial,
 	}
 
 	return &ProxyClient{
@@ -187,5 +235,6 @@ func NewProxyClient(backend *config.Backend, customHeaders map[string]string, mi
 		totalResTime:       new(uint64),
 		customHeaders:      customHeaders,
 		middlewareExecutor: middlewareExecutor,
+		proxyTimeout:       backend.ProxyTimeout,
 	}
 }

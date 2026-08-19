@@ -43,19 +43,19 @@ func NewWRoundRobin(cfg *config.Config, middlewareExecutor *middleware.Executor,
 
 	servers := make([]proxy.IProxyClient, 0)
 	for i, b := range cfg.Backends {
-		if !wRoundRobin.isHostAlive(b.GetHealthCheckURL()) {
-			zap.S().Warnf("Could not add for load balancing because the server is not live, Addr: %s", b.Url)
-			continue
-		}
-
 		proxyClient := proxyFunc(&b, cfg.CustomHeaders, middlewareExecutor)
-		for range int(b.Weight) {
-			servers = append(servers, proxyClient)
+		isHostAlive := wRoundRobin.isHostAlive(b.GetHealthCheckURL())
+		if isHostAlive {
+			for range int(b.Weight) {
+				servers = append(servers, proxyClient)
+			}
+			zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
+		} else {
+			zap.S().Warnf("Server is not live, it will be added for load balancing when its health check succeeds, Addr: %s", b.Url)
 		}
 
 		wRoundRobin.serversMap[wRoundRobin.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] =
-			&serverMap{proxy: proxyClient, weight: b.Weight, isHostAlive: true, statsIdx: len(wRoundRobin.serversMap)}
-		zap.S().Infof("Server add for load balancing successfully Addr: %s", b.Url)
+			&serverMap{proxy: proxyClient, weight: b.Weight, isHostAlive: isHostAlive, statsIdx: len(wRoundRobin.serversMap)}
 	}
 
 	if len(servers) == 0 {
@@ -74,12 +74,20 @@ func NewWRoundRobin(cfg *config.Config, middlewareExecutor *middleware.Executor,
 
 func (w *WRoundRobin) Serve() func(ctx *fasthttp.RequestCtx) {
 	return func(ctx *fasthttp.RequestCtx) {
-		w.next().ReverseProxyHandler(ctx) //nolint:errcheck
+		proxyClient := w.next()
+		if proxyClient == nil {
+			proxy.NoAliveBackends(ctx)
+			return
+		}
+		proxyClient.ReverseProxyHandler(ctx) //nolint:errcheck
 	}
 }
 
 func (w *WRoundRobin) next() proxy.IProxyClient {
 	servers := *w.servers.Load()
+	if len(servers) == 0 {
+		return nil
+	}
 	v := atomic.AddUint64(&w.i, 1)
 	return servers[v%uint64(len(servers))]
 }
@@ -110,7 +118,7 @@ func (w *WRoundRobin) healthCheck(backend *config.Backend, index int) {
 
 		zap.S().Infof("Server is down, removing from load balancer, Addr: %s", backend.Url)
 		if len(newServers) == 0 {
-			panic("All backends are down")
+			zap.S().Warn("All backends are down, serving 503 until a backend rejoins")
 		}
 	} else if ok && (status && !proxyMap.isHostAlive) {
 		oldServers := *w.servers.Load()

@@ -135,6 +135,8 @@ backends:
 | server.read_timeout | Request read timeout | duration | unlimited |
 | server.write_timeout | Response write timeout | duration | unlimited |
 | server.idle_timeout | Keep-alive idle timeout | duration | unlimited |
+| server.proxy_timeout | Bound on each upstream attempt; expiry returns 504. `0` means the default, not unlimited | duration | `60s` |
+| server.max_request_body_size | Max request body size in bytes; larger bodies get 413 and never reach a backend. `0` means the default | int | `4194304` (4MB) |
 | server.disable_keepalive | Force connection close after response | bool | `false` |
 | server.disable_header_names_normalizing | Preserve original header name casing | bool | `false` |
 
@@ -299,7 +301,7 @@ The middleware execution flow allows you to intercept and control the complete r
         -   ⚠️ The standard error response is replaced
     -   **If `OnResponse` returns `nil`:**
         -   Execution continues normally
-        -   If backend error exists, standard 500 error response is generated
+        -   If backend error exists, standard 502 error response is generated
         -   If no error, the backend response is sent to client
 
 5.  **Post-Response Cleanup**
@@ -337,7 +339,7 @@ flowchart TD
     OnRes -->|Returns nil| PostRes3[Post-Response Cleanup]
     PostRes3 --> CheckBackendErr{Backend Error Exists?}
     
-    CheckBackendErr -->|Yes| GenerateErr[Generate 500 Error Response]
+    CheckBackendErr -->|Yes| GenerateErr[Generate 502 Error Response]
     GenerateErr --> ReturnServerErr([Return Server Error])
     
     CheckBackendErr -->|No| ReturnOK([Return Success Response])
