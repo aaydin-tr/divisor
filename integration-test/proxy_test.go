@@ -121,11 +121,10 @@ func TestProxyMatrix(t *testing.T) {
 	})
 
 	t.Run("BodyOverLimit413", func(t *testing.T) {
-		specRed(t, "server.max_request_body_size -> 413")
-		// fasthttp's default MaxRequestBodySize is 4MB and divisor never
-		// overrides it. The client must observe a failure and the payload
-		// must never reach a backend; fasthttp may reset the connection
-		// mid-upload instead of delivering the 413 cleanly.
+		// server.max_request_body_size defaults to 4MB. The client must
+		// observe a failure and the payload must never reach a backend;
+		// fasthttp may reset the connection mid-upload instead of
+		// delivering the 413 cleanly.
 		body := testBody(5 << 20)
 		res, err := s.Request(http.MethodPost, "/toolarge", bytes.NewReader(body), nil)
 		if err == nil {
@@ -137,6 +136,23 @@ func TestProxyMatrix(t *testing.T) {
 			}
 		} else {
 			t.Logf("5MB POST failed at transport level instead of a clean 413: %v", err)
+		}
+	})
+
+	t.Run("ChunkedBodyOverLimit", func(t *testing.T) {
+		// No Content-Length, so the limit must trip mid-stream.
+		body := testBody(5 << 20)
+		rd := struct{ io.Reader }{bytes.NewReader(body)}
+		res, err := s.Request(http.MethodPost, "/chunkedtoolarge", rd, nil)
+		if err != nil {
+			t.Logf("oversized chunked POST failed at transport level instead of a clean 413: %v", err)
+			return
+		}
+		if res.StatusCode != http.StatusRequestEntityTooLarge {
+			t.Errorf("oversized chunked POST got status %d, want 413", res.StatusCode)
+		}
+		if res.Echo != nil {
+			t.Errorf("oversized chunked POST reached backend %s", res.Echo.Backend)
 		}
 	})
 
@@ -387,6 +403,76 @@ func TestProxyMatrix(t *testing.T) {
 		t.Logf("backend attempts for failing POST: %d", attempts)
 		if res.StatusCode != http.StatusBadGateway {
 			t.Errorf("Backend failure surfaced as %d, want 502 Bad Gateway (1.0 spec)", res.StatusCode)
+		}
+	})
+}
+
+// TestMaxRequestBodySizeConfigured proves an explicit (non-default)
+// server.max_request_body_size reaches the server; the 4MB default is covered
+// by the proxy matrix and the HTTP/2 suite.
+func TestMaxRequestBodySizeConfigured(t *testing.T) {
+	t.Parallel()
+	s := startScenario(t, ScenarioSpec{
+		Name:               "bodycap",
+		Type:               "round-robin",
+		MaxRequestBodySize: 128 << 10,
+		Backends: []BackendSpec{
+			{ID: "a"},
+		},
+	})
+
+	t.Run("UnderLimit", func(t *testing.T) {
+		body := testBody(64 << 10)
+		res := s.MustEcho(t, http.MethodPost, "/undercap", body, nil)
+		if res.Echo.BodySha256 != sha256Hex(body) {
+			t.Errorf("64KB body arrived corrupted at backend")
+		}
+	})
+
+	t.Run("OverLimit413", func(t *testing.T) {
+		body := testBody(256 << 10)
+		res, err := s.Request(http.MethodPost, "/overcap", bytes.NewReader(body), nil)
+		if err != nil {
+			t.Logf("256KB POST failed at transport level instead of a clean 413: %v", err)
+			return
+		}
+		if res.StatusCode != http.StatusRequestEntityTooLarge {
+			t.Errorf("256KB POST got status %d, want 413 (configured 128KB cap)", res.StatusCode)
+		}
+		if res.Echo != nil {
+			t.Errorf("256KB POST reached backend %s; the configured cap did not apply", res.Echo.Backend)
+		}
+	})
+
+	t.Run("ChunkedAtLimit", func(t *testing.T) {
+		// Exactly the cap must pass: the limit is inclusive on both paths.
+		body := testBody(128 << 10)
+		rd := struct{ io.Reader }{bytes.NewReader(body)}
+		res, err := s.Request(http.MethodPost, "/chunkedatcap", rd, nil)
+		if err != nil {
+			t.Fatalf("chunked POST at the cap failed: %v", err)
+		}
+		if res.StatusCode != http.StatusOK || res.Echo == nil {
+			t.Fatalf("chunked POST at the cap: status %d, body %.200s", res.StatusCode, res.Body)
+		}
+		if res.Echo.BodySha256 != sha256Hex(body) {
+			t.Errorf("chunked body arrived corrupted at backend")
+		}
+	})
+
+	t.Run("ChunkedOverLimit413", func(t *testing.T) {
+		body := testBody(192 << 10)
+		rd := struct{ io.Reader }{bytes.NewReader(body)}
+		res, err := s.Request(http.MethodPost, "/chunkedovercap", rd, nil)
+		if err != nil {
+			t.Logf("oversized chunked POST failed at transport level instead of a clean 413: %v", err)
+			return
+		}
+		if res.StatusCode != http.StatusRequestEntityTooLarge {
+			t.Errorf("oversized chunked POST got status %d, want 413 (configured 128KB cap)", res.StatusCode)
+		}
+		if res.Echo != nil {
+			t.Errorf("oversized chunked POST reached backend %s; the configured cap did not apply", res.Echo.Backend)
 		}
 	})
 }

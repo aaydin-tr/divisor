@@ -113,6 +113,8 @@ func startFasthttpServer(config *cfg.Config, proxies types.IBalancer, ln net.Lis
 		IdleTimeout:                   config.Server.IdleTimeout,
 		DisableKeepalive:              config.Server.DisableKeepalive,
 		DisableHeaderNamesNormalizing: config.Server.DisableHeaderNamesNormalizing,
+		MaxRequestBodySize:            config.Server.MaxRequestBodySize,
+		ErrorHandler:                  proxy.ErrorHandler,
 		Name:                          "divisor",
 	}
 
@@ -134,7 +136,7 @@ func startFasthttpServer(config *cfg.Config, proxies types.IBalancer, ln net.Lis
 }
 
 func startNetHttpServer(config *cfg.Config, proxies types.IBalancer, ln net.Listener) *http.Server {
-	adapter := proxy.NewNetHttpAdapter(proxies)
+	adapter := proxy.NewNetHttpAdapter(proxies, config.Server.MaxRequestBodySize)
 
 	server := &http.Server{
 		Addr:         config.GetAddr(),

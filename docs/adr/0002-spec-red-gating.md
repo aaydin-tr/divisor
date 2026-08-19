@@ -1,4 +1,12 @@
-# Spec-red gating: born-red tests are opt-in via a second env var
+# Spec-red gating: spec-red tests are opt-in via a second env var
+
+> **Status note (2026-08):** both original spec-red tests shipped (bounded
+> failure for hanging Backends via `server.proxy_timeout`, 413 via
+> `server.max_request_body_size`) and now run in the blocking job. The spec-red
+> set is empty, so the advisory CI job was removed from
+> `.github/workflows/integration.yml`; the `specRed` helper and
+> `DIVISOR_INTEGRATION_SPEC_RED` env var remain dormant. When the next spec-red
+> test lands, re-add the advisory job as described below.
 
 The integration suite deliberately contains born-red tests: they assert agreed 1.0 spec behavior that has not shipped yet (bounded failure for hanging Backends, 413 for oversized bodies). Left as-is, they turned the Integration CI job red on every PR, which trains everyone to ignore the job and hides genuine regressions. We split the two signals: born-red tests call `specRed(t, ...)` and skip themselves unless `DIVISOR_INTEGRATION_SPEC_RED=1`, so the blocking Integration job runs only tests expected to pass, while a second advisory job (`continue-on-error: true`) runs just the spec-red tests as a tracker of the spec gap. (GitHub reports a job-level `continue-on-error` failure as a successful check in the PR checks list; the red failure is visible inside the workflow run's job graph and logs, not as a red check.) When a spec item ships, its test drops the `specRed` marker and thereby moves into the blocking job.
 

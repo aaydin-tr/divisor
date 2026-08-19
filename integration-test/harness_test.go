@@ -75,6 +75,8 @@ type ScenarioSpec struct {
 	Middlewares       []MiddlewareSpec
 	ReadTimeout       time.Duration
 	WriteTimeout      time.Duration
+	ProxyTimeout       time.Duration
+	MaxRequestBodySize int
 }
 
 type Echo struct {
@@ -342,6 +344,12 @@ func renderConfig(t *testing.T, s *Scenario) (string, string) {
 	}
 	if s.Spec.WriteTimeout > 0 {
 		server["write_timeout"] = s.Spec.WriteTimeout.String()
+	}
+	if s.Spec.ProxyTimeout > 0 {
+		server["proxy_timeout"] = s.Spec.ProxyTimeout.String()
+	}
+	if s.Spec.MaxRequestBodySize > 0 {
+		server["max_request_body_size"] = s.Spec.MaxRequestBodySize
 	}
 
 	cfg := map[string]any{

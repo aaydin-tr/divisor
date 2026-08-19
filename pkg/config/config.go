@@ -33,6 +33,11 @@ const (
 
 	DefaultHealthCheckerTime = time.Second * 30
 
+	// No "unlimited" setting exists; see docs/adr/0003-bounded-proxy-timeout.md.
+	DefaultProxyTimeout = time.Second * 60
+
+	DefaultMaxRequestBodySize = fasthttp.DefaultMaxRequestBodySize
+
 	Http1 = "http1.1"
 	Http2 = "http2"
 
@@ -58,6 +63,8 @@ type Backend struct {
 	MaxConnDuration           time.Duration `yaml:"max_conn_duration"`
 	MaxIdleConnDuration       time.Duration `yaml:"max_idle_conn_duration"`
 	MaxIdemponentCallAttempts int           `yaml:"max_idemponent_call_attempts"`
+	// Copied from the global server.proxy_timeout by PrepareConfig.
+	ProxyTimeout time.Duration `yaml:"-"`
 }
 
 func (b *Backend) GetHealthCheckURL() string {
@@ -79,6 +86,8 @@ type Server struct {
 	ReadTimeout                   time.Duration `yaml:"read_timeout"`
 	WriteTimeout                  time.Duration `yaml:"write_timeout"`
 	IdleTimeout                   time.Duration `yaml:"idle_timeout"`
+	ProxyTimeout                  time.Duration `yaml:"proxy_timeout"`
+	MaxRequestBodySize            int           `yaml:"max_request_body_size"`
 	DisableKeepalive              bool          `yaml:"disable_keepalive"`
 	DisableHeaderNamesNormalizing bool          `yaml:"disable_header_names_normalizing"`
 }
@@ -221,6 +230,8 @@ func (c *Config) prepareBackends() error {
 		if b.MaxIdemponentCallAttempts <= 0 {
 			b.MaxIdemponentCallAttempts = DefaultMaxIdemponentCallAttempts
 		}
+
+		b.ProxyTimeout = c.Server.ProxyTimeout
 	}
 
 	return nil
@@ -249,6 +260,15 @@ func (s *Server) prepareServer() error {
 
 	if s.Concurrency == 0 {
 		s.Concurrency = fasthttp.DefaultConcurrency
+	}
+
+	// Zero means the default, not unlimited (ADR 0003).
+	if s.ProxyTimeout <= 0 {
+		s.ProxyTimeout = DefaultProxyTimeout
+	}
+
+	if s.MaxRequestBodySize <= 0 {
+		s.MaxRequestBodySize = DefaultMaxRequestBodySize
 	}
 
 	return nil

@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -45,7 +46,7 @@ func TestNetHttpAdapterServeHTTP(t *testing.T) {
 		ctx.Response.SetBodyString("hello")
 	}}
 
-	adapter := NewNetHttpAdapter(balancer)
+	adapter := NewNetHttpAdapter(balancer, 0)
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/x", nil)
 	rec := httptest.NewRecorder()
 
@@ -82,4 +83,67 @@ func TestNetHttpAdapterServeHTTP(t *testing.T) {
 	if string(body) != "hello" {
 		t.Errorf("expected body hello, got %q", body)
 	}
+}
+
+func TestNetHttpAdapterMaxRequestBodySize(t *testing.T) {
+	const limit = 64
+
+	newAdapter := func(reached *bool, streamed *int) *NetHttpAdapter {
+		return NewNetHttpAdapter(&stubBalancer{handler: func(ctx *fasthttp.RequestCtx) {
+			*reached = true
+			n, _ := io.Copy(io.Discard, ctx.Request.BodyStream())
+			*streamed = int(n)
+			ctx.Response.SetStatusCode(fasthttp.StatusOK)
+		}}, limit)
+	}
+
+	t.Run("DeclaredLengthOverLimit", func(t *testing.T) {
+		var reached bool
+		var streamed int
+		req := httptest.NewRequest(http.MethodPost, "http://example.com/x", bytes.NewReader(make([]byte, limit+1)))
+		rec := httptest.NewRecorder()
+
+		newAdapter(&reached, &streamed).ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusRequestEntityTooLarge {
+			t.Errorf("expected status 413, got %d", rec.Code)
+		}
+		if reached {
+			t.Error("oversized body reached the balancer")
+		}
+	})
+
+	t.Run("LengthlessBodyOverLimit", func(t *testing.T) {
+		var reached bool
+		var streamed int
+		req := httptest.NewRequest(http.MethodPost, "http://example.com/x", io.NopCloser(bytes.NewReader(make([]byte, limit*10))))
+		req.ContentLength = -1
+		rec := httptest.NewRecorder()
+
+		newAdapter(&reached, &streamed).ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusRequestEntityTooLarge {
+			t.Errorf("expected status 413, got %d", rec.Code)
+		}
+		if reached {
+			t.Error("oversized length-less body reached the balancer")
+		}
+	})
+
+	t.Run("LengthlessBodyUnderLimit", func(t *testing.T) {
+		var reached bool
+		var streamed int
+		req := httptest.NewRequest(http.MethodPost, "http://example.com/x", io.NopCloser(bytes.NewReader(make([]byte, limit))))
+		req.ContentLength = -1
+		rec := httptest.NewRecorder()
+
+		newAdapter(&reached, &streamed).ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", rec.Code)
+		}
+		if streamed != limit {
+			t.Errorf("balancer streamed %d bytes, want %d", streamed, limit)
+		}
+	})
 }

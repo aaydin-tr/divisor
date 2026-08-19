@@ -30,6 +30,9 @@ func (m *mockServer) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 	if _, ok := req.Header["Wait"]; ok {
 		time.Sleep(10 * time.Millisecond)
 	}
+	if _, ok := req.Header["Hang"]; ok {
+		time.Sleep(300 * time.Millisecond)
+	}
 	if _, ok := req.Header["After"]; ok {
 		for _, h := range hopHeaders {
 			if string(h) != "Trailer" {
@@ -165,6 +168,25 @@ func TestStat(t *testing.T) {
 		assert.Equal(t, 1, stat.ConnsCount)
 		assert.Greater(t, stat.AvgResTime, float64(0))
 	})
+}
+
+func TestProxyTimeoutReturns504(t *testing.T) {
+	handler := mockServer{}
+	bServer := httptest.NewServer(&handler)
+	defer bServer.Close()
+
+	b := config.Backend{
+		Url:          protocolRegex.ReplaceAllString(bServer.URL, ""),
+		ProxyTimeout: 50 * time.Millisecond,
+	}
+	p := NewProxyClient(&b, nil, nil).(*ProxyClient)
+
+	ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+	ctx.Request.Header.Add("Hang", "true")
+
+	err := p.ReverseProxyHandler(&ctx)
+	assert.ErrorIs(t, err, fasthttp.ErrTimeout)
+	assert.Equal(t, fasthttp.StatusGatewayTimeout, ctx.Response.StatusCode())
 }
 
 func TestReverseProxyHandler(t *testing.T) {

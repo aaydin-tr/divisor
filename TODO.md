@@ -9,17 +9,22 @@ asserts the target behavior and stays red until it ships.
 New `server`/backend options to expose in `pkg/config` (today these are either
 hardcoded or silently left at library defaults):
 
-- [ ] `server.max_request_body_size` — exposed in `pkg/config` (default 4MB),
-  applied on both paths (fasthttp `MaxRequestBodySize` + custom `ErrorHandler`
-  for the 413; `nethttp_adapter.go` rejects declared Content-Length over the
-  cap up front and buffers length-less bodies up to the cap so an oversized
-  payload never reaches a backend), returns **413 Request Entity Too Large**
-  when exceeded. **[born-red:** `TestProxyMatrix/BodyOverLimit413`**]**
-- [ ] Upstream/proxy timeout (e.g. `backends[].proxy_timeout` or a global
-  `server.proxy_timeout`) — `internal/proxy` calls `Do` with no deadline, so a
-  hanging Backend hangs the client request forever (`read_timeout`/`write_timeout`
-  do not cover time spent inside the handler). Switch to `DoDeadline`/`DoTimeout`
-  and surface expiry as 504. **[born-red:** `TestPausedBackendBoundedFailure`**]**
+- [x] `server.max_request_body_size` — shipped: exposed in `pkg/config`
+  (default 4MB, zero/unset means the default), applied on both paths (fasthttp
+  `MaxRequestBodySize` + `proxy.ErrorHandler` for the 413; `nethttp_adapter.go`
+  rejects declared Content-Length over the cap up front and buffers
+  length-less bodies up to the cap, mirroring fasthttp's own chunked-body
+  handling, so an oversized payload never reaches a backend), returns
+  **413 Request Entity Too Large** when exceeded. **[spec-red:**
+  `TestProxyMatrix/BodyOverLimit413`, `TestHTTP2/BodyOverLimit413` **— now
+  green]**
+- [x] `server.proxy_timeout` — shipped: global knob, default 60s, no
+  "unlimited" setting (see `docs/adr/0003-bounded-proxy-timeout.md`);
+  `internal/proxy` now calls `DoTimeout` and surfaces expiry as **504** (502
+  stays reserved for refused/reset connections), no retry on another Backend.
+  A per-backend `backends[].proxy_timeout` override is deferred (additive,
+  non-breaking). **[spec-red:** `TestPausedBackendBoundedFailure` **— now
+  green]**
 - [ ] `server.read_buffer_size` / `server.write_buffer_size` — fasthttp's 4KB
   default caps request header size; large cookies/JWTs hit "431/400 header too
   large" with no way to raise it.
@@ -105,13 +110,16 @@ hardcoded or silently left at library defaults):
   shared across PRs. Local runs are unchanged.
 - [x] `t.Parallel` across scenarios — every top-level test calls
   `t.Parallel()`; scenarios were already isolated by container/network names.
-- [x] Born-red gating decided (see `docs/adr/0002-spec-red-gating.md`):
+- [x] Spec-red gating decided (see `docs/adr/0002-spec-red-gating.md`):
   spec-red tests call `specRed(t, ...)` and skip unless
   `DIVISOR_INTEGRATION_SPEC_RED=1`; the blocking Integration job stays green
-  while an advisory `continue-on-error` job runs just the spec-red set
-  (currently `TestPausedBackendBoundedFailure`,
-  `TestProxyMatrix/BodyOverLimit413`). Shipping a spec item = remove its
-  `specRed` call and drop it from the advisory job's `-run` pattern.
+  while an advisory `continue-on-error` job runs just the spec-red set.
+  Shipping a spec item = remove its `specRed` call and drop it from the
+  advisory job's `-run` pattern. The set is currently **empty** (both original
+  spec-red tests shipped), so the advisory job is removed from
+  `.github/workflows/integration.yml`; the `specRed` helper stays dormant —
+  re-add the job when the next spec-red test lands (zero-alive-Backends-at-boot
+  plans to be one).
 - [ ] Monitoring server coverage (explicitly out of scope for the first suite);
   needs a readiness probe that doesn't conflate divisor liveness with Backend
   health before `/metrics` can be tested with zero Alive Backends.

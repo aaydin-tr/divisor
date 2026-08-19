@@ -2,6 +2,8 @@ package proxy
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"math"
 	"net"
 	"net/http"
@@ -14,14 +16,37 @@ import (
 )
 
 type NetHttpAdapter struct {
-	Balancer types.IBalancer
+	Balancer           types.IBalancer
+	maxRequestBodySize int
 }
 
-func NewNetHttpAdapter(balancer types.IBalancer) *NetHttpAdapter {
-	return &NetHttpAdapter{Balancer: balancer}
+func NewNetHttpAdapter(balancer types.IBalancer, maxRequestBodySize int) *NetHttpAdapter {
+	return &NetHttpAdapter{Balancer: balancer, maxRequestBodySize: maxRequestBodySize}
 }
 
 func (a *NetHttpAdapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if a.maxRequestBodySize > 0 && r.ContentLength > int64(a.maxRequestBodySize) {
+		writeBodyTooLarge(w)
+		return
+	}
+
+	if a.maxRequestBodySize > 0 && r.ContentLength < 0 && r.Body != nil && r.Body != http.NoBody {
+		// Mirror fasthttp's chunked-body handling: buffer a length-less body
+		// up to the cap so an oversized payload never reaches a Backend.
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, int64(a.maxRequestBodySize)))
+		var maxBytesErr *http.MaxBytesError
+		switch {
+		case errors.As(err, &maxBytesErr):
+			writeBodyTooLarge(w)
+			return
+		case err != nil:
+			w.Header().Set("Server", "divisor")
+			http.Error(w, "error reading request body", http.StatusBadRequest)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+	}
+
 	var ctx fasthttp.RequestCtx
 	ctx.Init(&fasthttp.Request{}, nil, nil)
 	ConvertNetHTTPRequestToFastHTTPRequest(r, &ctx)
@@ -38,6 +63,13 @@ func (a *NetHttpAdapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(ctx.Response.StatusCode())
 	ctx.Response.BodyWriteTo(w) //nolint:errcheck
+}
+
+func writeBodyTooLarge(w http.ResponseWriter) {
+	w.Header().Set("Server", "divisor")
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusRequestEntityTooLarge)
+	w.Write([]byte(helper.S2B(bodyTooLargeMessage))) //nolint:errcheck
 }
 
 // isHopHeader reports whether key is a hop-by-hop header. Hop-by-hop headers

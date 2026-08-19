@@ -199,6 +199,32 @@ func TestPrepareServer(t *testing.T) {
 		assert.Equal(t, basic.Server.HttpVersion, Http1)
 		assert.Equal(t, basic.Server.MaxIdleWorkerDuration, DefaultMaxIdleWorkerDuration)
 		assert.Equal(t, basic.Server.Concurrency, fasthttp.DefaultConcurrency)
+		assert.Equal(t, basic.Server.ProxyTimeout, DefaultProxyTimeout)
+		assert.Equal(t, basic.Server.MaxRequestBodySize, DefaultMaxRequestBodySize)
+	})
+
+	t.Run("zero proxy_timeout and max_request_body_size mean the default, not unlimited", func(t *testing.T) {
+		server := Server{ProxyTimeout: 0, MaxRequestBodySize: 0}
+		err := server.prepareServer()
+
+		assert.Nil(t, err)
+		assert.Equal(t, server.ProxyTimeout, DefaultProxyTimeout)
+		assert.Equal(t, server.MaxRequestBodySize, DefaultMaxRequestBodySize)
+	})
+
+	t.Run("proxy_timeout is copied onto every backend", func(t *testing.T) {
+		config := Config{
+			Backends: []Backend{{Url: "localhost:2000"}, {Url: "localhost:3000"}},
+			Port:     "8000",
+			Server:   Server{ProxyTimeout: 5 * time.Second},
+		}
+
+		err := config.PrepareConfig()
+
+		assert.Nil(t, err)
+		for _, b := range config.Backends {
+			assert.Equal(t, b.ProxyTimeout, 5*time.Second)
+		}
 	})
 
 	t.Run("http2 without cert and key file", func(t *testing.T) {
@@ -241,6 +267,8 @@ func TestPrepareServer(t *testing.T) {
 			ReadTimeout:                   time.Second,
 			WriteTimeout:                  time.Second,
 			IdleTimeout:                   time.Second,
+			ProxyTimeout:                  2 * time.Second,
+			MaxRequestBodySize:            1024,
 			DisableKeepalive:              true,
 			DisableHeaderNamesNormalizing: true,
 		}
@@ -254,6 +282,8 @@ func TestPrepareServer(t *testing.T) {
 		assert.Equal(t, basic.Server.ReadTimeout, time.Second)
 		assert.Equal(t, basic.Server.WriteTimeout, time.Second)
 		assert.Equal(t, basic.Server.IdleTimeout, time.Second)
+		assert.Equal(t, basic.Server.ProxyTimeout, 2*time.Second)
+		assert.Equal(t, basic.Server.MaxRequestBodySize, 1024)
 		assert.Equal(t, basic.Server.DisableKeepalive, true)
 		assert.Equal(t, basic.Server.DisableHeaderNamesNormalizing, true)
 	})

@@ -100,4 +100,22 @@ func TestConfigErrorExitsNonZero(t *testing.T) {
 			t.Errorf("divisor exited 0 on a config with no backends; want non-zero")
 		}
 	})
+
+	t.Run("MalformedProxyTimeout", func(t *testing.T) {
+		code := runDivisorExpectExit(t, namePrefix+"exit-proxytimeout",
+			[]string{"DIVISOR_CONFIG=host: 0.0.0.0\nport: 8080\nbackends:\n  - url: localhost:9000\nserver:\n  proxy_timeout: banana\n"},
+			[]string{"/bin/sh", "-c"}, []string{shWriteConfigAndExec})
+		if code == 0 {
+			t.Errorf("divisor exited 0 on a non-duration proxy_timeout; want non-zero")
+		}
+	})
+
+	t.Run("MalformedMaxRequestBodySize", func(t *testing.T) {
+		code := runDivisorExpectExit(t, namePrefix+"exit-bodysize",
+			[]string{"DIVISOR_CONFIG=host: 0.0.0.0\nport: 8080\nbackends:\n  - url: localhost:9000\nserver:\n  max_request_body_size: big\n"},
+			[]string{"/bin/sh", "-c"}, []string{shWriteConfigAndExec})
+		if code == 0 {
+			t.Errorf("divisor exited 0 on a non-integer max_request_body_size; want non-zero")
+		}
+	})
 }

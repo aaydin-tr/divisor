@@ -51,3 +51,7 @@ _Avoid_: fixture, environment, setup
 **Failover**:
 Traffic rerouting to the remaining Alive Backends after a Backend goes Down.
 _Avoid_: fallback
+
+**Spec-red**:
+A test written against agreed 1.0 spec behavior that has not shipped yet; it skips unless explicitly opted into, so the blocking CI job stays green while the spec gap stays tracked. Shipping the behavior removes the marker and the test starts gating PRs.
+_Avoid_: born-red, expected-failure, xfail

@@ -1,7 +1,9 @@
 package integration
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"net/http"
 	"testing"
 	"time"
@@ -53,6 +55,57 @@ func TestHTTP2(t *testing.T) {
 		res := s.Get(t, "/downgrade")
 		if res.Echo.Proto != "HTTP/1.1" {
 			t.Errorf("backend saw protocol %s, want HTTP/1.1", res.Echo.Proto)
+		}
+	})
+
+	t.Run("BodyOverLimit413", func(t *testing.T) {
+		// nethttp_adapter rejects the declared Content-Length up front,
+		// so unlike the fasthttp path the 413 arrives cleanly.
+		body := testBody(5 << 20)
+		res, err := s.Request(http.MethodPost, "/h2toolarge", bytes.NewReader(body), nil)
+		if err != nil {
+			t.Fatalf("5MB POST over HTTP/2 failed at transport level: %v", err)
+		}
+		if res.StatusCode != http.StatusRequestEntityTooLarge {
+			t.Errorf("5MB POST over HTTP/2 got status %d, want 413", res.StatusCode)
+		}
+		if res.Echo != nil {
+			t.Errorf("5MB POST reached backend %s; the size limit did not apply on the HTTP/2 path", res.Echo.Backend)
+		}
+	})
+
+	t.Run("ChunkedRequest", func(t *testing.T) {
+		// The adapter buffers length-less bodies up to the cap; the
+		// payload must still arrive at the backend byte-intact.
+		body := testBody(128 << 10)
+		rd := struct{ io.Reader }{bytes.NewReader(body)}
+		res, err := s.Request(http.MethodPost, "/h2chunked", rd, nil)
+		if err != nil {
+			t.Fatalf("length-less POST failed: %v", err)
+		}
+		if res.StatusCode != http.StatusOK || res.Echo == nil {
+			t.Fatalf("length-less POST: status %d, body %.200s", res.StatusCode, res.Body)
+		}
+		if res.Echo.BodySha256 != sha256Hex(body) {
+			t.Errorf("length-less body arrived corrupted at backend")
+		}
+	})
+
+	t.Run("ChunkedBodyOverLimit413", func(t *testing.T) {
+		// No Content-Length forces the adapter's buffered cap instead of
+		// the up-front Content-Length reject.
+		body := testBody(5 << 20)
+		rd := struct{ io.Reader }{bytes.NewReader(body)}
+		res, err := s.Request(http.MethodPost, "/h2chunkedtoolarge", rd, nil)
+		if err != nil {
+			t.Logf("oversized length-less POST failed at transport level instead of a clean 413: %v", err)
+			return
+		}
+		if res.StatusCode != http.StatusRequestEntityTooLarge {
+			t.Errorf("oversized length-less POST over HTTP/2 got status %d, want 413", res.StatusCode)
+		}
+		if res.Echo != nil {
+			t.Errorf("oversized length-less POST reached backend %s", res.Echo.Backend)
 		}
 	})
 

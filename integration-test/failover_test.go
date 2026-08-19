@@ -200,17 +200,17 @@ func TestAllBackendsDownStaysUp(t *testing.T) {
 
 func TestPausedBackendBoundedFailure(t *testing.T) {
 	t.Parallel()
-	specRed(t, "proxy timeout -> bounded failure for hanging backends")
-	// A paused container hangs instead of refusing connections. With
-	// server read/write timeouts configured, clients must see a bounded
-	// failure, and the Probe (5s timeout) must eventually evict the
-	// backend. Pause keeps the container's IP, so unpause exercises Rejoin.
+	// A paused container hangs instead of refusing connections: clients
+	// must see a bounded 504 within server.proxy_timeout and the Probe
+	// must evict the backend. Pause keeps the container's IP, so unpause
+	// exercises Rejoin.
 	s := startScenario(t, ScenarioSpec{
 		Name:              "fopause",
 		Type:              "round-robin",
 		HealthCheckerTime: 2 * time.Second,
 		ReadTimeout:       3 * time.Second,
 		WriteTimeout:      3 * time.Second,
+		ProxyTimeout:      3 * time.Second,
 		Backends: []BackendSpec{
 			{ID: "a"}, {ID: "b"},
 		},
@@ -222,7 +222,12 @@ func TestPausedBackendBoundedFailure(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		start := time.Now()
 		resp, err := cl.Get(fmt.Sprintf("%s/paused?n=%d", s.BaseURL, i))
-		if err == nil {
+		if err != nil {
+			t.Errorf("request %d failed instead of getting a gateway error: %v", i, err)
+		} else {
+			if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusGatewayTimeout {
+				t.Errorf("request %d got %d, want 200 (alive backend) or 504 (hanging backend)", i, resp.StatusCode)
+			}
 			resp.Body.Close()
 		}
 		if elapsed := time.Since(start); elapsed > 8*time.Second {

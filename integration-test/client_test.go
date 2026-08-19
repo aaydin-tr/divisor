@@ -172,6 +172,19 @@ func (s *Scenario) KillBackend(t *testing.T, id string) {
 	if err := pool.Client.KillContainer(dc.KillContainerOptions{ID: e.Resource.Container.ID}); err != nil {
 		t.Fatalf("killing backend %s: %v", id, err)
 	}
+	// KillContainer returns on signal dispatch, not process death; wait so
+	// tests can assert on the death immediately.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		c, err := pool.Client.InspectContainer(e.Resource.Container.ID) //nolint:staticcheck
+		if err != nil || !c.State.Running {
+			return // inspect error means the container is already gone
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("backend %s still running 10s after docker kill", id)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func (s *Scenario) PauseBackend(t *testing.T, id string) {

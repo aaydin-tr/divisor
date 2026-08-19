@@ -30,16 +30,16 @@ func TestMain(m *testing.M) {
 	os.Exit(run(m))
 }
 
-// specRed marks a test that asserts agreed 1.0 spec behavior that has not
-// shipped yet (born red, see docs/adr/0002-spec-red-gating.md). Such tests
-// are skipped unless DIVISOR_INTEGRATION_SPEC_RED=1, so the blocking
-// Integration CI job stays green while an advisory job tracks the spec gap.
-// When the behavior ships, remove the specRed call so the test gates PRs.
+// specRed marks a test asserting agreed 1.0 spec behavior that has not
+// shipped yet (docs/adr/0002-spec-red-gating.md). The set is currently empty;
+// this stays dormant for the next spec-red test.
+//
+//nolint:unused
 func specRed(t *testing.T, todoItem string) {
 	t.Helper()
 	switch os.Getenv("DIVISOR_INTEGRATION_SPEC_RED") {
 	case "", "0", "false":
-		t.Skipf("born-red 1.0 spec test (%s); set DIVISOR_INTEGRATION_SPEC_RED=1 to run it", todoItem)
+		t.Skipf("spec-red 1.0 test (%s); set DIVISOR_INTEGRATION_SPEC_RED=1 to run it", todoItem)
 	}
 }
 

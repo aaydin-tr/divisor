@@ -108,6 +108,12 @@ Implemented in `performGracefulShutdown()`:
 - Closes idle connections via `balancer.Shutdown()`
 - 30-second timeout enforced
 
+## Code style
+
+Code explains itself: put the meaning in names and structure. A comment earns
+its place only for a constraint the code cannot show (a non-obvious library
+behavior, a spec decision, a pointer to an ADR) and stays to one or two lines.
+
 ## Key Implementation Details
 
 ### Algorithm Selection
@@ -140,17 +146,20 @@ When `server.http_version: http2`, divisor serves via `net/http` + `golang.org/x
   HTTP/2, and TLS (see `docs/adr/0001-black-box-integration-suite.md` and
   `CONTEXT.md` for its vocabulary). Gated by `DIVISOR_INTEGRATION=1`; runs in
   CI via `.github/workflows/integration.yml`. Scenarios run with `t.Parallel()`
-  (isolated container/network names). Some tests intentionally assert the
-  agreed 1.0 spec and stay red until the behavior ships (bounded failure for
-  hanging backends, 413 for oversized bodies); they call `specRed(t, ...)` and
-  skip unless `DIVISOR_INTEGRATION_SPEC_RED=1`, so the blocking CI job stays
-  green while an advisory job runs just the spec-red set — see
-  `docs/adr/0002-spec-red-gating.md`. CI pre-builds the suite images with
-  buildx layer caching and sets `DIVISOR_IT_PREBUILT=1` so `TestMain` skips
-  its own `docker build`; local runs build as before. (Already shipped and
-  green: startup-down backends rejoining, 502 (not 500) for unreachable
-  backends, staying up with 503 when all backends are down, non-zero exit on
-  missing/invalid config.)
+  (isolated container/network names). Spec-red gating (see
+  `docs/adr/0002-spec-red-gating.md` and CONTEXT.md): a test asserting agreed
+  1.0 spec behavior that has not shipped yet calls `specRed(t, ...)` and skips
+  unless `DIVISOR_INTEGRATION_SPEC_RED=1`, so the blocking CI job stays green
+  while an advisory job runs just the spec-red set. The set is currently
+  empty — the advisory job is removed from the workflow and the `specRed`
+  helper is dormant until the next spec-red test lands. CI pre-builds the
+  suite images with buildx layer caching and sets `DIVISOR_IT_PREBUILT=1` so
+  `TestMain` skips its own `docker build`; local runs build as before.
+  (Shipped and green: startup-down backends rejoining, 502 (not 500) for
+  unreachable backends, staying up with 503 when all backends are down,
+  non-zero exit on missing/invalid config, bounded failure with 504 for
+  hanging backends via `server.proxy_timeout`, 413 for oversized bodies via
+  `server.max_request_body_size`.)
 
 ## Agent skills
 
