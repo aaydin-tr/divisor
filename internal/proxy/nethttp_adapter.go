@@ -69,7 +69,7 @@ func writeBodyTooLarge(w http.ResponseWriter) {
 	w.Header().Set("Server", "divisor")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusRequestEntityTooLarge)
-	w.Write([]byte(helper.S2B(bodyTooLargeMessage))) //nolint:errcheck
+	w.Write(helper.S2B(bodyTooLargeMessage)) //nolint:errcheck
 }
 
 // isHopHeader reports whether key is a hop-by-hop header. Hop-by-hop headers
