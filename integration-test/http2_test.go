@@ -162,7 +162,7 @@ func TestIPHashUnderHTTP2(t *testing.T) {
 			{ID: "a"}, {ID: "b"}, {ID: "c"},
 		},
 	})
-	clients := startClientContainers(t, s.Spec.Name, 6)
+	clients := startClientContainers(t, s, 6)
 	url := s.InternalURL() + "/"
 
 	distinct := map[string]bool{}

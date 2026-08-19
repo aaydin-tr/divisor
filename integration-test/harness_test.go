@@ -128,10 +128,11 @@ func (e *Echo) Counter(t *testing.T, key string) uint64 {
 type Scenario struct {
 	Spec        ScenarioSpec
 	Divisor     *dockertest.Resource
-	DivisorName string // container name == DNS name on the suite network
+	DivisorName string // container name == DNS name on the scenario network
 	Backends    []*Echo
 	BaseURL     string
 	Certs       *certBundle
+	Network     *dockertest.Network
 
 	useTLS bool
 	client *http.Client
@@ -154,8 +155,18 @@ func startScenario(t *testing.T, spec ScenarioSpec) *Scenario {
 	}
 	s := &Scenario{Spec: spec, useTLS: spec.TLS || spec.HTTP2}
 
+	// One network per Scenario: on a shared network, a killed backend's freed
+	// IP can be claimed by another scenario's container while divisor's dialer
+	// still holds the DNS-cached IP, silently proxying across scenarios.
+	network, err := pool.CreateNetwork(networkName + "-" + spec.Name)
+	if err != nil {
+		t.Fatalf("creating scenario network: %v", err)
+	}
+	s.Network = network
+	t.Cleanup(func() { network.Close() })
+
 	for _, b := range spec.Backends {
-		s.Backends = append(s.Backends, startEcho(t, spec.Name, b))
+		s.Backends = append(s.Backends, startEcho(t, spec.Name, b, network))
 	}
 
 	env := []string{}
@@ -187,7 +198,7 @@ func startScenario(t *testing.T, spec ScenarioSpec) *Scenario {
 		Entrypoint:   []string{"/bin/sh", "-c"},
 		Cmd:          []string{startScript},
 		ExposedPorts: []string{containerPort + "/tcp"},
-		Networks:     []*dockertest.Network{network},
+		Networks:     []*dockertest.Network{s.Network},
 	}, publishPorts)
 	if err != nil {
 		t.Fatalf("starting divisor container: %v", err)
@@ -229,7 +240,7 @@ func startScenario(t *testing.T, spec ScenarioSpec) *Scenario {
 	return s
 }
 
-func startEcho(t *testing.T, scenarioName string, b BackendSpec) *Echo {
+func startEcho(t *testing.T, scenarioName string, b BackendSpec, network *dockertest.Network) *Echo {
 	t.Helper()
 
 	name := namePrefix + scenarioName + "-" + strings.ToLower(b.ID)

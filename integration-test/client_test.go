@@ -239,11 +239,11 @@ type ClientContainer struct {
 const curlImage = "curlimages/curl"
 const curlTag = "8.11.1"
 
-func startClientContainers(t *testing.T, scenarioName string, n int) []*ClientContainer {
+func startClientContainers(t *testing.T, s *Scenario, n int) []*ClientContainer {
 	t.Helper()
 	clients := make([]*ClientContainer, 0, n)
 	for i := 0; i < n; i++ {
-		name := namePrefix + scenarioName + "-client-" + strconv.Itoa(i)
+		name := namePrefix + s.Spec.Name + "-client-" + strconv.Itoa(i)
 		if err := removeContainerExact(name); err != nil {
 			t.Fatalf("removing stale container %s: %v", name, err)
 		}
@@ -253,7 +253,7 @@ func startClientContainers(t *testing.T, scenarioName string, n int) []*ClientCo
 			Tag:        curlTag,
 			Entrypoint: []string{"sleep"},
 			Cmd:        []string{"infinity"},
-			Networks:   []*dockertest.Network{network},
+			Networks:   []*dockertest.Network{s.Network},
 		})
 		if err != nil {
 			t.Fatalf("starting client container %s: %v", name, err)

@@ -40,7 +40,7 @@ func TestIPHashDistributionAndRemap(t *testing.T) {
 			{ID: "a"}, {ID: "b"}, {ID: "c"},
 		},
 	})
-	clients := startClientContainers(t, s.Spec.Name, 8)
+	clients := startClientContainers(t, s, 8)
 	url := s.InternalURL() + "/"
 
 	// Baseline mapping; each client must be sticky.

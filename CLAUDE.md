@@ -145,8 +145,10 @@ When `server.http_version: http2`, divisor serves via `net/http` + `golang.org/x
   purpose-built echo backends run as containers, driven over real HTTP/1.1,
   HTTP/2, and TLS (see `docs/adr/0001-black-box-integration-suite.md` and
   `CONTEXT.md` for its vocabulary). Gated by `DIVISOR_INTEGRATION=1`; runs in
-  CI via `.github/workflows/integration.yml`. Scenarios run with `t.Parallel()`
-  (isolated container/network names). Spec-red gating (see
+  CI via `.github/workflows/integration.yml`. Scenarios run with `t.Parallel()`,
+  each on its own docker network — on a shared network a killed backend's
+  freed IP could be claimed by another scenario's container while divisor's
+  dialer still held the DNS-cached IP. Spec-red gating (see
   `docs/adr/0002-spec-red-gating.md` and CONTEXT.md): a test asserting agreed
   1.0 spec behavior that has not shipped yet calls `specRed(t, ...)` and skips
   unless `DIVISOR_INTEGRATION_SPEC_RED=1`, so the blocking CI job stays green

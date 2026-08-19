@@ -47,7 +47,6 @@ func runDivisorExpectExit(t *testing.T, name string, env, entrypoint, cmd []stri
 		Env:        env,
 		Entrypoint: entrypoint,
 		Cmd:        cmd,
-		Networks:   []*dockertest.Network{network},
 	}, publishPorts)
 	if err != nil {
 		t.Fatalf("starting divisor container: %v", err)

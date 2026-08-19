@@ -35,6 +35,14 @@ hardcoded or silently left at library defaults):
 - [ ] HTTP/2 server tuning (existing `TODO` at `main.go:158`) — pass a
   configured `http2.Server` (e.g. `max_concurrent_streams`, `idle_timeout`)
   instead of the zero value.
+- [ ] Backend DNS re-resolution — fasthttp's TCPDialer caches resolved IPs for
+  60s (`DNSCacheDuration` default), so a Backend that dies and is replaced —
+  or an unrelated service reusing the freed IP — keeps being dialed at the
+  stale IP for up to a minute. Surfaced by the integration suite while
+  scenarios shared one docker network (an impostor container on a dead
+  Backend's IP answered its traffic); the suite now isolates networks per
+  Scenario, but the production exposure remains. Consider a configurable
+  `DNSCacheDuration` for 1.0.
 - [ ] Health Probe tuning — probe timeout and expected-status are hardcoded
   (GET, only 200 counts as Alive, client defaults in `pkg/http`); consider
   `health_checker_timeout` and per-backend expected status.

@@ -16,10 +16,7 @@ import (
 	"github.com/ory/dockertest/v3"
 )
 
-var (
-	pool    *dockertest.Pool
-	network *dockertest.Network
-)
+var pool *dockertest.Pool
 
 func TestMain(m *testing.M) {
 	switch os.Getenv("DIVISOR_INTEGRATION") {
@@ -83,12 +80,6 @@ func run(m *testing.M) int {
 	}
 
 	removeStaleNetworks()
-	network, err = pool.CreateNetwork(networkName)
-	if err != nil {
-		fmt.Printf("creating docker network: %v\n", err)
-		return 1
-	}
-	defer network.Close()
 
 	return m.Run()
 }
