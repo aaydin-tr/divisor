@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -1172,5 +1173,81 @@ func TestMiddlewareErrorHandling(t *testing.T) {
 		assert.Equal(t, "60", string(ctx.Response.Header.Peek("Retry-After")))
 		assert.Contains(t, string(ctx.Response.Body()), "rate_limit")
 		assert.Contains(t, string(ctx.Response.Body()), "retry_after")
+	})
+}
+
+func TestMiddlewareErrorReachesClient(t *testing.T) {
+	customHeaders := make(map[string]string)
+	unreachableBackend := config.Backend{Url: "invalid-host:99999"}
+
+	t.Run("OnRequest error without a crafted response answers 500", func(t *testing.T) {
+		mw := &mockMiddleware{
+			onRequestFunc: func(ctx *middleware.Context) error {
+				return errors.New("unauthorized")
+			},
+		}
+
+		p := createTestProxyWithMiddlewares(unreachableBackend, customHeaders, mw)
+		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+
+		err := p.ReverseProxyHandler(&ctx)
+		assert.Error(t, err)
+		assert.Equal(t, fasthttp.StatusInternalServerError, ctx.Response.StatusCode())
+		assert.Equal(t, "application/json", string(ctx.Response.Header.Peek("Content-Type")))
+		assert.JSONEq(t, `{"message":"unauthorized"}`, string(ctx.Response.Body()))
+	})
+
+	t.Run("OnRequest error keeps a response the middleware wrote itself", func(t *testing.T) {
+		mw := &mockMiddleware{
+			onRequestFunc: func(ctx *middleware.Context) error {
+				ctx.Response.SetStatusCode(fasthttp.StatusUnauthorized)
+				ctx.Response.SetBodyString("no api key")
+				return errors.New("unauthorized")
+			},
+		}
+
+		p := createTestProxyWithMiddlewares(unreachableBackend, customHeaders, mw)
+		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+
+		err := p.ReverseProxyHandler(&ctx)
+		assert.Error(t, err)
+		assert.Equal(t, fasthttp.StatusUnauthorized, ctx.Response.StatusCode())
+		assert.Equal(t, "no api key", string(ctx.Response.Body()))
+	})
+
+	t.Run("OnResponse error without a crafted response answers 500", func(t *testing.T) {
+		mw := &mockMiddleware{
+			onResponseFunc: func(ctx *middleware.Context, err error) error {
+				return errors.New("rejected by middleware")
+			},
+		}
+
+		p := createTestProxyWithMiddlewares(unreachableBackend, customHeaders, mw)
+		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+
+		err := p.ReverseProxyHandler(&ctx)
+		assert.Error(t, err)
+		assert.Equal(t, fasthttp.StatusInternalServerError, ctx.Response.StatusCode())
+		assert.JSONEq(t, `{"message":"rejected by middleware"}`, string(ctx.Response.Body()))
+	})
+
+	t.Run("error message with quotes stays valid JSON", func(t *testing.T) {
+		mw := &mockMiddleware{
+			onRequestFunc: func(ctx *middleware.Context) error {
+				return errors.New(`token "abc" is \invalid`)
+			},
+		}
+
+		p := createTestProxyWithMiddlewares(unreachableBackend, customHeaders, mw)
+		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+
+		err := p.ReverseProxyHandler(&ctx)
+		assert.Error(t, err)
+
+		var body struct {
+			Message string `json:"message"`
+		}
+		assert.NoError(t, json.Unmarshal(ctx.Response.Body(), &body))
+		assert.Equal(t, `token "abc" is \invalid`, body.Message)
 	})
 }

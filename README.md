@@ -279,7 +279,7 @@ The middleware execution flow allows you to intercept and control the complete r
         -   ⛔ The request is **NOT** sent to the backend
         -   ⛔ `OnResponse` is **NOT** called
         -   ⛔ Post-response cleanup occurs
-        -   ⛔ The error is returned to the client
+        -   ⛔ The error is returned to the client: divisor answers `500` with `{"message": "<error>"}`, unless the middleware set its own status code or body — that response is sent untouched
     -   **If `OnRequest` succeeds (returns `nil`):**
         -   ✅ Execution continues to backend proxy
 
@@ -297,7 +297,7 @@ The middleware execution flow allows you to intercept and control the complete r
     -   **If `OnResponse` returns an error:**
         -   ⚠️ It **overrides** any backend error
         -   ⚠️ Post-response cleanup occurs
-        -   ⚠️ This error is returned to the client
+        -   ⚠️ This error is returned to the client the same way: `500` with `{"message": "<error>"}` when the middleware wrote no response of its own
         -   ⚠️ The standard error response is replaced
     -   **If `OnResponse` returns `nil`:**
         -   Execution continues normally

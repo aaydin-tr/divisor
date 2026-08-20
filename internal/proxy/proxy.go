@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"encoding/json"
 	"errors"
 	"net"
 	"strconv"
@@ -46,6 +47,10 @@ var hopHeaders = [][]byte{
 var XForwardedFor = []byte("X-Forwarded-For")
 var httpB = []byte("http")
 
+type errorMessage struct {
+	Message string `json:"message"`
+}
+
 type ProxyClient struct {
 	proxy              *fasthttp.HostClient
 	totalRequestCount  *uint64
@@ -71,6 +76,7 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 	if h.middlewareExecutor != nil {
 		if err := h.middlewareExecutor.RunOnRequest(mwCtx); err != nil {
 			h.postRes(res)
+			middlewareError(res, err)
 			return err
 		}
 	}
@@ -86,6 +92,7 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 	if h.middlewareExecutor != nil {
 		if handledErr := h.middlewareExecutor.RunOnResponse(mwCtx, serverErr); handledErr != nil {
 			h.postRes(res)
+			middlewareError(res, handledErr)
 			return handledErr
 		}
 	}
@@ -117,6 +124,29 @@ func (h *ProxyClient) postRes(res *fasthttp.Response) {
 	for _, h := range hopHeaders {
 		res.Header.DelBytes(h)
 	}
+}
+
+// middlewareError makes a Middleware short-circuit visible to the client: an
+// untouched pooled response would otherwise go out as an empty 200 OK. A
+// Middleware that wrote its own status or body keeps it.
+func middlewareError(res *fasthttp.Response, err error) {
+	zap.S().Infof("middleware returned an error: %s", err)
+	if res.StatusCode() != fasthttp.StatusOK || len(res.Body()) > 0 {
+		return
+	}
+
+	res.SetStatusCode(fasthttp.StatusInternalServerError)
+	res.Header.Set("Content-Type", "application/json")
+	res.SetBody(errorMessageBody(err))
+}
+
+func errorMessageBody(err error) []byte {
+	body, marshalErr := json.Marshal(errorMessage{Message: err.Error()})
+	if marshalErr != nil {
+		return helper.S2B(`{"message":"internal error"}`)
+	}
+
+	return body
 }
 
 // NoAliveBackends answers a request that arrived while every Backend is Down:

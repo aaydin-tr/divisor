@@ -5,7 +5,7 @@
 
 No spec/issue tracker exists for this repo, so this is a bug-focused review plus a code-smell pass — not a spec-conformance review. Findings marked *(judgement call)* are defensible-design questions, not hard bugs.
 
-**Totals:** 4 critical · 8 high · 9 medium · 20 low · 6 smells — fixed so far: C1–C4, H1, H2, M3, L9
+**Totals:** 4 critical · 8 high · 9 medium · 20 low · 6 smells — fixed so far: C1–C4, H1–H3, M3, L9
 
 ## Fix checklist
 
@@ -17,7 +17,7 @@ Tick items off as we fix them:
 - [x] [C4 — A panicking middleware crashes the whole load balancer](#c4) ✅ fixed
 - [x] [H1 — Backends down at startup can never rejoin the pool](#h1) ✅ fixed
 - [x] [H2 — Health-checker stop signal is never delivered](#h2) ✅ fixed
-- [ ] [H3 — Middleware errors silently discarded → client gets 200 OK](#h3)
+- [x] [H3 — Middleware errors silently discarded → client gets 200 OK](#h3) ✅ fixed
 - [ ] [H4 — Millisecond truncation breaks least-response-time](#h4)
 - [ ] [H5 — Failed requests shrink the response-time average → traffic black hole](#h5)
 - [ ] [H6 — Trailing slash/path in backend URL → invalid dial address](#h6)
@@ -114,6 +114,7 @@ Tick items off as we fix them:
 - **Bug:** returning an error is the middleware contract's only short-circuit mechanism, and the README states "The error is returned to the client." In reality the error propagates up, every consumer discards it, nothing writes it (or any status) to `ctx.Response`, and it isn't even logged.
 - **Failure scenario:** an auth middleware does `return errors.New("unauthorized")` without manually setting the response (the pattern the README implies). The request is correctly not forwarded, but the client receives the untouched pooled response — **HTTP 200, empty body**. Every denied request looks like success to clients, caches, and monitoring.
 - **Fix:** in `ReverseProxyHandler` (or the `Serve` closures), translate a non-nil middleware error into a client-visible response (e.g. 403/500 + body when the middleware didn't set a status itself) and log it.
+- **Status: FIXED (2026-08-20).** Both middleware error paths in `ReverseProxyHandler` now go through `middlewareError`, which logs the error and — when the response is still the untouched pooled default (status 200, empty body) — answers `500` with a `json.Marshal`ed `{"message": …}` body ([internal/proxy/proxy.go:125-148](internal/proxy/proxy.go#L125-L148)). A middleware that wrote its own status or body keeps it, so the existing "middleware handles the backend error" pattern is unaffected. The net/http (HTTP/2) path inherits the fix, since the adapter copies whatever the handler left in `ctx.Response`. Regression test `TestMiddlewareErrorReachesClient` covers both paths, the crafted-response carve-out, and JSON escaping of quotes/backslashes in the message. README's lifecycle section now states the concrete status/body. Note: an `OnResponse` error still cannot replace a *successful* backend response (the response is non-default, so it is kept) — giving the contract an explicit "handled" signal is M5.
 
 <a id="h4"></a>
 ### H4. Response times truncated to whole milliseconds — least-response-time collapses to a single backend
