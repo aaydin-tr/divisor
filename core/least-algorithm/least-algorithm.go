@@ -2,6 +2,7 @@ package least_algorithm
 
 import (
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -24,7 +25,9 @@ type LeastAlgorithm struct {
 	serversMap        map[uint32]*serverMap
 	isHostAlive       types.IsHostAlive
 	hashFunc          types.HashFunc
-	stopHealthChecker chan bool
+	stopHealthChecker chan struct{}
+	healthCheckerDone chan struct{}
+	stopOnce          sync.Once
 	servers           atomic.Pointer[[]proxy.IProxyClient]
 	healthCheckerTime time.Duration
 	lastIndex         *uint32
@@ -37,7 +40,8 @@ func NewLeastAlgorithm(cfg *config.Config, middlewareExecutor *middleware.Execut
 		isHostAlive:       cfg.HealthCheckerFunc,
 		healthCheckerTime: cfg.HealthCheckerTime,
 		hashFunc:          cfg.HashFunc,
-		stopHealthChecker: make(chan bool),
+		stopHealthChecker: make(chan struct{}),
+		healthCheckerDone: make(chan struct{}),
 		lastIndex:         new(uint32),
 	}
 
@@ -111,15 +115,19 @@ func (l *LeastAlgorithm) leastResponseTimeNext() proxy.IProxyClient {
 	if len(servers) == 0 {
 		return nil
 	}
-	lastIndex := atomic.LoadUint32(l.lastIndex)
-	if lastIndex >= uint32(len(servers)) {
-		lastIndex = 0
-	}
-	proxyClient := servers[lastIndex]
-	for i, proxy := range servers {
-		if proxy.AvgResponseTime() < proxyClient.AvgResponseTime() {
-			proxyClient = proxy
-			atomic.StoreUint32(l.lastIndex, uint32(i))
+	proxyClient := servers[0]
+	leastResTime := proxyClient.RecentResponseTime()
+	for _, server := range servers {
+		resTime := server.RecentResponseTime()
+		// 0 means the Backend is unmeasured — never answered, or just
+		// Rejoined: it wins outright so it gets its first sample.
+		if resTime == 0 {
+			return server
+		}
+
+		if resTime < leastResTime {
+			proxyClient = server
+			leastResTime = resTime
 		}
 	}
 
@@ -127,13 +135,19 @@ func (l *LeastAlgorithm) leastResponseTimeNext() proxy.IProxyClient {
 }
 
 func (l *LeastAlgorithm) healthChecker(backends []config.Backend) {
+	defer close(l.healthCheckerDone)
+	ticker := time.NewTicker(l.healthCheckerTime)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-l.stopHealthChecker:
 			return
-		default:
-			time.Sleep(l.healthCheckerTime)
+		case <-ticker.C:
 			for i, backend := range backends {
+				if helper.IsClosed(l.stopHealthChecker) {
+					return
+				}
 				l.healthCheck(&backend, i)
 			}
 		}
@@ -157,6 +171,9 @@ func (l *LeastAlgorithm) healthCheck(backend *config.Backend, index int) {
 			zap.S().Warn("All backends are down, serving 503 until a backend rejoins")
 		}
 	} else if ok && (status && !proxyMap.isHostAlive) {
+		// A Rejoining Backend starts unmeasured: its score from before it
+		// went Down — possibly a failure penalty — says nothing about it now.
+		proxyMap.proxy.ResetRecentResponseTime()
 		oldServers := *l.servers.Load()
 		newServers := make([]proxy.IProxyClient, 0, len(oldServers)+1)
 		newServers = append(newServers, oldServers...)
@@ -188,12 +205,13 @@ func (l *LeastAlgorithm) Stats() []types.ProxyStat {
 func (l *LeastAlgorithm) Shutdown() error {
 	zap.S().Info("Initiating graceful shutdown for Least Algorithm balancer")
 
-	// Signal health checker to stop
+	// Close rather than send: a send is dropped whenever the checker is not
+	// parked in its select, which is most of the time.
+	l.stopOnce.Do(func() { close(l.stopHealthChecker) })
 	select {
-	case l.stopHealthChecker <- true:
-		zap.S().Debug("Health checker stop signal sent")
-	default:
-		zap.S().Debug("Health checker already stopped")
+	case <-l.healthCheckerDone:
+	case <-time.After(types.HealthCheckerStopTimeout):
+		zap.S().Warn("Health checker did not stop in time, continuing shutdown")
 	}
 
 	// Close all proxy connections

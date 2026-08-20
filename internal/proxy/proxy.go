@@ -1,7 +1,9 @@
 package proxy
 
 import (
+	"encoding/json"
 	"errors"
+	"math"
 	"net"
 	"strconv"
 	"sync/atomic"
@@ -24,6 +26,8 @@ type IProxyClient interface {
 	Stat() types.ProxyStat
 	PendingRequests() int
 	AvgResponseTime() float64
+	RecentResponseTime() float64
+	ResetRecentResponseTime()
 	Close() error
 }
 
@@ -46,15 +50,34 @@ var hopHeaders = [][]byte{
 var XForwardedFor = []byte("X-Forwarded-For")
 var httpB = []byte("http")
 
+type errorMessage struct {
+	Message string `json:"message"`
+}
+
+// Weight of the newest sample in the response-time moving average. Low enough
+// that one slow response cannot steer traffic away from a Backend for long,
+// high enough that a Backend turning slow is noticed within a few requests.
+const responseTimeSmoothing = 0.2
+
+// A failed request is scored as at least this slow. Scored by real elapsed
+// time instead, a Backend refusing connections in microseconds would rank as
+// the fastest in the pool and draw every request until the next Probe round.
+const failureResponseTimePenalty = 10 * time.Second
+
+// Response times accumulate in microseconds and are reported in milliseconds.
+const microsPerMilli = float64(1000)
+
 type ProxyClient struct {
-	proxy              *fasthttp.HostClient
-	totalRequestCount  *uint64
-	totalResTime       *uint64
-	customHeaders      map[string]string
-	middlewareExecutor *middlewarePkg.Executor
-	Addr               string
-	addrB              []byte
-	proxyTimeout       time.Duration
+	proxy                *fasthttp.HostClient
+	totalRequestCount    *uint64
+	totalResTime         *uint64
+	measuredRequestCount *uint64
+	recentResTime        *uint64
+	customHeaders        map[string]string
+	middlewareExecutor   *middlewarePkg.Executor
+	Addr                 string
+	addrB                []byte
+	proxyTimeout         time.Duration
 }
 
 func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
@@ -71,6 +94,7 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 	if h.middlewareExecutor != nil {
 		if err := h.middlewareExecutor.RunOnRequest(mwCtx); err != nil {
 			h.postRes(res)
+			middlewareError(res, err)
 			return err
 		}
 	}
@@ -82,10 +106,14 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 	} else {
 		serverErr = h.proxy.Do(req, res)
 	}
+	if serverErr != nil {
+		h.recordFailure(time.Since(s))
+	}
 
 	if h.middlewareExecutor != nil {
 		if handledErr := h.middlewareExecutor.RunOnResponse(mwCtx, serverErr); handledErr != nil {
 			h.postRes(res)
+			middlewareError(res, handledErr)
 			return handledErr
 		}
 	}
@@ -96,10 +124,42 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 		return serverErr
 	}
 
-	// Microseconds: sub-millisecond Backends must not all average to zero,
-	// or least-response-time cannot tell them apart.
-	atomic.AddUint64(h.totalResTime, uint64(time.Since(s).Microseconds()))
+	h.recordResponseTime(time.Since(s))
 	return nil
+}
+
+// recordResponseTime keeps two measures of a successful request: a lifetime
+// total for the stats endpoint and a moving average for least-response-time.
+// Microseconds: sub-millisecond Backends must not all average to zero, or
+// least-response-time cannot tell them apart.
+func (h *ProxyClient) recordResponseTime(elapsed time.Duration) {
+	atomic.AddUint64(h.totalResTime, uint64(elapsed.Microseconds()))
+	atomic.AddUint64(h.measuredRequestCount, 1)
+	h.storeRecentResTime(durationMicros(elapsed))
+}
+
+// recordFailure feeds only the moving average: a failure must push the
+// Backend's score above healthy peers, not skew the lifetime average of
+// successful requests. Timeouts keep their real (larger) elapsed time.
+func (h *ProxyClient) recordFailure(elapsed time.Duration) {
+	h.storeRecentResTime(durationMicros(max(elapsed, failureResponseTimePenalty)))
+}
+
+func durationMicros(d time.Duration) float64 {
+	return float64(d) / float64(time.Microsecond)
+}
+
+func (h *ProxyClient) storeRecentResTime(micros float64) {
+	for {
+		current := atomic.LoadUint64(h.recentResTime)
+		next := micros
+		if current != 0 {
+			next = responseTimeSmoothing*micros + (1-responseTimeSmoothing)*math.Float64frombits(current)
+		}
+		if atomic.CompareAndSwapUint64(h.recentResTime, current, math.Float64bits(next)) {
+			return
+		}
+	}
 }
 
 func (h *ProxyClient) preReq(req *fasthttp.Request, clientIP []byte) {
@@ -117,6 +177,29 @@ func (h *ProxyClient) postRes(res *fasthttp.Response) {
 	for _, h := range hopHeaders {
 		res.Header.DelBytes(h)
 	}
+}
+
+// middlewareError makes a Middleware short-circuit visible to the client: an
+// untouched pooled response would otherwise go out as an empty 200 OK. A
+// Middleware that wrote its own status or body keeps it.
+func middlewareError(res *fasthttp.Response, err error) {
+	zap.S().Infof("middleware returned an error: %s", err)
+	if res.StatusCode() != fasthttp.StatusOK || len(res.Body()) > 0 {
+		return
+	}
+
+	res.SetStatusCode(fasthttp.StatusInternalServerError)
+	res.Header.Set("Content-Type", "application/json")
+	res.SetBody(errorMessageBody(err))
+}
+
+func errorMessageBody(err error) []byte {
+	body, marshalErr := json.Marshal(errorMessage{Message: err.Error()})
+	if marshalErr != nil {
+		return helper.S2B(`{"message":"internal error"}`)
+	}
+
+	return body
 }
 
 // NoAliveBackends answers a request that arrived while every Backend is Down:
@@ -196,15 +279,32 @@ func (h *ProxyClient) PendingRequests() int {
 	return h.proxy.PendingRequests()
 }
 
-// AvgResponseTime returns milliseconds; totalResTime accumulates microseconds.
+// AvgResponseTime returns the lifetime average over successful requests in
+// milliseconds; totalResTime accumulates microseconds. Failed and in-flight
+// requests count toward totalRequestCount but not here — dividing by them
+// would drag the average down.
 func (h *ProxyClient) AvgResponseTime() float64 {
-	rc := atomic.LoadUint64(h.totalRequestCount)
-	rt := atomic.LoadUint64(h.totalResTime)
-	if rc == 0 || rt == 0 {
+	rc := atomic.LoadUint64(h.measuredRequestCount)
+	if rc == 0 {
 		return 0
 	}
 
-	return float64(rt) / 1000 / float64(rc)
+	return float64(atomic.LoadUint64(h.totalResTime)) / microsPerMilli / float64(rc)
+}
+
+// RecentResponseTime returns a moving average of the last response times in
+// milliseconds, or 0 while the Backend is unmeasured. Unlike the lifetime
+// average it decays, and failures are scored as slow, so a failing Backend
+// loses traffic instead of keeping its last healthy score.
+func (h *ProxyClient) RecentResponseTime() float64 {
+	return math.Float64frombits(atomic.LoadUint64(h.recentResTime)) / microsPerMilli
+}
+
+// ResetRecentResponseTime makes the Backend read as unmeasured again. Called
+// on Rejoin: the score from before it went Down — possibly a failure
+// penalty — would otherwise starve it long after it recovered.
+func (h *ProxyClient) ResetRecentResponseTime() {
+	atomic.StoreUint64(h.recentResTime, 0)
 }
 
 func (h *ProxyClient) Close() error {
@@ -231,13 +331,15 @@ func NewProxyClient(backend *config.Backend, customHeaders map[string]string, mi
 	}
 
 	return &ProxyClient{
-		proxy:              proxyClient,
-		Addr:               backend.Url,
-		addrB:              helper.S2B(backend.Url),
-		totalRequestCount:  new(uint64),
-		totalResTime:       new(uint64),
-		customHeaders:      customHeaders,
-		middlewareExecutor: middlewareExecutor,
-		proxyTimeout:       backend.ProxyTimeout,
+		proxy:                proxyClient,
+		Addr:                 backend.Url,
+		addrB:                helper.S2B(backend.Url),
+		totalRequestCount:    new(uint64),
+		totalResTime:         new(uint64),
+		measuredRequestCount: new(uint64),
+		recentResTime:        new(uint64),
+		customHeaders:        customHeaders,
+		middlewareExecutor:   middlewareExecutor,
+		proxyTimeout:         backend.ProxyTimeout,
 	}
 }

@@ -114,6 +114,14 @@ Code explains itself: put the meaning in names and structure. A comment earns
 its place only for a constraint the code cannot show (a non-obvious library
 behavior, a spec decision, a pointer to an ADR) and stays to one or two lines.
 
+## Git
+
+Never run `git commit` — the user makes every commit themselves. This overrides
+any skill or slash command that tells you to commit (e.g.
+`/mattpocock-skills:implement`). Finish the task, leave the changes in the
+working tree, and end by suggesting a short commit message: a subject line, plus
+at most two body lines when the change genuinely needs them.
+
 ## Key Implementation Details
 
 ### Algorithm Selection

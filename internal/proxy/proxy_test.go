@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -1173,4 +1174,174 @@ func TestMiddlewareErrorHandling(t *testing.T) {
 		assert.Contains(t, string(ctx.Response.Body()), "rate_limit")
 		assert.Contains(t, string(ctx.Response.Body()), "retry_after")
 	})
+}
+
+func TestMiddlewareErrorReachesClient(t *testing.T) {
+	customHeaders := make(map[string]string)
+	unreachableBackend := config.Backend{Url: "invalid-host:99999"}
+
+	t.Run("OnRequest error without a crafted response answers 500", func(t *testing.T) {
+		mw := &mockMiddleware{
+			onRequestFunc: func(ctx *middleware.Context) error {
+				return errors.New("unauthorized")
+			},
+		}
+
+		p := createTestProxyWithMiddlewares(unreachableBackend, customHeaders, mw)
+		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+
+		err := p.ReverseProxyHandler(&ctx)
+		assert.Error(t, err)
+		assert.Equal(t, fasthttp.StatusInternalServerError, ctx.Response.StatusCode())
+		assert.Equal(t, "application/json", string(ctx.Response.Header.Peek("Content-Type")))
+		assert.JSONEq(t, `{"message":"unauthorized"}`, string(ctx.Response.Body()))
+	})
+
+	t.Run("OnRequest error keeps a response the middleware wrote itself", func(t *testing.T) {
+		mw := &mockMiddleware{
+			onRequestFunc: func(ctx *middleware.Context) error {
+				ctx.Response.SetStatusCode(fasthttp.StatusUnauthorized)
+				ctx.Response.SetBodyString("no api key")
+				return errors.New("unauthorized")
+			},
+		}
+
+		p := createTestProxyWithMiddlewares(unreachableBackend, customHeaders, mw)
+		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+
+		err := p.ReverseProxyHandler(&ctx)
+		assert.Error(t, err)
+		assert.Equal(t, fasthttp.StatusUnauthorized, ctx.Response.StatusCode())
+		assert.Equal(t, "no api key", string(ctx.Response.Body()))
+	})
+
+	t.Run("OnResponse error without a crafted response answers 500", func(t *testing.T) {
+		mw := &mockMiddleware{
+			onResponseFunc: func(ctx *middleware.Context, err error) error {
+				return errors.New("rejected by middleware")
+			},
+		}
+
+		p := createTestProxyWithMiddlewares(unreachableBackend, customHeaders, mw)
+		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+
+		err := p.ReverseProxyHandler(&ctx)
+		assert.Error(t, err)
+		assert.Equal(t, fasthttp.StatusInternalServerError, ctx.Response.StatusCode())
+		assert.JSONEq(t, `{"message":"rejected by middleware"}`, string(ctx.Response.Body()))
+	})
+
+	t.Run("error message with quotes stays valid JSON", func(t *testing.T) {
+		mw := &mockMiddleware{
+			onRequestFunc: func(ctx *middleware.Context) error {
+				return errors.New(`token "abc" is \invalid`)
+			},
+		}
+
+		p := createTestProxyWithMiddlewares(unreachableBackend, customHeaders, mw)
+		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+
+		err := p.ReverseProxyHandler(&ctx)
+		assert.Error(t, err)
+
+		var body struct {
+			Message string `json:"message"`
+		}
+		assert.NoError(t, json.Unmarshal(ctx.Response.Body(), &body))
+		assert.Equal(t, `token "abc" is \invalid`, body.Message)
+	})
+}
+
+func TestResponseTimeSubMillisecond(t *testing.T) {
+	handler := mockServer{}
+	bServer := httptest.NewServer(&handler)
+	defer bServer.Close()
+
+	b := config.Backend{Url: protocolRegex.ReplaceAllString(bServer.URL, "")}
+	p := NewProxyClient(&b, nil, nil).(*ProxyClient)
+
+	ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+	assert.NoError(t, p.ReverseProxyHandler(&ctx))
+
+	// A localhost backend answers in well under a millisecond; whole-millisecond
+	// accounting rounded that to zero and made every backend look equally fast.
+	assert.Greater(t, p.AvgResponseTime(), float64(0))
+	assert.Greater(t, p.RecentResponseTime(), float64(0))
+}
+
+func TestRecentResponseTimeDecays(t *testing.T) {
+	p := NewProxyClient(&config.Backend{Url: "localhost:8080"}, nil, nil).(*ProxyClient)
+
+	assert.Equal(t, float64(0), p.RecentResponseTime())
+
+	p.recordResponseTime(100 * time.Millisecond)
+	assert.InDelta(t, 100, p.RecentResponseTime(), 0.001)
+
+	for i := 0; i < 20; i++ {
+		p.recordResponseTime(time.Millisecond)
+	}
+
+	// One slow response must not deprioritize the backend forever.
+	assert.Less(t, p.RecentResponseTime(), float64(3))
+	assert.Greater(t, p.RecentResponseTime(), float64(1))
+}
+
+func TestFailedRequestPenalizesRecentResponseTime(t *testing.T) {
+	p := NewProxyClient(&config.Backend{Url: "invalid-host:99999"}, nil, nil).(*ProxyClient)
+
+	ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+	assert.Error(t, p.ReverseProxyHandler(&ctx))
+
+	// A refused connection fails in microseconds; scored by elapsed time the
+	// failing backend would rank as the fastest in the pool.
+	penaltyMs := failureResponseTimePenalty.Seconds() * 1000
+	assert.GreaterOrEqual(t, p.RecentResponseTime(), penaltyMs)
+	assert.Equal(t, float64(0), p.AvgResponseTime())
+}
+
+func TestFailurePenaltyOutweighsHealthyHistory(t *testing.T) {
+	p := NewProxyClient(&config.Backend{Url: "localhost:8080"}, nil, nil).(*ProxyClient)
+
+	p.recordResponseTime(time.Millisecond)
+	p.recordFailure(500 * time.Microsecond)
+
+	penaltyMs := failureResponseTimePenalty.Seconds() * 1000
+	expected := responseTimeSmoothing*penaltyMs + (1-responseTimeSmoothing)*1
+	assert.InDelta(t, expected, p.RecentResponseTime(), 1)
+}
+
+func TestResetRecentResponseTime(t *testing.T) {
+	p := NewProxyClient(&config.Backend{Url: "localhost:8080"}, nil, nil).(*ProxyClient)
+
+	p.recordFailure(time.Millisecond)
+	assert.Greater(t, p.RecentResponseTime(), float64(0))
+
+	p.ResetRecentResponseTime()
+	assert.Equal(t, float64(0), p.RecentResponseTime())
+
+	// The first sample after a reset stands alone instead of smoothing
+	// against the discarded score.
+	p.recordResponseTime(2 * time.Millisecond)
+	assert.InDelta(t, 2, p.RecentResponseTime(), 0.001)
+}
+
+func TestAvgResponseTimeExcludesFailures(t *testing.T) {
+	handler := mockServer{}
+	bServer := httptest.NewServer(&handler)
+	b := config.Backend{Url: protocolRegex.ReplaceAllString(bServer.URL, "")}
+	p := NewProxyClient(&b, nil, nil).(*ProxyClient)
+
+	ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+	assert.NoError(t, p.ReverseProxyHandler(&ctx))
+	avg := p.AvgResponseTime()
+	assert.Greater(t, avg, float64(0))
+
+	bServer.Close()
+	ctx = fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+	assert.Error(t, p.ReverseProxyHandler(&ctx))
+
+	// A failure adds to neither numerator nor denominator: the lifetime
+	// average covers successful requests only.
+	assert.Equal(t, avg, p.AvgResponseTime())
+	assert.Equal(t, uint64(2), p.Stat().TotalReqCount)
 }

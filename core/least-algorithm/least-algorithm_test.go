@@ -2,6 +2,7 @@ package least_algorithm
 
 import (
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/aaydin-tr/divisor/internal/proxy"
 	"github.com/aaydin-tr/divisor/mocks"
 	"github.com/aaydin-tr/divisor/pkg/config"
+	"github.com/aaydin-tr/divisor/pkg/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/valyala/fasthttp"
 )
@@ -129,20 +131,23 @@ func TestServe(t *testing.T) {
 
 func TestHealthChecker(t *testing.T) {
 	caseOne := mocks.TestCases[0]
-	leastAlgorithm := &LeastAlgorithm{stopHealthChecker: make(chan bool)}
+	leastAlgorithm := &LeastAlgorithm{
+		stopHealthChecker: make(chan struct{}),
+		healthCheckerDone: make(chan struct{}),
+		healthCheckerTime: time.Millisecond,
+	}
 
+	var stopOnce sync.Once
 	leastAlgorithm.isHostAlive = func(s string) bool {
-		go func() {
-			leastAlgorithm.stopHealthChecker <- true
-		}()
+		stopOnce.Do(func() { close(leastAlgorithm.stopHealthChecker) })
 		return false
 	}
 	leastAlgorithm.hashFunc = func(b []byte) uint32 {
 		return 0
 	}
 
-	caseOne.Config.HealthCheckerTime = 1
 	leastAlgorithm.healthChecker(caseOne.Config.Backends)
+	assert.True(t, helper.IsClosed(leastAlgorithm.healthCheckerDone), "healthChecker should signal completion on return")
 }
 
 func TestStats(t *testing.T) {
@@ -456,4 +461,84 @@ func BenchmarkLeastResponseTimeNext(b *testing.B) {
 			leastAlgorithm.nextFunc()
 		}
 	})
+}
+
+func TestShutdownStopsHealthChecker(t *testing.T) {
+	caseOne := mocks.TestCases[0]
+	caseOne.Config.HealthCheckerTime = 5 * time.Millisecond
+	caseOne.Config.Type = "least-connection"
+
+	var checks atomic.Int64
+	caseOne.Config.HealthCheckerFunc = func(string) bool {
+		checks.Add(1)
+		return true
+	}
+
+	leastAlgorithm := NewLeastAlgorithm(&caseOne.Config, nil, caseOne.ProxyFunc).(*LeastAlgorithm)
+	assert.NotNil(t, leastAlgorithm)
+
+	assert.Eventually(t, func() bool { return checks.Load() > int64(len(caseOne.Config.Backends)) },
+		time.Second, time.Millisecond, "health checker should run periodically")
+
+	assert.NoError(t, leastAlgorithm.Shutdown())
+
+	afterShutdown := checks.Load()
+	time.Sleep(50 * time.Millisecond)
+	assert.Equal(t, afterShutdown, checks.Load(), "health checker kept running after Shutdown")
+}
+
+func TestLeastResponseTimeNextPicksLeast(t *testing.T) {
+	newBalancer := func(proxies ...*mocks.MockProxy) *LeastAlgorithm {
+		servers := make([]proxy.IProxyClient, 0, len(proxies))
+		for _, p := range proxies {
+			servers = append(servers, p)
+		}
+		leastAlgorithm := &LeastAlgorithm{lastIndex: new(uint32)}
+		leastAlgorithm.servers.Store(&servers)
+		return leastAlgorithm
+	}
+
+	t.Run("picks the fastest backend when all are measured", func(t *testing.T) {
+		slow := &mocks.MockProxy{Addr: "localhost:8080", ResTime: 5}
+		medium := &mocks.MockProxy{Addr: "localhost:8081", ResTime: 3}
+		fast := &mocks.MockProxy{Addr: "localhost:8082", ResTime: 1}
+
+		leastAlgorithm := newBalancer(slow, medium, fast)
+		assert.Equal(t, fast, leastAlgorithm.leastResponseTimeNext())
+	})
+
+	t.Run("distinguishes sub-millisecond backends", func(t *testing.T) {
+		slower := &mocks.MockProxy{Addr: "localhost:8080", ResTime: 0.8}
+		faster := &mocks.MockProxy{Addr: "localhost:8081", ResTime: 0.2}
+
+		leastAlgorithm := newBalancer(slower, faster)
+		assert.Equal(t, faster, leastAlgorithm.leastResponseTimeNext())
+	})
+
+	t.Run("prefers a backend that has not answered yet", func(t *testing.T) {
+		measured := &mocks.MockProxy{Addr: "localhost:8080", ResTime: 1}
+		rejoined := &mocks.MockProxy{Addr: "localhost:8081"}
+
+		leastAlgorithm := newBalancer(measured, rejoined)
+		assert.Equal(t, rejoined, leastAlgorithm.leastResponseTimeNext())
+	})
+}
+
+func TestRejoinResetsResponseTimeScore(t *testing.T) {
+	caseOne := mocks.TestCases[0]
+	caseOne.Config.Type = "least-response-time"
+	leastAlgorithm := NewLeastAlgorithm(&caseOne.Config, nil, caseOne.ProxyFunc).(*LeastAlgorithm)
+
+	backend := caseOne.Config.Backends[0]
+	hash := leastAlgorithm.hashFunc([]byte(backend.Url + strconv.Itoa(0)))
+	mockProxy := leastAlgorithm.serversMap[hash].proxy.(*mocks.MockProxy)
+	mockProxy.ResTime = 42
+
+	leastAlgorithm.isHostAlive = func(string) bool { return false }
+	leastAlgorithm.healthCheck(&backend, 0)
+	assert.Equal(t, float64(42), mockProxy.ResTime, "going Down alone must not clear the score")
+
+	leastAlgorithm.isHostAlive = func(string) bool { return true }
+	leastAlgorithm.healthCheck(&backend, 0)
+	assert.Equal(t, float64(0), mockProxy.ResTime, "a Rejoining Backend must start unmeasured")
 }

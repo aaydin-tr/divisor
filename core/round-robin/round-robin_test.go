@@ -2,6 +2,7 @@ package round_robin
 
 import (
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/aaydin-tr/divisor/internal/proxy"
 	"github.com/aaydin-tr/divisor/mocks"
 	"github.com/aaydin-tr/divisor/pkg/config"
+	"github.com/aaydin-tr/divisor/pkg/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/valyala/fasthttp"
 )
@@ -72,20 +74,23 @@ func TestStats(t *testing.T) {
 
 func TestHealthChecker(t *testing.T) {
 	caseOne := mocks.TestCases[0]
-	roundRobin := &RoundRobin{stopHealthChecker: make(chan bool)}
+	roundRobin := &RoundRobin{
+		stopHealthChecker: make(chan struct{}),
+		healthCheckerDone: make(chan struct{}),
+		healthCheckerTime: time.Millisecond,
+	}
 
+	var stopOnce sync.Once
 	roundRobin.isHostAlive = func(s string) bool {
-		go func() {
-			roundRobin.stopHealthChecker <- true
-		}()
+		stopOnce.Do(func() { close(roundRobin.stopHealthChecker) })
 		return false
 	}
 	roundRobin.hashFunc = func(b []byte) uint32 {
 		return 0
 	}
 
-	caseOne.Config.HealthCheckerTime = 1
 	roundRobin.healthChecker(caseOne.Config.Backends)
+	assert.True(t, helper.IsClosed(roundRobin.healthCheckerDone), "healthChecker should signal completion on return")
 }
 
 func TestRemoveOneServer(t *testing.T) {
@@ -363,4 +368,27 @@ func BenchmarkNext(b *testing.B) {
 			roundRobin.next()
 		}
 	})
+}
+
+func TestShutdownStopsHealthChecker(t *testing.T) {
+	caseOne := mocks.TestCases[0]
+	caseOne.Config.HealthCheckerTime = 5 * time.Millisecond
+
+	var checks atomic.Int64
+	caseOne.Config.HealthCheckerFunc = func(string) bool {
+		checks.Add(1)
+		return true
+	}
+
+	roundRobin := NewRoundRobin(&caseOne.Config, nil, caseOne.ProxyFunc).(*RoundRobin)
+	assert.NotNil(t, roundRobin)
+
+	assert.Eventually(t, func() bool { return checks.Load() > int64(len(caseOne.Config.Backends)) },
+		time.Second, time.Millisecond, "health checker should run periodically")
+
+	assert.NoError(t, roundRobin.Shutdown())
+
+	afterShutdown := checks.Load()
+	time.Sleep(50 * time.Millisecond)
+	assert.Equal(t, afterShutdown, checks.Load(), "health checker kept running after Shutdown")
 }

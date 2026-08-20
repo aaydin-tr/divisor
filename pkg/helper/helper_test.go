@@ -156,3 +156,18 @@ func TestFindIndex(t *testing.T) {
 		}
 	}
 }
+
+func TestIsClosed(t *testing.T) {
+	ch := make(chan struct{})
+	if helper.IsClosed(ch) {
+		t.Error("IsClosed reported an open channel as closed")
+	}
+
+	close(ch)
+	if !helper.IsClosed(ch) {
+		t.Error("IsClosed reported a closed channel as open")
+	}
+	if !helper.IsClosed(ch) {
+		t.Error("IsClosed consumed the close signal")
+	}
+}

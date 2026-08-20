@@ -2,11 +2,14 @@ package ip_hash
 
 import (
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/aaydin-tr/divisor/mocks"
 	"github.com/aaydin-tr/divisor/pkg/config"
+	"github.com/aaydin-tr/divisor/pkg/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/valyala/fasthttp"
 )
@@ -71,20 +74,23 @@ func TestStats(t *testing.T) {
 
 func TestHealthChecker(t *testing.T) {
 	caseOne := mocks.TestCases[0]
-	ipHash := &IPHash{stopHealthChecker: make(chan bool)}
+	ipHash := &IPHash{
+		stopHealthChecker: make(chan struct{}),
+		healthCheckerDone: make(chan struct{}),
+		healthCheckerTime: time.Millisecond,
+	}
 
+	var stopOnce sync.Once
 	ipHash.isHostAlive = func(s string) bool {
-		go func() {
-			ipHash.stopHealthChecker <- true
-		}()
+		stopOnce.Do(func() { close(ipHash.stopHealthChecker) })
 		return false
 	}
 	ipHash.hashFunc = func(b []byte) uint32 {
 		return 0
 	}
 
-	caseOne.Config.HealthCheckerTime = 1
 	ipHash.healthChecker(caseOne.Config.Backends)
+	assert.True(t, helper.IsClosed(ipHash.healthCheckerDone), "healthChecker should signal completion on return")
 }
 
 func TestRemoveOneServer(t *testing.T) {
@@ -296,4 +302,27 @@ func BenchmarkNext(b *testing.B) {
 			ipHash.get(hashCode)
 		}
 	})
+}
+
+func TestShutdownStopsHealthChecker(t *testing.T) {
+	caseOne := mocks.TestCases[0]
+	caseOne.Config.HealthCheckerTime = 5 * time.Millisecond
+
+	var checks atomic.Int64
+	caseOne.Config.HealthCheckerFunc = func(string) bool {
+		checks.Add(1)
+		return true
+	}
+
+	ipHash := NewIPHash(&caseOne.Config, nil, caseOne.ProxyFunc).(*IPHash)
+	assert.NotNil(t, ipHash)
+
+	assert.Eventually(t, func() bool { return checks.Load() > int64(len(caseOne.Config.Backends)) },
+		time.Second, time.Millisecond, "health checker should run periodically")
+
+	assert.NoError(t, ipHash.Shutdown())
+
+	afterShutdown := checks.Load()
+	time.Sleep(50 * time.Millisecond)
+	assert.Equal(t, afterShutdown, checks.Load(), "health checker kept running after Shutdown")
 }
