@@ -64,6 +64,9 @@ const responseTimeSmoothing = 0.2
 // the fastest in the pool and draw every request until the next Probe round.
 const failureResponseTimePenalty = 10 * time.Second
 
+// Response times accumulate in microseconds and are reported in milliseconds.
+const microsPerMilli = float64(1000)
+
 type ProxyClient struct {
 	proxy                *fasthttp.HostClient
 	totalRequestCount    *uint64
@@ -132,14 +135,18 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 func (h *ProxyClient) recordResponseTime(elapsed time.Duration) {
 	atomic.AddUint64(h.totalResTime, uint64(elapsed.Microseconds()))
 	atomic.AddUint64(h.measuredRequestCount, 1)
-	h.storeRecentResTime(float64(elapsed.Nanoseconds()) / 1000)
+	h.storeRecentResTime(durationMicros(elapsed))
 }
 
 // recordFailure feeds only the moving average: a failure must push the
 // Backend's score above healthy peers, not skew the lifetime average of
 // successful requests. Timeouts keep their real (larger) elapsed time.
 func (h *ProxyClient) recordFailure(elapsed time.Duration) {
-	h.storeRecentResTime(float64(max(elapsed, failureResponseTimePenalty).Nanoseconds()) / 1000)
+	h.storeRecentResTime(durationMicros(max(elapsed, failureResponseTimePenalty)))
+}
+
+func durationMicros(d time.Duration) float64 {
+	return float64(d) / float64(time.Microsecond)
 }
 
 func (h *ProxyClient) storeRecentResTime(micros float64) {
@@ -282,7 +289,7 @@ func (h *ProxyClient) AvgResponseTime() float64 {
 		return 0
 	}
 
-	return float64(atomic.LoadUint64(h.totalResTime)) / 1000 / float64(rc)
+	return float64(atomic.LoadUint64(h.totalResTime)) / microsPerMilli / float64(rc)
 }
 
 // RecentResponseTime returns a moving average of the last response times in
@@ -290,7 +297,7 @@ func (h *ProxyClient) AvgResponseTime() float64 {
 // average it decays, and failures are scored as slow, so a failing Backend
 // loses traffic instead of keeping its last healthy score.
 func (h *ProxyClient) RecentResponseTime() float64 {
-	return math.Float64frombits(atomic.LoadUint64(h.recentResTime)) / 1000
+	return math.Float64frombits(atomic.LoadUint64(h.recentResTime)) / microsPerMilli
 }
 
 // ResetRecentResponseTime makes the Backend read as unmeasured again. Called
