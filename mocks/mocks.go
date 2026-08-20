@@ -12,6 +12,7 @@ import (
 
 type MockProxy struct {
 	Addr               string
+	ResTime            float64
 	IsCalled           bool
 	CloseCalled        bool
 	middlewareExecutor *middleware.Executor
@@ -40,6 +41,13 @@ func (m *MockProxy) AvgResponseTime() float64 {
 		return 1
 	}
 	return 0
+}
+
+func (m *MockProxy) RecentResponseTime() float64 {
+	if m.ResTime > 0 {
+		return m.ResTime
+	}
+	return m.AvgResponseTime()
 }
 
 func (m *MockProxy) Close() error {

@@ -486,3 +486,40 @@ func TestShutdownStopsHealthChecker(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	assert.Equal(t, afterShutdown, checks.Load(), "health checker kept running after Shutdown")
 }
+
+func TestLeastResponseTimeNextPicksLeast(t *testing.T) {
+	newBalancer := func(proxies ...*mocks.MockProxy) *LeastAlgorithm {
+		servers := make([]proxy.IProxyClient, 0, len(proxies))
+		for _, p := range proxies {
+			servers = append(servers, p)
+		}
+		leastAlgorithm := &LeastAlgorithm{lastIndex: new(uint32)}
+		leastAlgorithm.servers.Store(&servers)
+		return leastAlgorithm
+	}
+
+	t.Run("picks the fastest backend when all are measured", func(t *testing.T) {
+		slow := &mocks.MockProxy{Addr: "localhost:8080", ResTime: 5}
+		medium := &mocks.MockProxy{Addr: "localhost:8081", ResTime: 3}
+		fast := &mocks.MockProxy{Addr: "localhost:8082", ResTime: 1}
+
+		leastAlgorithm := newBalancer(slow, medium, fast)
+		assert.Equal(t, fast, leastAlgorithm.leastResponseTimeNext())
+	})
+
+	t.Run("distinguishes sub-millisecond backends", func(t *testing.T) {
+		slower := &mocks.MockProxy{Addr: "localhost:8080", ResTime: 0.8}
+		faster := &mocks.MockProxy{Addr: "localhost:8081", ResTime: 0.2}
+
+		leastAlgorithm := newBalancer(slower, faster)
+		assert.Equal(t, faster, leastAlgorithm.leastResponseTimeNext())
+	})
+
+	t.Run("prefers a backend that has not answered yet", func(t *testing.T) {
+		measured := &mocks.MockProxy{Addr: "localhost:8080", ResTime: 1}
+		rejoined := &mocks.MockProxy{Addr: "localhost:8081"}
+
+		leastAlgorithm := newBalancer(measured, rejoined)
+		assert.Equal(t, rejoined, leastAlgorithm.leastResponseTimeNext())
+	})
+}

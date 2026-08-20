@@ -1251,3 +1251,37 @@ func TestMiddlewareErrorReachesClient(t *testing.T) {
 		assert.Equal(t, `token "abc" is \invalid`, body.Message)
 	})
 }
+
+func TestResponseTimeSubMillisecond(t *testing.T) {
+	handler := mockServer{}
+	bServer := httptest.NewServer(&handler)
+	defer bServer.Close()
+
+	b := config.Backend{Url: protocolRegex.ReplaceAllString(bServer.URL, "")}
+	p := NewProxyClient(&b, nil, nil).(*ProxyClient)
+
+	ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+	assert.NoError(t, p.ReverseProxyHandler(&ctx))
+
+	// A localhost backend answers in well under a millisecond; whole-millisecond
+	// accounting rounded that to zero and made every backend look equally fast.
+	assert.Greater(t, p.AvgResponseTime(), float64(0))
+	assert.Greater(t, p.RecentResponseTime(), float64(0))
+}
+
+func TestRecentResponseTimeDecays(t *testing.T) {
+	p := NewProxyClient(&config.Backend{Url: "localhost:8080"}, nil, nil).(*ProxyClient)
+
+	assert.Equal(t, float64(0), p.RecentResponseTime())
+
+	p.recordResponseTime(100 * time.Millisecond)
+	assert.InDelta(t, 100, p.RecentResponseTime(), 0.001)
+
+	for i := 0; i < 20; i++ {
+		p.recordResponseTime(time.Millisecond)
+	}
+
+	// One slow response must not deprioritize the backend forever.
+	assert.Less(t, p.RecentResponseTime(), float64(3))
+	assert.Greater(t, p.RecentResponseTime(), float64(1))
+}

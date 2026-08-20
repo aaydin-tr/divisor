@@ -5,7 +5,7 @@
 
 No spec/issue tracker exists for this repo, so this is a bug-focused review plus a code-smell pass — not a spec-conformance review. Findings marked *(judgement call)* are defensible-design questions, not hard bugs.
 
-**Totals:** 4 critical · 8 high · 9 medium · 20 low · 6 smells — fixed so far: C1–C4, H1–H3, M3, L9
+**Totals:** 4 critical · 8 high · 9 medium · 20 low · 6 smells — fixed so far: C1–C4, H1–H4, M3, L9
 
 ## Fix checklist
 
@@ -18,7 +18,7 @@ Tick items off as we fix them:
 - [x] [H1 — Backends down at startup can never rejoin the pool](#h1) ✅ fixed
 - [x] [H2 — Health-checker stop signal is never delivered](#h2) ✅ fixed
 - [x] [H3 — Middleware errors silently discarded → client gets 200 OK](#h3) ✅ fixed
-- [ ] [H4 — Millisecond truncation breaks least-response-time](#h4)
+- [x] [H4 — Millisecond truncation breaks least-response-time](#h4) ✅ fixed
 - [ ] [H5 — Failed requests shrink the response-time average → traffic black hole](#h5)
 - [ ] [H6 — Trailing slash/path in backend URL → invalid dial address](#h6)
 - [ ] [H7 — Swallowed logger error → nil-logger panic at startup](#h7)
@@ -125,6 +125,7 @@ Tick items off as we fix them:
 - **Bug:** every sub-millisecond response adds 0 to `totalResTime`, so `AvgResponseTime()` returns 0; `leastResponseTimeNext` only switches on *strictly less*, and nothing beats 0.
 - **Failure scenario:** typical LAN/localhost backends answering in <1ms: all averages stay 0 forever and every request goes to `servers[lastIndex]` — 100% of traffic to one backend, zero balancing. Conversely, one slow request leaves a backend with a positive never-decaying average, permanently deprioritized against 0-average peers.
 - **Fix:** accumulate `Microseconds()`/`Nanoseconds()` (drop the `rt == 0` special case), consider a moving average, and treat a 0-sample server as unknown rather than best.
+- **Status: FIXED (2026-08-20).** Microsecond accumulation landed earlier with the 502/504 work (commit 30d1ca8); this change completes the item. `recordResponseTime` now also maintains a moving average (EWMA, weight 0.2 on the newest sample) in microseconds, stored as float bits in a `uint64` and updated with a CAS loop so the hot path stays lock-free ([internal/proxy/proxy.go:110-127](internal/proxy/proxy.go#L110-L127)). `RecentResponseTime()` exposes it in milliseconds and is what `leastResponseTimeNext` compares ([core/least-algorithm/least-algorithm.go:113-137](core/least-algorithm/least-algorithm.go#L113-L137)), so a single slow response decays away instead of deprioritizing a Backend forever, and each server's time is read once per pass instead of twice per comparison. A Backend with no measurement yet (`0`) is explicitly treated as unknown and picked outright — it has to answer once before it can be compared, which is also how a Rejoined Backend gets its first sample. `AvgResponseTime()` keeps its meaning (lifetime average, what `/stats` and Prometheus report) minus the `rt == 0` special case. Selection also stopped touching the shared `lastIndex` (it scans for the true minimum, so the rotation baseline was pointless) — `BenchmarkLeastResponseTimeNext` went 2.46 ns/op → 1.12 ns/op on an M2. The EWMA's CAS loop costs ~7 ns/request uncontended and ~30 ns on top of the plain atomic add when 8 goroutines hammer one Backend's counter, i.e. well under 0.1% of a request that includes a Backend round trip. Regression tests: `TestResponseTimeSubMillisecond` and `TestRecentResponseTimeDecays` in `internal/proxy`, `TestLeastResponseTimeNextPicksLeast` (true minimum, sub-millisecond spread, unmeasured Backend preferred) in `core/least-algorithm`; `mocks.MockProxy` gained a `ResTime` field. Note: the lifetime average's numerator/denominator mismatch is untouched here — that is H5.
 
 <a id="h5"></a>
 ### H5. Failed requests counted in the denominator but not the numerator — a failing backend becomes a traffic black hole

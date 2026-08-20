@@ -115,15 +115,19 @@ func (l *LeastAlgorithm) leastResponseTimeNext() proxy.IProxyClient {
 	if len(servers) == 0 {
 		return nil
 	}
-	lastIndex := atomic.LoadUint32(l.lastIndex)
-	if lastIndex >= uint32(len(servers)) {
-		lastIndex = 0
-	}
-	proxyClient := servers[lastIndex]
-	for i, proxy := range servers {
-		if proxy.AvgResponseTime() < proxyClient.AvgResponseTime() {
-			proxyClient = proxy
-			atomic.StoreUint32(l.lastIndex, uint32(i))
+	proxyClient := servers[0]
+	leastResTime := proxyClient.RecentResponseTime()
+	for _, server := range servers {
+		resTime := server.RecentResponseTime()
+		// 0 means the Backend has not answered a request yet: it has to serve
+		// one before it can be compared, so it wins outright.
+		if resTime == 0 {
+			return server
+		}
+
+		if resTime < leastResTime {
+			proxyClient = server
+			leastResTime = resTime
 		}
 	}
 

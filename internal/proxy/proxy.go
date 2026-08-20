@@ -3,6 +3,7 @@ package proxy
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"net"
 	"strconv"
 	"sync/atomic"
@@ -25,6 +26,7 @@ type IProxyClient interface {
 	Stat() types.ProxyStat
 	PendingRequests() int
 	AvgResponseTime() float64
+	RecentResponseTime() float64
 	Close() error
 }
 
@@ -51,10 +53,16 @@ type errorMessage struct {
 	Message string `json:"message"`
 }
 
+// Weight of the newest sample in the response-time moving average. Low enough
+// that one slow response cannot steer traffic away from a Backend for long,
+// high enough that a Backend turning slow is noticed within a few requests.
+const responseTimeSmoothing = 0.2
+
 type ProxyClient struct {
 	proxy              *fasthttp.HostClient
 	totalRequestCount  *uint64
 	totalResTime       *uint64
+	recentResTime      *uint64
 	customHeaders      map[string]string
 	middlewareExecutor *middlewarePkg.Executor
 	Addr               string
@@ -103,10 +111,28 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 		return serverErr
 	}
 
-	// Microseconds: sub-millisecond Backends must not all average to zero,
-	// or least-response-time cannot tell them apart.
-	atomic.AddUint64(h.totalResTime, uint64(time.Since(s).Microseconds()))
+	h.recordResponseTime(time.Since(s))
 	return nil
+}
+
+// recordResponseTime keeps two measures of the same sample: a lifetime total
+// for the stats endpoint and a moving average for least-response-time.
+// Microseconds: sub-millisecond Backends must not all average to zero, or
+// least-response-time cannot tell them apart.
+func (h *ProxyClient) recordResponseTime(elapsed time.Duration) {
+	atomic.AddUint64(h.totalResTime, uint64(elapsed.Microseconds()))
+
+	micros := float64(elapsed.Nanoseconds()) / 1000
+	for {
+		current := atomic.LoadUint64(h.recentResTime)
+		next := micros
+		if current != 0 {
+			next = responseTimeSmoothing*micros + (1-responseTimeSmoothing)*math.Float64frombits(current)
+		}
+		if atomic.CompareAndSwapUint64(h.recentResTime, current, math.Float64bits(next)) {
+			return
+		}
+	}
 }
 
 func (h *ProxyClient) preReq(req *fasthttp.Request, clientIP []byte) {
@@ -226,15 +252,23 @@ func (h *ProxyClient) PendingRequests() int {
 	return h.proxy.PendingRequests()
 }
 
-// AvgResponseTime returns milliseconds; totalResTime accumulates microseconds.
+// AvgResponseTime returns the lifetime average in milliseconds; totalResTime
+// accumulates microseconds.
 func (h *ProxyClient) AvgResponseTime() float64 {
 	rc := atomic.LoadUint64(h.totalRequestCount)
-	rt := atomic.LoadUint64(h.totalResTime)
-	if rc == 0 || rt == 0 {
+	if rc == 0 {
 		return 0
 	}
 
-	return float64(rt) / 1000 / float64(rc)
+	return float64(atomic.LoadUint64(h.totalResTime)) / 1000 / float64(rc)
+}
+
+// RecentResponseTime returns a moving average of the last response times in
+// milliseconds, or 0 while the Backend has not answered a request yet. Unlike
+// the lifetime average it decays, so a single slow response stops steering
+// traffic once the Backend answers quickly again.
+func (h *ProxyClient) RecentResponseTime() float64 {
+	return math.Float64frombits(atomic.LoadUint64(h.recentResTime)) / 1000
 }
 
 func (h *ProxyClient) Close() error {
@@ -266,6 +300,7 @@ func NewProxyClient(backend *config.Backend, customHeaders map[string]string, mi
 		addrB:              helper.S2B(backend.Url),
 		totalRequestCount:  new(uint64),
 		totalResTime:       new(uint64),
+		recentResTime:      new(uint64),
 		customHeaders:      customHeaders,
 		middlewareExecutor: middlewareExecutor,
 		proxyTimeout:       backend.ProxyTimeout,
