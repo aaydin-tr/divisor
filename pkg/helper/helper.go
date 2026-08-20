@@ -45,6 +45,18 @@ func RemoveByValue[T comparable](s []T, value T) []T {
 	return temp
 }
 
+// IsClosed reports whether ch is closed. Only valid for channels used purely
+// as close-only signals: on a channel that carries sent values it consumes one
+// and reports it as a close.
+func IsClosed(ch <-chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
 func FindIndex[T comparable](s []T, value T) (int, error) {
 	for i, elem := range s {
 		if elem == value {

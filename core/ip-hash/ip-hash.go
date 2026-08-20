@@ -3,6 +3,7 @@ package ip_hash
 import (
 	"math"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/aaydin-tr/divisor/core/types"
@@ -25,7 +26,9 @@ type IPHash struct {
 	serversMap        map[uint32]*serverMap
 	isHostAlive       types.IsHostAlive
 	hashFunc          types.HashFunc
-	stopHealthChecker chan bool
+	stopHealthChecker chan struct{}
+	healthCheckerDone chan struct{}
+	stopOnce          sync.Once
 	servers           *consistent.ConsistentHash
 	len               int
 	healthCheckerTime time.Duration
@@ -41,7 +44,8 @@ func NewIPHash(cfg *config.Config, middlewareExecutor *middleware.Executor, prox
 		isHostAlive:       cfg.HealthCheckerFunc,
 		healthCheckerTime: cfg.HealthCheckerTime,
 		hashFunc:          cfg.HashFunc,
-		stopHealthChecker: make(chan bool),
+		stopHealthChecker: make(chan struct{}),
+		healthCheckerDone: make(chan struct{}),
 	}
 
 	for i, b := range cfg.Backends {
@@ -88,13 +92,19 @@ func (h *IPHash) get(hashCode uint32) proxy.IProxyClient {
 }
 
 func (h *IPHash) healthChecker(backends []config.Backend) {
+	defer close(h.healthCheckerDone)
+	ticker := time.NewTicker(h.healthCheckerTime)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-h.stopHealthChecker:
 			return
-		default:
-			time.Sleep(h.healthCheckerTime)
+		case <-ticker.C:
 			for i, backend := range backends {
+				if helper.IsClosed(h.stopHealthChecker) {
+					return
+				}
 				h.healthCheck(&backend, i)
 			}
 		}
@@ -144,12 +154,13 @@ func (h *IPHash) Stats() []types.ProxyStat {
 func (h *IPHash) Shutdown() error {
 	zap.S().Info("Initiating graceful shutdown for IP Hash balancer")
 
-	// Signal health checker to stop
+	// Close rather than send: a send is dropped whenever the checker is not
+	// parked in its select, which is most of the time.
+	h.stopOnce.Do(func() { close(h.stopHealthChecker) })
 	select {
-	case h.stopHealthChecker <- true:
-		zap.S().Debug("Health checker stop signal sent")
-	default:
-		zap.S().Debug("Health checker already stopped")
+	case <-h.healthCheckerDone:
+	case <-time.After(types.HealthCheckerStopTimeout):
+		zap.S().Warn("Health checker did not stop in time, continuing shutdown")
 	}
 
 	// Close all proxy connections

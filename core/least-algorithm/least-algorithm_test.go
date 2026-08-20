@@ -2,6 +2,7 @@ package least_algorithm
 
 import (
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/aaydin-tr/divisor/internal/proxy"
 	"github.com/aaydin-tr/divisor/mocks"
 	"github.com/aaydin-tr/divisor/pkg/config"
+	"github.com/aaydin-tr/divisor/pkg/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/valyala/fasthttp"
 )
@@ -129,20 +131,23 @@ func TestServe(t *testing.T) {
 
 func TestHealthChecker(t *testing.T) {
 	caseOne := mocks.TestCases[0]
-	leastAlgorithm := &LeastAlgorithm{stopHealthChecker: make(chan bool)}
+	leastAlgorithm := &LeastAlgorithm{
+		stopHealthChecker: make(chan struct{}),
+		healthCheckerDone: make(chan struct{}),
+		healthCheckerTime: time.Millisecond,
+	}
 
+	var stopOnce sync.Once
 	leastAlgorithm.isHostAlive = func(s string) bool {
-		go func() {
-			leastAlgorithm.stopHealthChecker <- true
-		}()
+		stopOnce.Do(func() { close(leastAlgorithm.stopHealthChecker) })
 		return false
 	}
 	leastAlgorithm.hashFunc = func(b []byte) uint32 {
 		return 0
 	}
 
-	caseOne.Config.HealthCheckerTime = 1
 	leastAlgorithm.healthChecker(caseOne.Config.Backends)
+	assert.True(t, helper.IsClosed(leastAlgorithm.healthCheckerDone), "healthChecker should signal completion on return")
 }
 
 func TestStats(t *testing.T) {
@@ -456,4 +461,28 @@ func BenchmarkLeastResponseTimeNext(b *testing.B) {
 			leastAlgorithm.nextFunc()
 		}
 	})
+}
+
+func TestShutdownStopsHealthChecker(t *testing.T) {
+	caseOne := mocks.TestCases[0]
+	caseOne.Config.HealthCheckerTime = 5 * time.Millisecond
+	caseOne.Config.Type = "least-connection"
+
+	var checks atomic.Int64
+	caseOne.Config.HealthCheckerFunc = func(string) bool {
+		checks.Add(1)
+		return true
+	}
+
+	leastAlgorithm := NewLeastAlgorithm(&caseOne.Config, nil, caseOne.ProxyFunc).(*LeastAlgorithm)
+	assert.NotNil(t, leastAlgorithm)
+
+	assert.Eventually(t, func() bool { return checks.Load() > int64(len(caseOne.Config.Backends)) },
+		time.Second, time.Millisecond, "health checker should run periodically")
+
+	assert.NoError(t, leastAlgorithm.Shutdown())
+
+	afterShutdown := checks.Load()
+	time.Sleep(50 * time.Millisecond)
+	assert.Equal(t, afterShutdown, checks.Load(), "health checker kept running after Shutdown")
 }

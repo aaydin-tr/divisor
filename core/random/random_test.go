@@ -2,6 +2,7 @@ package random
 
 import (
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/aaydin-tr/divisor/internal/proxy"
 	"github.com/aaydin-tr/divisor/mocks"
 	"github.com/aaydin-tr/divisor/pkg/config"
+	"github.com/aaydin-tr/divisor/pkg/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/valyala/fasthttp"
 )
@@ -72,20 +74,23 @@ func TestStats(t *testing.T) {
 
 func TestHealthChecker(t *testing.T) {
 	caseOne := mocks.TestCases[0]
-	random := &Random{stopHealthChecker: make(chan bool)}
+	random := &Random{
+		stopHealthChecker: make(chan struct{}),
+		healthCheckerDone: make(chan struct{}),
+		healthCheckerTime: time.Millisecond,
+	}
 
+	var stopOnce sync.Once
 	random.isHostAlive = func(s string) bool {
-		go func() {
-			random.stopHealthChecker <- true
-		}()
+		stopOnce.Do(func() { close(random.stopHealthChecker) })
 		return false
 	}
 	random.hashFunc = func(b []byte) uint32 {
 		return 0
 	}
 
-	caseOne.Config.HealthCheckerTime = 1
 	random.healthChecker(caseOne.Config.Backends)
+	assert.True(t, helper.IsClosed(random.healthCheckerDone), "healthChecker should signal completion on return")
 }
 
 func TestRemoveOneServer(t *testing.T) {
@@ -335,4 +340,27 @@ func BenchmarkNext(b *testing.B) {
 			random.next()
 		}
 	})
+}
+
+func TestShutdownStopsHealthChecker(t *testing.T) {
+	caseOne := mocks.TestCases[0]
+	caseOne.Config.HealthCheckerTime = 5 * time.Millisecond
+
+	var checks atomic.Int64
+	caseOne.Config.HealthCheckerFunc = func(string) bool {
+		checks.Add(1)
+		return true
+	}
+
+	random := NewRandom(&caseOne.Config, nil, caseOne.ProxyFunc).(*Random)
+	assert.NotNil(t, random)
+
+	assert.Eventually(t, func() bool { return checks.Load() > int64(len(caseOne.Config.Backends)) },
+		time.Second, time.Millisecond, "health checker should run periodically")
+
+	assert.NoError(t, random.Shutdown())
+
+	afterShutdown := checks.Load()
+	time.Sleep(50 * time.Millisecond)
+	assert.Equal(t, afterShutdown, checks.Load(), "health checker kept running after Shutdown")
 }

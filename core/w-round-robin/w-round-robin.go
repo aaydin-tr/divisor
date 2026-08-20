@@ -3,6 +3,7 @@ package w_round_robin
 import (
 	"math/rand"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -26,7 +27,9 @@ type WRoundRobin struct {
 	serversMap        map[uint32]*serverMap
 	isHostAlive       types.IsHostAlive
 	hashFunc          types.HashFunc
-	stopHealthChecker chan bool
+	stopHealthChecker chan struct{}
+	healthCheckerDone chan struct{}
+	stopOnce          sync.Once
 	servers           atomic.Pointer[[]proxy.IProxyClient]
 	i                 uint64
 	healthCheckerTime time.Duration
@@ -38,7 +41,8 @@ func NewWRoundRobin(cfg *config.Config, middlewareExecutor *middleware.Executor,
 		healthCheckerTime: cfg.HealthCheckerTime,
 		serversMap:        make(map[uint32]*serverMap),
 		hashFunc:          cfg.HashFunc,
-		stopHealthChecker: make(chan bool),
+		stopHealthChecker: make(chan struct{}),
+		healthCheckerDone: make(chan struct{}),
 	}
 
 	servers := make([]proxy.IProxyClient, 0)
@@ -93,13 +97,19 @@ func (w *WRoundRobin) next() proxy.IProxyClient {
 }
 
 func (w *WRoundRobin) healthChecker(backends []config.Backend) {
+	defer close(w.healthCheckerDone)
+	ticker := time.NewTicker(w.healthCheckerTime)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-w.stopHealthChecker:
 			return
-		default:
-			time.Sleep(w.healthCheckerTime)
+		case <-ticker.C:
 			for i, backend := range backends {
+				if helper.IsClosed(w.stopHealthChecker) {
+					return
+				}
 				w.healthCheck(&backend, i)
 			}
 		}
@@ -159,12 +169,13 @@ func (w *WRoundRobin) Stats() []types.ProxyStat {
 func (w *WRoundRobin) Shutdown() error {
 	zap.S().Info("Initiating graceful shutdown for Weighted Round Robin balancer")
 
-	// Signal health checker to stop
+	// Close rather than send: a send is dropped whenever the checker is not
+	// parked in its select, which is most of the time.
+	w.stopOnce.Do(func() { close(w.stopHealthChecker) })
 	select {
-	case w.stopHealthChecker <- true:
-		zap.S().Debug("Health checker stop signal sent")
-	default:
-		zap.S().Debug("Health checker already stopped")
+	case <-w.healthCheckerDone:
+	case <-time.After(types.HealthCheckerStopTimeout):
+		zap.S().Warn("Health checker did not stop in time, continuing shutdown")
 	}
 
 	// Close all proxy connections

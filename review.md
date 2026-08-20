@@ -5,7 +5,7 @@
 
 No spec/issue tracker exists for this repo, so this is a bug-focused review plus a code-smell pass — not a spec-conformance review. Findings marked *(judgement call)* are defensible-design questions, not hard bugs.
 
-**Totals:** 4 critical · 8 high · 9 medium · 20 low · 6 smells — fixed so far: C1–C4, H1, M3, L9
+**Totals:** 4 critical · 8 high · 9 medium · 20 low · 6 smells — fixed so far: C1–C4, H1, H2, M3, L9
 
 ## Fix checklist
 
@@ -16,7 +16,7 @@ Tick items off as we fix them:
 - [x] [C3 — Consistent-hash ring race + wrong removal order → handler panic](#c3) ✅ fixed
 - [x] [C4 — A panicking middleware crashes the whole load balancer](#c4) ✅ fixed
 - [x] [H1 — Backends down at startup can never rejoin the pool](#h1) ✅ fixed
-- [ ] [H2 — Health-checker stop signal is never delivered](#h2)
+- [x] [H2 — Health-checker stop signal is never delivered](#h2) ✅ fixed
 - [ ] [H3 — Middleware errors silently discarded → client gets 200 OK](#h3)
 - [ ] [H4 — Millisecond truncation breaks least-response-time](#h4)
 - [ ] [H5 — Failed requests shrink the response-time average → traffic black hole](#h5)
@@ -103,6 +103,7 @@ Tick items off as we fix them:
 - **Bug:** `stopHealthChecker` is unbuffered; the checker polls it with `select`+`default` (spending nearly all time in `time.Sleep`), and `Shutdown` sends with `select`+`default`. With both sides non-blocking, the rendezvous almost never happens: `Shutdown` takes `default`, logs the misleading "Health checker already stopped", and the goroutine runs forever. The unit test only passes because it does a *blocking* send.
 - **Failure scenario:** SIGTERM during graceful shutdown: `Shutdown` "stops" the checker (no-op, logs the misleading debug line) and the goroutine keeps running its sleep/health-check loop forever — a goroutine leak plus ongoing health-check HTTP calls per balancer. (Since M3's fix the last-backend-dead case only logs a warning instead of panicking, so the stale checker no longer crashes the process — but it still never stops.)
 - **Fix:** `close()` the channel in `Shutdown` and replace the sleep loop with a `time.Ticker` selected against it.
+- **Status: FIXED (2026-08-20).** `stopHealthChecker` is now a `chan struct{}` that `Shutdown` *closes* (guarded by a `sync.Once`, so repeated shutdowns stay idempotent) instead of trying a non-blocking send, and the checker loop selects that channel against a `time.Ticker` instead of sleeping ([core/round-robin/round-robin.go:90-108](core/round-robin/round-robin.go#L90-L108), [:155-158](core/round-robin/round-robin.go#L155-L158)) — same in all five balancers. Each checker also closes a `healthCheckerDone` channel on return and `Shutdown` waits on it, so shutdown no longer races ahead of in-flight health checks; the checker re-tests the stop channel between backends via the new `helper.IsClosed`, and the wait itself is capped by `types.HealthCheckerStopTimeout` (5s) so a hung probe can't eat the 30s graceful-shutdown budget. Regression test `TestShutdownStopsHealthChecker` added to all five balancer packages (asserts the health-check count is frozen 50 ms after `Shutdown`; fails on the old code), plus `TestIsClosed` in `pkg/helper`. The misleading "Health checker already stopped" debug line is gone.
 
 <a id="h3"></a>
 ### H3. Middleware short-circuit errors are silently discarded — rejected requests get a default 200 OK
@@ -306,7 +307,7 @@ Tick items off as we fix them:
 ## Code smells (judgement calls)
 
 ### S1. Duplicated Code / Shotgun Surgery: five near-identical balancer implementations
-`core/round-robin`, `core/w-round-robin`, `core/random`, `core/least-algorithm`, `core/ip-hash` — `serverMap`, constructor loop, `healthChecker`, `healthCheck`, `Stats()`, and `Shutdown()` are near-verbatim copies (the `healthChecker` loop is byte-identical apart from the receiver). Concrete cost: **C1, C2, H1, and M3 each required the same fix in five files (already paid); H2 and M2 still do.** Extract a shared base type embedding servers/serversMap/health-checking/Stats/Shutdown, with algorithms supplying only `next()` — ideally *before* fixing the remaining two, so each fix lands once.
+`core/round-robin`, `core/w-round-robin`, `core/random`, `core/least-algorithm`, `core/ip-hash` — `serverMap`, constructor loop, `healthChecker`, `healthCheck`, `Stats()`, and `Shutdown()` are near-verbatim copies (the `healthChecker` loop is byte-identical apart from the receiver). Concrete cost: **C1, C2, H1, H2, and M3 each required the same fix in five files (already paid); M2 still does.** Extract a shared base type embedding servers/serversMap/health-checking/Stats/Shutdown, with algorithms supplying only `next()` — ideally *before* fixing the remaining one, so each fix lands once.
 
 ### S2. Mysterious Names: `len`, `i`, `lastIndex` *(partially addressed by the C1/C2 fixes)*
 `serverMap.i` is now `statsIdx` and the slice-based balancers' separate `len` fields are gone (length comes from the snapshot). Remaining: [core/ip-hash/ip-hash.go:30](core/ip-hash/ip-hash.go#L30) still has `len` (count of alive nodes), the rotation counter `i` at [core/round-robin/round-robin.go:29](core/round-robin/round-robin.go#L29)/[core/w-round-robin/w-round-robin.go:31](core/w-round-robin/w-round-robin.go#L31), and [core/least-algorithm/least-algorithm.go:30](core/least-algorithm/least-algorithm.go#L30) `lastIndex` (actually stores "index of the current least server"). These names actively obscured C1 and M1; rename to `aliveCount`, `counter`, `leastIndex`.
@@ -327,8 +328,8 @@ Tick items off as we fix them:
 
 ## Suggested fix order
 
-1. **S1 (extract shared balancer base)** — C1/C2/H1/M3 already landed five times over without it; still worth doing before the next step so H2 + M2 land once.
-2. **H2 + M2** — remaining shared-base fixes: ticker + closed channel for shutdown, atomic/mutexed `isHostAlive`. *(C1, C2, H1, M3 done.)*
+1. **S1 (extract shared balancer base)** — C1/C2/H1/H2/M3 already landed five times over without it; still worth doing before the next step so M2 lands once.
+2. **M2** — remaining shared-base fix: atomic/mutexed `isHostAlive`. *(C1, C2, H1, H2, M3 done.)*
 3. **M4** — collision-free vnode keys in `pkg/consistent`. *(C3 and L9 done.)*
 4. **H3 + M5** — middleware error-to-response translation + explicit "handled" signal. *(C4's per-request `recover()` done.)*
 5. **H4 + H5 + M1 + M9** — metrics/selection correctness in `internal/proxy` + `least-algorithm`.

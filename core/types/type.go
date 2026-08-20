@@ -6,6 +6,11 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
+// HealthCheckerStopTimeout caps how long Shutdown waits for a health-check
+// round already in flight, so a hung probe cannot eat the graceful-shutdown
+// budget or deadlock a balancer whose checker never started.
+const HealthCheckerStopTimeout = 5 * time.Second
+
 type IsHostAlive func(string) bool
 
 type HashFunc func([]byte) uint32
