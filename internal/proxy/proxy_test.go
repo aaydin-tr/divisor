@@ -1285,3 +1285,63 @@ func TestRecentResponseTimeDecays(t *testing.T) {
 	assert.Less(t, p.RecentResponseTime(), float64(3))
 	assert.Greater(t, p.RecentResponseTime(), float64(1))
 }
+
+func TestFailedRequestPenalizesRecentResponseTime(t *testing.T) {
+	p := NewProxyClient(&config.Backend{Url: "invalid-host:99999"}, nil, nil).(*ProxyClient)
+
+	ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+	assert.Error(t, p.ReverseProxyHandler(&ctx))
+
+	// A refused connection fails in microseconds; scored by elapsed time the
+	// failing backend would rank as the fastest in the pool.
+	penaltyMs := failureResponseTimePenalty.Seconds() * 1000
+	assert.GreaterOrEqual(t, p.RecentResponseTime(), penaltyMs)
+	assert.Equal(t, float64(0), p.AvgResponseTime())
+}
+
+func TestFailurePenaltyOutweighsHealthyHistory(t *testing.T) {
+	p := NewProxyClient(&config.Backend{Url: "localhost:8080"}, nil, nil).(*ProxyClient)
+
+	p.recordResponseTime(time.Millisecond)
+	p.recordFailure(500 * time.Microsecond)
+
+	penaltyMs := failureResponseTimePenalty.Seconds() * 1000
+	expected := responseTimeSmoothing*penaltyMs + (1-responseTimeSmoothing)*1
+	assert.InDelta(t, expected, p.RecentResponseTime(), 1)
+}
+
+func TestResetRecentResponseTime(t *testing.T) {
+	p := NewProxyClient(&config.Backend{Url: "localhost:8080"}, nil, nil).(*ProxyClient)
+
+	p.recordFailure(time.Millisecond)
+	assert.Greater(t, p.RecentResponseTime(), float64(0))
+
+	p.ResetRecentResponseTime()
+	assert.Equal(t, float64(0), p.RecentResponseTime())
+
+	// The first sample after a reset stands alone instead of smoothing
+	// against the discarded score.
+	p.recordResponseTime(2 * time.Millisecond)
+	assert.InDelta(t, 2, p.RecentResponseTime(), 0.001)
+}
+
+func TestAvgResponseTimeExcludesFailures(t *testing.T) {
+	handler := mockServer{}
+	bServer := httptest.NewServer(&handler)
+	b := config.Backend{Url: protocolRegex.ReplaceAllString(bServer.URL, "")}
+	p := NewProxyClient(&b, nil, nil).(*ProxyClient)
+
+	ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+	assert.NoError(t, p.ReverseProxyHandler(&ctx))
+	avg := p.AvgResponseTime()
+	assert.Greater(t, avg, float64(0))
+
+	bServer.Close()
+	ctx = fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+	assert.Error(t, p.ReverseProxyHandler(&ctx))
+
+	// A failure adds to neither numerator nor denominator: the lifetime
+	// average covers successful requests only.
+	assert.Equal(t, avg, p.AvgResponseTime())
+	assert.Equal(t, uint64(2), p.Stat().TotalReqCount)
+}

@@ -5,7 +5,7 @@
 
 No spec/issue tracker exists for this repo, so this is a bug-focused review plus a code-smell pass — not a spec-conformance review. Findings marked *(judgement call)* are defensible-design questions, not hard bugs.
 
-**Totals:** 4 critical · 8 high · 9 medium · 20 low · 6 smells — fixed so far: C1–C4, H1–H4, M3, L9
+**Totals:** 4 critical · 8 high · 9 medium · 20 low · 6 smells — fixed so far: C1–C4, H1–H5, M3, L9
 
 ## Fix checklist
 
@@ -19,7 +19,7 @@ Tick items off as we fix them:
 - [x] [H2 — Health-checker stop signal is never delivered](#h2) ✅ fixed
 - [x] [H3 — Middleware errors silently discarded → client gets 200 OK](#h3) ✅ fixed
 - [x] [H4 — Millisecond truncation breaks least-response-time](#h4) ✅ fixed
-- [ ] [H5 — Failed requests shrink the response-time average → traffic black hole](#h5)
+- [x] [H5 — Failed requests shrink the response-time average → traffic black hole](#h5) ✅ fixed
 - [ ] [H6 — Trailing slash/path in backend URL → invalid dial address](#h6)
 - [ ] [H7 — Swallowed logger error → nil-logger panic at startup](#h7)
 - [ ] [H8 — net/http adapter forwards stale Content-Length](#h8)
@@ -134,6 +134,7 @@ Tick items off as we fix them:
 - **Bug:** `totalRequestCount` increments for every request, but `totalResTime` is only added on full success — every failure drags the average *down*; in-flight requests also inflate the denominator early.
 - **Failure scenario:** under `least-response-time`, a backend starts refusing connections between health checks. Each fast failure shrinks its average, so it receives an ever-growing share of traffic for up to `health_checker_time` (default 30s) until the checker removes it.
 - **Fix:** record elapsed time on every path (including errors), or track successes in a separate counter used as the denominator.
+- **Status: FIXED (2026-08-20).** Re-verified before fixing — the finding was half stale and its suggested fix was rejected. Since H4, selection compares `RecentResponseTime()` (the EWMA), which failures never touched: they no longer *shrink* the score, they *freeze* it. The black hole survived in that shape — a Backend that starts refusing connections keeps its last healthy EWMA (usually the pool's best, since min-takes-all had been feeding it) and receives 100% of traffic until the next Probe round; a still-unmeasured Backend (score 0) failing every request kept winning outright indefinitely via the 0-means-unknown rule. The suggested "record elapsed time on every path" is now actively harmful: a refused connection completes in microseconds, so the failing Backend would score as the *fastest*. Landed, deliberately minimal (a staleness-window variant was built first and then removed as over-engineered — it changed steady-state selection and added a second tuning constant to cover a rare recovery path): **(1)** a failed proxy attempt feeds the EWMA `max(elapsed, failureResponseTimePenalty)` (10s) ([internal/proxy/proxy.go:105-108](internal/proxy/proxy.go#L105-L108), [:138-142](internal/proxy/proxy.go#L138-L142)) — one failure lifts a millisecond-scale score to seconds and traffic shifts away immediately, while a timeout keeps its real (larger) elapsed time. **(2)** A Rejoining Backend's score is reset to unmeasured ([core/least-algorithm/least-algorithm.go:174-176](core/least-algorithm/least-algorithm.go#L174-L176), [internal/proxy/proxy.go:296-301](internal/proxy/proxy.go#L296-L301)), so the 0-wins-outright rule re-measures it with one request and an old penalty cannot starve it after recovery. **(3)** `AvgResponseTime()` divides by a new `measuredRequestCount` incremented together with the numerator on success only ([:275-287](internal/proxy/proxy.go#L275-L287)), so `/stats`/Prometheus report the average over successful requests, no longer dragged down by failures or inflated-early by in-flight requests; `totalRequestCount` keeps its meaning for `TotalReqCount`/`$incremental`. Accepted residual: a Backend whose health endpoint stays green while its requests fail stays penalized until it actually goes Down and Rejoins — the safe direction (capacity loss, not client errors), and a health-endpoint problem more than a Balancer one. Regression tests: `TestFailedRequestPenalizesRecentResponseTime`, `TestFailurePenaltyOutweighsHealthyHistory`, `TestResetRecentResponseTime`, `TestAvgResponseTimeExcludesFailures` in `internal/proxy`; `TestRejoinResetsResponseTimeScore` in `core/least-algorithm`. Cost, A/B-measured against the pre-H5 tree (M2, 8 threads; benchmarks kept in `internal/proxy/proxy_bench_test.go`): recording a success went 11.9→13.2 ns/op serial and 60→92 ns/op under worst-case 8-goroutine contention on a single Backend's counters (the added `measuredRequestCount` increment); the selection-path read is unchanged at 0.3 ns/op; the end-to-end handler benchmark (~28µs/request, dominated by the Backend round trip) shows no delta above run-to-run noise. The penalty path itself runs only on failed requests.
 
 <a id="h6"></a>
 ### H6. Protocol stripping leaves path/trailing slash in the backend URL → invalid `HostClient.Addr`, every proxied request fails
@@ -334,6 +335,6 @@ Tick items off as we fix them:
 2. **M2** — remaining shared-base fix: atomic/mutexed `isHostAlive`. *(C1, C2, H1, H2, M3 done.)*
 3. **M4** — collision-free vnode keys in `pkg/consistent`. *(C3 and L9 done.)*
 4. **H3 + M5** — middleware error-to-response translation + explicit "handled" signal. *(C4's per-request `recover()` done.)*
-5. **H4 + H5 + M1 + M9** — metrics/selection correctness in `internal/proxy` + `least-algorithm`.
+5. **M1 + M9** — remaining metrics/selection correctness in `internal/proxy` + `least-algorithm`. *(H4 and H5 done.)*
 6. **H6 + H7 + M6 + M7** — config/startup robustness.
 7. **H8 and the rest** — adapter and low-severity items, batched as convenient.

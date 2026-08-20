@@ -523,3 +523,22 @@ func TestLeastResponseTimeNextPicksLeast(t *testing.T) {
 		assert.Equal(t, rejoined, leastAlgorithm.leastResponseTimeNext())
 	})
 }
+
+func TestRejoinResetsResponseTimeScore(t *testing.T) {
+	caseOne := mocks.TestCases[0]
+	caseOne.Config.Type = "least-response-time"
+	leastAlgorithm := NewLeastAlgorithm(&caseOne.Config, nil, caseOne.ProxyFunc).(*LeastAlgorithm)
+
+	backend := caseOne.Config.Backends[0]
+	hash := leastAlgorithm.hashFunc([]byte(backend.Url + strconv.Itoa(0)))
+	mockProxy := leastAlgorithm.serversMap[hash].proxy.(*mocks.MockProxy)
+	mockProxy.ResTime = 42
+
+	leastAlgorithm.isHostAlive = func(string) bool { return false }
+	leastAlgorithm.healthCheck(&backend, 0)
+	assert.Equal(t, float64(42), mockProxy.ResTime, "going Down alone must not clear the score")
+
+	leastAlgorithm.isHostAlive = func(string) bool { return true }
+	leastAlgorithm.healthCheck(&backend, 0)
+	assert.Equal(t, float64(0), mockProxy.ResTime, "a Rejoining Backend must start unmeasured")
+}

@@ -1,6 +1,7 @@
 package mocks
 
 import (
+	"sync"
 	"time"
 
 	"github.com/aaydin-tr/divisor/core/types"
@@ -16,6 +17,9 @@ type MockProxy struct {
 	IsCalled           bool
 	CloseCalled        bool
 	middlewareExecutor *middleware.Executor
+	// Guards ResTime in the methods: the health checker resets it while
+	// selection reads it, and the real ProxyClient is atomic there.
+	resTimeMu sync.Mutex
 }
 
 func (m *MockProxy) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
@@ -44,10 +48,19 @@ func (m *MockProxy) AvgResponseTime() float64 {
 }
 
 func (m *MockProxy) RecentResponseTime() float64 {
-	if m.ResTime > 0 {
-		return m.ResTime
+	m.resTimeMu.Lock()
+	resTime := m.ResTime
+	m.resTimeMu.Unlock()
+	if resTime > 0 {
+		return resTime
 	}
 	return m.AvgResponseTime()
+}
+
+func (m *MockProxy) ResetRecentResponseTime() {
+	m.resTimeMu.Lock()
+	m.ResTime = 0
+	m.resTimeMu.Unlock()
 }
 
 func (m *MockProxy) Close() error {

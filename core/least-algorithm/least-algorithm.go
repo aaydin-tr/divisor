@@ -119,8 +119,8 @@ func (l *LeastAlgorithm) leastResponseTimeNext() proxy.IProxyClient {
 	leastResTime := proxyClient.RecentResponseTime()
 	for _, server := range servers {
 		resTime := server.RecentResponseTime()
-		// 0 means the Backend has not answered a request yet: it has to serve
-		// one before it can be compared, so it wins outright.
+		// 0 means the Backend is unmeasured — never answered, or just
+		// Rejoined: it wins outright so it gets its first sample.
 		if resTime == 0 {
 			return server
 		}
@@ -171,6 +171,9 @@ func (l *LeastAlgorithm) healthCheck(backend *config.Backend, index int) {
 			zap.S().Warn("All backends are down, serving 503 until a backend rejoins")
 		}
 	} else if ok && (status && !proxyMap.isHostAlive) {
+		// A Rejoining Backend starts unmeasured: its score from before it
+		// went Down — possibly a failure penalty — says nothing about it now.
+		proxyMap.proxy.ResetRecentResponseTime()
 		oldServers := *l.servers.Load()
 		newServers := make([]proxy.IProxyClient, 0, len(oldServers)+1)
 		newServers = append(newServers, oldServers...)
