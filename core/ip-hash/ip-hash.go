@@ -4,6 +4,7 @@ import (
 	"math"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aaydin-tr/divisor/core/types"
@@ -18,7 +19,7 @@ import (
 
 type serverMap struct {
 	node        *consistent.Node
-	isHostAlive bool
+	isHostAlive atomic.Bool
 	statsIdx    int
 }
 
@@ -59,7 +60,9 @@ func NewIPHash(cfg *config.Config, middlewareExecutor *middleware.Executor, prox
 		} else {
 			zap.S().Warnf("Server is not live, it will be added for load balancing when its health check succeeds, Addr: %s", b.Url)
 		}
-		ipHash.serversMap[ipHash.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{node: node, isHostAlive: isHostAlive, statsIdx: len(ipHash.serversMap)}
+		backendState := &serverMap{node: node, statsIdx: len(ipHash.serversMap)}
+		backendState.isHostAlive.Store(isHostAlive)
+		ipHash.serversMap[ipHash.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = backendState
 	}
 
 	if ipHash.len <= 0 {
@@ -116,18 +119,18 @@ func (h *IPHash) healthCheck(backend *config.Backend, index int) {
 	backendHash := h.hashFunc(helper.S2B(backend.Url + strconv.Itoa(index)))
 	proxyMap, ok := h.serversMap[backendHash]
 
-	if ok && (!status && proxyMap.isHostAlive) {
+	if ok && (!status && proxyMap.isHostAlive.Load()) {
 		h.servers.RemoveNode(proxyMap.node)
-		proxyMap.isHostAlive = false
+		proxyMap.isHostAlive.Store(false)
 		h.len--
 
 		zap.S().Infof("Server is down, removing from load balancer, Addr: %s", backend.Url)
 		if h.len == 0 {
 			zap.S().Warn("All backends are down, serving 503 until a backend rejoins")
 		}
-	} else if ok && (status && !proxyMap.isHostAlive) {
+	} else if ok && (status && !proxyMap.isHostAlive.Load()) {
 		h.servers.AddNode(proxyMap.node)
-		proxyMap.isHostAlive = true
+		proxyMap.isHostAlive.Store(true)
 		h.len++
 		zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s", backend.Url)
 	}
@@ -143,7 +146,7 @@ func (h *IPHash) Stats() []types.ProxyStat {
 			AvgResTime:    s.AvgResTime,
 			LastUseTime:   s.LastUseTime,
 			ConnsCount:    s.ConnsCount,
-			IsHostAlive:   p.isHostAlive,
+			IsHostAlive:   p.isHostAlive.Load(),
 			BackendHash:   hash,
 		}
 	}

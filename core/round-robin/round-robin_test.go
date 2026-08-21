@@ -67,7 +67,7 @@ func TestStats(t *testing.T) {
 		hash := roundRobin.hashFunc([]byte(backend.Url + strconv.Itoa(i)))
 		s := roundRobin.serversMap[hash]
 
-		assert.Equal(t, s.isHostAlive, stats[i].IsHostAlive)
+		assert.Equal(t, s.isHostAlive.Load(), stats[i].IsHostAlive)
 		assert.Equal(t, hash, stats[i].BackendHash)
 	}
 }
@@ -107,7 +107,7 @@ func TestRemoveOneServer(t *testing.T) {
 		oldServerCount := len(*roundRobin.servers.Load())
 		roundRobin.healthCheck(&backend, 0)
 
-		assert.False(t, b.isHostAlive, "expected isHostAlive equal to false, but got %v", b.isHostAlive)
+		assert.False(t, b.isHostAlive.Load(), "expected isHostAlive equal to false, but got %v", b.isHostAlive.Load())
 		assert.GreaterOrEqual(t, oldServerCount, len(*roundRobin.servers.Load()), "expected server to be removed after health check, but it did not.")
 	}
 }
@@ -126,13 +126,13 @@ func TestRemoveAndAddServer(t *testing.T) {
 		oldServerCount := len(*roundRobin.servers.Load())
 		roundRobin.healthCheck(&backend, 0)
 
-		assert.False(t, b.isHostAlive, "expected isHostAlive equal to false, but got %v", b.isHostAlive)
+		assert.False(t, b.isHostAlive.Load(), "expected isHostAlive equal to false, but got %v", b.isHostAlive.Load())
 		assert.GreaterOrEqual(t, oldServerCount, len(*roundRobin.servers.Load()), "expected server to be removed after health check, but it did not.")
 	}
 
 	// Add one server
 	if b, ok := roundRobin.serversMap[roundRobin.hashFunc([]byte(backend.Url+strconv.Itoa(0)))]; ok {
-		b.isHostAlive = false
+		b.isHostAlive.Store(false)
 		roundRobin.isHostAlive = func(s string) bool {
 			return true
 		}
@@ -140,7 +140,7 @@ func TestRemoveAndAddServer(t *testing.T) {
 		oldServerCount := len(*roundRobin.servers.Load())
 		roundRobin.healthCheck(&backend, 0)
 
-		assert.True(t, b.isHostAlive, "expected isHostAlive equal to true, but got %v", b.isHostAlive)
+		assert.True(t, b.isHostAlive.Load(), "expected isHostAlive equal to true, but got %v", b.isHostAlive.Load())
 		assert.GreaterOrEqual(t, len(*roundRobin.servers.Load()), oldServerCount, "expected server to be added after health check, but it did not.")
 
 	}
@@ -318,7 +318,7 @@ func TestBackendDownAtStartupCanRejoin(t *testing.T) {
 
 	assert.Len(t, *roundRobin.servers.Load(), 2)
 	sm := roundRobin.serversMap[roundRobin.hashFunc([]byte("localhost:8080"+"0"))]
-	assert.True(t, sm.isHostAlive)
+	assert.True(t, sm.isHostAlive.Load())
 }
 
 func TestNextConcurrentWithHealthCheck(t *testing.T) {
@@ -331,9 +331,12 @@ func TestNextConcurrentWithHealthCheck(t *testing.T) {
 		hashFunc:    hashFunc,
 		isHostAlive: func(string) bool { return alive.Load() },
 		serversMap: map[uint32]*serverMap{
-			hashFunc([]byte("localhost:8080" + "0")): {proxy: p1, isHostAlive: true, statsIdx: 0},
-			hashFunc([]byte("localhost:80" + "1")):   {proxy: p2, isHostAlive: true, statsIdx: 1},
+			hashFunc([]byte("localhost:8080" + "0")): {proxy: p1, statsIdx: 0},
+			hashFunc([]byte("localhost:80" + "1")):   {proxy: p2, statsIdx: 1},
 		},
+	}
+	for _, sm := range roundRobin.serversMap {
+		sm.isHostAlive.Store(true)
 	}
 	servers := []proxy.IProxyClient{p1, p2}
 	roundRobin.servers.Store(&servers)
@@ -391,4 +394,36 @@ func TestShutdownStopsHealthChecker(t *testing.T) {
 	afterShutdown := checks.Load()
 	time.Sleep(50 * time.Millisecond)
 	assert.Equal(t, afterShutdown, checks.Load(), "health checker kept running after Shutdown")
+}
+
+// Run with -race: Stats() reads each Backend's liveness while the health
+// checker flips it.
+func TestStatsConcurrentWithHealthCheck(t *testing.T) {
+	caseOne := mocks.TestCases[0]
+	var alive atomic.Bool
+	alive.Store(true)
+	caseOne.Config.HealthCheckerFunc = func(string) bool { return alive.Load() }
+	balancer := NewRoundRobin(&caseOne.Config, nil, caseOne.ProxyFunc).(*RoundRobin)
+	defer balancer.Shutdown() //nolint:errcheck
+
+	backend := caseOne.Config.Backends[0]
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 500; i++ {
+			alive.Store(false)
+			balancer.healthCheck(&backend, 0)
+			alive.Store(true)
+			balancer.healthCheck(&backend, 0)
+		}
+	}()
+
+	for {
+		select {
+		case <-done:
+			return
+		default:
+			balancer.Stats()
+		}
+	}
 }

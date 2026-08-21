@@ -19,7 +19,7 @@ import (
 type serverMap struct {
 	proxy       proxy.IProxyClient
 	weight      uint
-	isHostAlive bool
+	isHostAlive atomic.Bool
 	statsIdx    int
 }
 
@@ -58,8 +58,9 @@ func NewWRoundRobin(cfg *config.Config, middlewareExecutor *middleware.Executor,
 			zap.S().Warnf("Server is not live, it will be added for load balancing when its health check succeeds, Addr: %s", b.Url)
 		}
 
-		wRoundRobin.serversMap[wRoundRobin.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] =
-			&serverMap{proxy: proxyClient, weight: b.Weight, isHostAlive: isHostAlive, statsIdx: len(wRoundRobin.serversMap)}
+		backendState := &serverMap{proxy: proxyClient, weight: b.Weight, statsIdx: len(wRoundRobin.serversMap)}
+		backendState.isHostAlive.Store(isHostAlive)
+		wRoundRobin.serversMap[wRoundRobin.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = backendState
 	}
 
 	if len(servers) == 0 {
@@ -121,16 +122,16 @@ func (w *WRoundRobin) healthCheck(backend *config.Backend, index int) {
 	backendHash := w.hashFunc(helper.S2B(backend.Url + strconv.Itoa(index)))
 	proxyMap, ok := w.serversMap[backendHash]
 
-	if ok && (!status && proxyMap.isHostAlive) {
+	if ok && (!status && proxyMap.isHostAlive.Load()) {
 		newServers := helper.RemoveByValue(*w.servers.Load(), proxyMap.proxy)
 		w.servers.Store(&newServers)
-		proxyMap.isHostAlive = false
+		proxyMap.isHostAlive.Store(false)
 
 		zap.S().Infof("Server is down, removing from load balancer, Addr: %s", backend.Url)
 		if len(newServers) == 0 {
 			zap.S().Warn("All backends are down, serving 503 until a backend rejoins")
 		}
-	} else if ok && (status && !proxyMap.isHostAlive) {
+	} else if ok && (status && !proxyMap.isHostAlive.Load()) {
 		oldServers := *w.servers.Load()
 		newServers := make([]proxy.IProxyClient, 0, len(oldServers)+int(proxyMap.weight))
 		newServers = append(newServers, oldServers...)
@@ -143,7 +144,7 @@ func (w *WRoundRobin) healthCheck(backend *config.Backend, index int) {
 		})
 
 		w.servers.Store(&newServers)
-		proxyMap.isHostAlive = true
+		proxyMap.isHostAlive.Store(true)
 		zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s", backend.Url)
 	}
 }
@@ -158,7 +159,7 @@ func (w *WRoundRobin) Stats() []types.ProxyStat {
 			AvgResTime:    s.AvgResTime,
 			LastUseTime:   s.LastUseTime,
 			ConnsCount:    s.ConnsCount,
-			IsHostAlive:   p.isHostAlive,
+			IsHostAlive:   p.isHostAlive.Load(),
 			BackendHash:   hash,
 		}
 	}

@@ -18,7 +18,7 @@ import (
 
 type serverMap struct {
 	proxy       proxy.IProxyClient
-	isHostAlive bool
+	isHostAlive atomic.Bool
 	statsIdx    int
 }
 
@@ -53,7 +53,9 @@ func NewRandom(cfg *config.Config, middlewareExecutor *middleware.Executor, prox
 		} else {
 			zap.S().Warnf("Server is not live, it will be added for load balancing when its health check succeeds, Addr: %s", b.Url)
 		}
-		random.serversMap[random.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = &serverMap{proxy: proxyClient, isHostAlive: isHostAlive, statsIdx: len(random.serversMap)}
+		backendState := &serverMap{proxy: proxyClient, statsIdx: len(random.serversMap)}
+		backendState.isHostAlive.Store(isHostAlive)
+		random.serversMap[random.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = backendState
 	}
 
 	if len(servers) == 0 {
@@ -109,22 +111,22 @@ func (r *Random) healthCheck(backend *config.Backend, index int) {
 	status := r.isHostAlive(backend.GetHealthCheckURL())
 	backendHash := r.hashFunc(helper.S2B(backend.Url + strconv.Itoa(index)))
 	proxyMap, ok := r.serversMap[backendHash]
-	if ok && (!status && proxyMap.isHostAlive) {
+	if ok && (!status && proxyMap.isHostAlive.Load()) {
 		newServers := helper.RemoveByValue(*r.servers.Load(), proxyMap.proxy)
 		r.servers.Store(&newServers)
-		proxyMap.isHostAlive = false
+		proxyMap.isHostAlive.Store(false)
 
 		zap.S().Infof("Server is down, removing from load balancer, Addr: %s", backend.Url)
 		if len(newServers) == 0 {
 			zap.S().Warn("All backends are down, serving 503 until a backend rejoins")
 		}
-	} else if ok && (status && !proxyMap.isHostAlive) {
+	} else if ok && (status && !proxyMap.isHostAlive.Load()) {
 		oldServers := *r.servers.Load()
 		newServers := make([]proxy.IProxyClient, 0, len(oldServers)+1)
 		newServers = append(newServers, oldServers...)
 		newServers = append(newServers, proxyMap.proxy)
 		r.servers.Store(&newServers)
-		proxyMap.isHostAlive = true
+		proxyMap.isHostAlive.Store(true)
 		zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s", backend.Url)
 	}
 }
@@ -139,7 +141,7 @@ func (r *Random) Stats() []types.ProxyStat {
 			AvgResTime:    s.AvgResTime,
 			LastUseTime:   s.LastUseTime,
 			ConnsCount:    s.ConnsCount,
-			IsHostAlive:   p.isHostAlive,
+			IsHostAlive:   p.isHostAlive.Load(),
 			BackendHash:   hash,
 		}
 	}
