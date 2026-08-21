@@ -15,7 +15,6 @@ import (
 	"github.com/aaydin-tr/divisor/internal/monitoring"
 	"github.com/aaydin-tr/divisor/internal/proxy"
 	cfg "github.com/aaydin-tr/divisor/pkg/config"
-	"github.com/aaydin-tr/divisor/pkg/helper"
 	"github.com/aaydin-tr/divisor/pkg/logger"
 	"github.com/aaydin-tr/divisor/pkg/middleware"
 	"github.com/valyala/fasthttp"
@@ -28,8 +27,7 @@ func main() {
 	configFile := flag.String("config", "./config.yaml", "config file, please use absolute path")
 	flag.Parse()
 
-	logFile := helper.GetLogFile()
-	logger.InitLogger(logFile)
+	logger.InitLogger(logger.GetLogFile())
 
 	// Startup failures must exit non-zero so orchestrators (compose restart
 	// policies, k8s CrashLoopBackOff) notice; zap's Fatal exits 1 after
