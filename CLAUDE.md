@@ -20,8 +20,8 @@ go build -o divisor
 
 ### Testing
 ```bash
-# Run all tests
-go test ./...
+# Run all tests (CI runs them with -race; data races are build failures)
+go test -race ./...
 
 # Run tests with verbose output
 go test -v ./...
@@ -55,7 +55,7 @@ The load balancer uses a **factory pattern** via `balancer.NewBalancer()` which 
 - `w-round-robin` - Weighted rotation (requires `weight` in backend config)
 - `ip-hash` - Consistent hashing based on client IP (uses `pkg/consistent`)
 - `random` - Random server selection
-- `least-connection` - Routes to server with fewest active connections
+- `least-connection` - Routes to the Backend with the fewest pending requests (ties rotate)
 - `least-response-time` - Routes to server with lowest average response time
 
 All algorithms share common behavior:

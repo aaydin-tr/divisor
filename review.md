@@ -5,7 +5,7 @@
 
 No spec/issue tracker exists for this repo, so this is a bug-focused review plus a code-smell pass — not a spec-conformance review. Findings marked *(judgement call)* are defensible-design questions, not hard bugs.
 
-**Totals:** 4 critical · 8 high · 9 medium · 20 low · 6 smells — fixed so far: C1–C4, H1–H8, M3, M6, L9–L11, S4
+**Totals:** 4 critical · 8 high · 9 medium · 21 low · 6 smells — fixed so far: C1–C4, H1–H8, M1–M4, M6, L9–L11, S4
 
 ## Fix checklist
 
@@ -23,10 +23,10 @@ Tick items off as we fix them:
 - [x] [H6 — Trailing slash/path in backend URL → invalid dial address](#h6) ✅ fixed
 - [x] [H7 — Swallowed logger error → nil-logger panic at startup](#h7) ✅ fixed
 - [x] [H8 — net/http adapter forwards stale Content-Length](#h8) ✅ fixed
-- [ ] [M1 — least-connection doesn't pick the least-connected server](#m1)
-- [ ] [M2 — `isHostAlive` data race between `Stats()` and health checker](#m2)
+- [x] [M1 — least-connection doesn't pick the least-connected server](#m1) ✅ fixed
+- [x] [M2 — `isHostAlive` data race between `Stats()` and health checker](#m2) ✅ fixed
 - [x] [M3 — "All backends are down" panic makes transient outages permanent](#m3)
-- [ ] [M4 — Virtual-node key collisions corrupt the ip-hash ring](#m4)
+- [x] [M4 — Virtual-node key collisions corrupt the ip-hash ring](#m4) ✅ fixed
 - [ ] [M5 — `OnResponse` cannot override backend errors as documented](#m5)
 - [x] [M6 — `https://` backends silently downgraded to plain HTTP](#m6) ✅ fixed with H6
 - [ ] [M7 — Typed-nil `any` defeats server-startup failure check](#m7)
@@ -174,6 +174,7 @@ Tick items off as we fix them:
 - **Bug:** the loop `break`s at the first server with fewer pending requests than the baseline, instead of scanning for the minimum. (`leastResponseTimeNext` right below correctly omits the `break`, confirming it's unintended.)
 - **Failure scenario:** 3 backends with pending [5, 3, 1], `lastIndex=0`: picks the 3-pending server, never considers the 1-pending one. The truly least-loaded backend is systematically under-utilized. Existing tests use only 2 backends, masking it.
 - **Fix:** remove the `break`.
+- **Status: FIXED (2026-08-22).** `leastConnectionNext` scans every Alive Backend for the fewest **Pending requests** (new CONTEXT.md term — what least-connection actually compares, not TCP connections) ([core/least-algorithm/least-algorithm.go:92-110](core/least-algorithm/least-algorithm.go#L92-L110)). Ties rotate: a per-call `cursor` (replacing `lastIndex`, see S2) sets the scan's starting offset and strict `<` means the first equal Backend after the cursor wins, so an idle pool takes turns instead of Backend #0 absorbing everything. The health checker's `lastIndex >= len` reset is gone with the modulo cursor. Regression tests in `core/least-algorithm`: `TestLeastConnectionNextPicksLeast` (`[5,3,1]` picks the 1 regardless of cursor; equal loads rotate evenly; a Backend appended mid-rotation is reached) and `TestNext/least-connection/with zero pending requests` rewritten to assert rotation (it previously encoded lowest-index-wins). `mocks.MockProxy` gained a `Pending` field.
 
 <a id="m2"></a>
 ### M2. `isHostAlive` read by `Stats()` while written by the health checker — data race
@@ -182,6 +183,7 @@ Tick items off as we fix them:
 - **Bug:** the monitoring goroutine calls `Stats()` every 5s and on `/stats` requests, reading `serverMap.isHostAlive` unsynchronized against health-checker writes.
 - **Failure scenario:** monitoring scrape concurrent with a health-state flip: torn/stale liveness reporting; any future field on `serverMap` inherits the race.
 - **Fix:** fold into the mutex from C2, or make `isHostAlive` an `atomic.Bool`.
+- **Status: FIXED (2026-08-22).** `serverMap.isHostAlive` is an `atomic.Bool` in all five balancers (landed five times — S1 deliberately deferred to its own branch). Accepted: `/stats` liveness and rotation membership are two independent atomics, so a scrape racing a flip can see them disagree for nanoseconds; making them flip together would put a mutex on the request path for an unobservable gain. Regression test `TestStatsConcurrentWithHealthCheck` in each balancer package hammers `Stats()` against `healthCheck`; it fails only under `-race`, so `-race` is now on both unit-test workflows ([.github/workflows/go.yml](.github/workflows/go.yml), [.github/workflows/test.yml](.github/workflows/test.yml)) — previously nothing in CI could catch a data race.
 
 <a id="m3"></a>
 ### M3. `panic("All backends are down")` irrecoverably kills the proxy *(judgement call — deliberate but harsh)*
@@ -201,6 +203,7 @@ Tick items off as we fix them:
 - **Bug:** nodes with the same `Addr` generate overlapping rune ranges (Id=0,i=1 collides with Id=1,i=0), so `AddNode` overwrites map entries while `numbers` accumulates duplicate hashes; removing one node strips the shared hashes the other node still relies on.
 - **Failure scenario:** the same backend URL listed twice in config (accepted without complaint; a normal way to double a backend's share in other algorithms). When one duplicate flaps down, `RemoveNode` strips the shared hashes from both map and ring, silently removing the still-healthy twin's positions too. Even without removal, distribution is silently skewed. (Post-C3 the old nil-interface panic is structurally impossible — the damage is now silent misrouting/starvation rather than a crash.)
 - **Fix:** collision-free key, e.g. `fmt.Sprintf("%d|%d|%s", node.Id, i, node.Addr)`; optionally reject duplicate backend URLs in `PrepareConfig`.
+- **Status: FIXED (2026-08-22).** Virtual-node key is `Id|i|Addr` via `virtualNodeKey` ([pkg/consistent/consistent.go](pkg/consistent/consistent.go)); uniqueness comes from `Id|i` (`Id` is the config index), `Addr` is kept so keys stay self-describing. Duplicate addresses stay **allowed** and unwarned: CONTEXT.md now defines a Backend as one config entry, so the same address twice is two Backends sharing a server — a legitimate way to double that server's share (and already how every other balancer treats it). Breaking change accepted for the pre-1.0 alpha: every ip-hash position moves once on upgrade, so client-IP→Backend affinity reshuffles one time; the alternative (keep the old formula for duplicate-free configs) would make positions depend on config shape and reshuffle everyone the first time a duplicate is added. The old formula also collapsed `string(rune(x))` for `x` in the UTF-16 surrogate range to U+FFFD (≈235+ Backends), which the new key removes. Regression tests: `TestNodesWithSameAddrKeepSeparateVirtualNodes` in `pkg/consistent` (two same-`Addr` Nodes own `2×replicas` positions; removing one leaves the twin's intact and routing to it), `TestDuplicateAddressTwinKeepsItsVirtualNodes` in `core/ip-hash` (one twin Down → all traffic to the other; its Rejoin restores the pre-flap routing exactly — which the old keys broke, the rejoining twin overwrote its sibling's positions), `TestPrepareBackends/the same address twice is two backends` in `pkg/config`. `TestGetNode` updated to derive hashes from `virtualNodeKey` instead of the old formula. Out of scope, recorded as L21: the `len(backends)²` vnode count.
 
 <a id="m5"></a>
 ### M5. `OnResponse` cannot override backend errors as documented — `serverError` clobbers the custom response and leaks the dial error
@@ -308,16 +311,19 @@ Now `logFolderFor(goos, localAppData)` in [pkg/logger/logfile.go](pkg/logger/log
 ### L20. Middleware instances are shared across all request goroutines — undocumented
 [pkg/middleware/executor.go:106](pkg/middleware/executor.go#L106), [internal/proxy/proxy.go:71-91](internal/proxy/proxy.go#L71-L91) — the per-middleware yaegi setup avoids the classic concurrent-Eval hazard (same pattern as Traefik plugins), but each middleware is a single shared instance: any mutable field in a user's struct is raced by concurrent requests with no warning in the contract. **Fix:** document that stateful middleware must synchronize internally.
 
+### L21. ip-hash virtual-node count is `len(backends)²` — too few points for even distribution *(surfaced by M4)*
+[core/ip-hash/ip-hash.go:41](core/ip-hash/ip-hash.go#L41) — one Backend gets 1 virtual node, two get 4 each, three get 9; consistent-hash rings usually use 100+ per node for the keyspace split to approach even. With so few points the share between Backends is lumpy and a single Backend flap moves large contiguous arcs. **Fix:** a fixed constant (e.g. 100–160 per Backend) or a config knob; changing it reshuffles affinity once, same as M4 did.
+
 ---
 
 <a id="smells"></a>
 ## Code smells (judgement calls)
 
 ### S1. Duplicated Code / Shotgun Surgery: five near-identical balancer implementations
-`core/round-robin`, `core/w-round-robin`, `core/random`, `core/least-algorithm`, `core/ip-hash` — `serverMap`, constructor loop, `healthChecker`, `healthCheck`, `Stats()`, and `Shutdown()` are near-verbatim copies (the `healthChecker` loop is byte-identical apart from the receiver). Concrete cost: **C1, C2, H1, H2, and M3 each required the same fix in five files (already paid); M2 still does.** Extract a shared base type embedding servers/serversMap/health-checking/Stats/Shutdown, with algorithms supplying only `next()` — ideally *before* fixing the remaining one, so each fix lands once.
+`core/round-robin`, `core/w-round-robin`, `core/random`, `core/least-algorithm`, `core/ip-hash` — `serverMap`, constructor loop, `healthChecker`, `healthCheck`, `Stats()`, and `Shutdown()` are near-verbatim copies (the `healthChecker` loop is byte-identical apart from the receiver). Concrete cost: **C1, C2, H1, H2, M3 and M2 each required the same fix in five files (all paid now); the M2 regression test `TestStatsConcurrentWithHealthCheck` also exists five times.** Extract a shared base type embedding servers/serversMap/health-checking/Stats/Shutdown, with algorithms supplying only `next()` — its own branch; the five duplicate tests collapse into one with it.
 
 ### S2. Mysterious Names: `len`, `i`, `lastIndex` *(partially addressed by the C1/C2 fixes)*
-`serverMap.i` is now `statsIdx` and the slice-based balancers' separate `len` fields are gone (length comes from the snapshot). Remaining: [core/ip-hash/ip-hash.go:30](core/ip-hash/ip-hash.go#L30) still has `len` (count of alive nodes), the rotation counter `i` at [core/round-robin/round-robin.go:29](core/round-robin/round-robin.go#L29)/[core/w-round-robin/w-round-robin.go:31](core/w-round-robin/w-round-robin.go#L31), and [core/least-algorithm/least-algorithm.go:30](core/least-algorithm/least-algorithm.go#L30) `lastIndex` (actually stores "index of the current least server"). These names actively obscured C1 and M1; rename to `aliveCount`, `counter`, `leastIndex`.
+`serverMap.i` is now `statsIdx` and the slice-based balancers' separate `len` fields are gone (length comes from the snapshot). Remaining: [core/ip-hash/ip-hash.go:30](core/ip-hash/ip-hash.go#L30) still has `len` (count of alive nodes), the rotation counter `i` at [core/round-robin/round-robin.go:29](core/round-robin/round-robin.go#L29)/[core/w-round-robin/w-round-robin.go:31](core/w-round-robin/w-round-robin.go#L31), and `lastIndex` in least-algorithm is gone with M1 (now `cursor`, an honest rotation counter). These names actively obscured C1 and M1; rename the rest to `aliveCount`, `counter`.
 
 ### S3. `FindIndex` returns `(0, err)` on miss — a valid-index sentinel
 [pkg/helper/helper.go:48-56](pkg/helper/helper.go#L48-L56) — index 0 is a legitimate result, so any caller dropping the error deletes element 0. The sole current caller checks, but the API invites the bug. Return `-1` or `(int, bool)`.
@@ -335,10 +341,8 @@ Moved to [pkg/logger/logfile.go](pkg/logger/logfile.go); only `GetLogFile` stays
 
 ## Suggested fix order
 
-1. **S1 (extract shared balancer base)** — C1/C2/H1/H2/M3 already landed five times over without it; still worth doing before the next step so M2 lands once.
-2. **M2** — remaining shared-base fix: atomic/mutexed `isHostAlive`. *(C1, C2, H1, H2, M3 done.)*
-3. **M4** — collision-free vnode keys in `pkg/consistent`. *(C3 and L9 done.)*
-4. **H3 + M5** — middleware error-to-response translation + explicit "handled" signal. *(C4's per-request `recover()` done.)*
-5. **M1 + M9** — remaining metrics/selection correctness in `internal/proxy` + `least-algorithm`. *(H4 and H5 done.)*
-6. **M7** — remaining config/startup robustness. *(H6, H7, M6 done.)*
-7. **The rest** — low-severity items, batched as convenient. *(H8 done.)*
+1. **S1 (extract shared balancer base)** — every shared-base fix (C1/C2/H1/H2/M3/M2) has now landed five times over; do it on its own branch so the next one lands once.
+2. **M5** — middleware explicit "handled" signal. *(H3's error-to-response translation and C4's per-request `recover()` done.)*
+3. **M9** — `$incremental` atomicity in `internal/proxy`. *(H4, H5, M1 done.)*
+4. **M7** — remaining config/startup robustness. *(H6, H7, M6 done.)*
+5. **The rest** — low-severity items, batched as convenient. *(H8, M2, M4 done; L21 added.)*

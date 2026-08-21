@@ -1,6 +1,7 @@
 package consistent
 
 import (
+	"math"
 	"strconv"
 	"testing"
 
@@ -96,9 +97,9 @@ func TestGetNode(t *testing.T) {
 		hash         uint32
 		expectedNode *Node
 	}{
-		{hash: ch.hashFunc([]byte(string(rune(node1.Id+0)) + node1.Addr)), expectedNode: node1},
-		{hash: ch.hashFunc([]byte(string(rune(node2.Id+0)) + node2.Addr)), expectedNode: node2},
-		{hash: ch.hashFunc([]byte(string(rune(node1.Id+0)) + node1.Addr)), expectedNode: node1},
+		{hash: ch.hashFunc(virtualNodeKey(node1, 0)), expectedNode: node1},
+		{hash: ch.hashFunc(virtualNodeKey(node2, 0)), expectedNode: node2},
+		{hash: ch.hashFunc(virtualNodeKey(node1, 0)), expectedNode: node1},
 		{hash: 16, expectedNode: node2},
 	}
 
@@ -163,4 +164,41 @@ func BenchmarkGetNode(b *testing.B) {
 			ch.GetNode(h)
 		}
 	})
+}
+
+// The same address listed twice in config: two Nodes, same Addr, different Ids.
+func TestNodesWithSameAddrKeepSeparateVirtualNodes(t *testing.T) {
+	const replicas = 4
+	ch := NewConsistentHash(replicas, helper.HashFunc)
+	first := &Node{Id: 0, Addr: "127.0.0.1:8080", Proxy: &proxy.ProxyClient{Addr: "127.0.0.1:8080"}}
+	second := &Node{Id: 1, Addr: "127.0.0.1:8080", Proxy: &proxy.ProxyClient{Addr: "127.0.0.1:8080"}}
+
+	ch.AddNode(first)
+	ch.AddNode(second)
+
+	ring := ch.ring.Load()
+	if got := len(ring.numbers); got != 2*replicas {
+		t.Fatalf("expected %d virtual nodes, got %d", 2*replicas, got)
+	}
+	if got := len(ring.nodes); got != 2*replicas {
+		t.Fatalf("expected %d distinct positions, got %d", 2*replicas, got)
+	}
+
+	ch.RemoveNode(first)
+
+	ring = ch.ring.Load()
+	if got := len(ring.numbers); got != replicas {
+		t.Fatalf("expected the twin to keep its %d virtual nodes, got %d", replicas, got)
+	}
+	for _, hash := range ring.numbers {
+		if ring.nodes[hash] != second {
+			t.Fatalf("position %d no longer routes to the remaining twin", hash)
+		}
+	}
+	const samples, sampleStride = 1000, math.MaxUint32 / 1000
+	for i := 0; i < samples; i++ {
+		if got := ch.GetNode(uint32(i * sampleStride)); got != second {
+			t.Fatalf("GetNode(%d) = %v, want the remaining twin", i, got)
+		}
+	}
 }

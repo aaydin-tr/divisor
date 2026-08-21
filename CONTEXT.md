@@ -7,7 +7,7 @@ A layer-7 HTTP load balancer. Clients send requests to divisor; divisor picks a 
 ### Load balancing
 
 **Backend**:
-An upstream HTTP server that divisor forwards client requests to.
+One `backends` entry in the config: an upstream HTTP server that divisor forwards client requests to. Each entry is its own Backend with its own Probe, liveness, connection pool, and stats row — listing the same address twice yields two Backends that share a server (a legitimate way to double that server's share of traffic).
 _Avoid_: server, upstream, target, node
 
 **Balancer**:
@@ -29,6 +29,14 @@ _Avoid_: healthy/unhealthy, up/dead
 **Rejoin**:
 A Down Backend returning to the traffic rotation after a successful Probe.
 _Avoid_: recovery, re-add
+
+**Pending request**:
+A request divisor has forwarded to a Backend and not yet received the response for. It is what least-connection counts and compares — not TCP connections.
+_Avoid_: in-flight request, active connection, open connection
+
+**Virtual node**:
+One of the several positions a Backend occupies on the ip-hash ring so that client IPs spread evenly across Backends; a Backend leaves or rejoins the ring with all of its virtual nodes at once.
+_Avoid_: replica, vnode
 
 **TLS termination**:
 Divisor decrypts client TLS itself; traffic from divisor to Backends is always plaintext HTTP. Divisor never speaks TLS to a Backend.

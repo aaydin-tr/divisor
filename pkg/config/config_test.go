@@ -186,6 +186,14 @@ func TestPrepareBackends(t *testing.T) {
 		assert.EqualError(t, err, ErrInvalidWeight.Error())
 	})
 
+	t.Run("the same address twice is two backends", func(t *testing.T) {
+		config := Config{Backends: []Backend{{Url: "localhost:8080"}, {Url: "localhost:8080"}}, Type: "round-robin", Port: "8000"}
+
+		err := config.PrepareConfig()
+		assert.Nil(t, err)
+		assert.Len(t, config.Backends, 2)
+	})
+
 }
 
 func TestNormalizeBackendAddress(t *testing.T) {

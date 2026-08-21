@@ -2,9 +2,11 @@ package consistent
 
 import (
 	"sort"
+	"strconv"
 	"sync/atomic"
 
 	"github.com/aaydin-tr/divisor/internal/proxy"
+	"github.com/aaydin-tr/divisor/pkg/helper"
 )
 
 type hashRing []uint32
@@ -57,7 +59,7 @@ func (c *ConsistentHash) AddNode(node *Node) {
 	newNumbers = append(newNumbers, old.numbers...)
 
 	for i := 0; i < c.virtualRepl; i++ {
-		hash := c.hashFunc([]byte(string(rune(node.Id+i)) + node.Addr))
+		hash := c.hashFunc(virtualNodeKey(node, i))
 		newNodes[hash] = node
 		newNumbers = append(newNumbers, hash)
 	}
@@ -69,7 +71,7 @@ func (c *ConsistentHash) RemoveNode(node *Node) {
 	old := c.ring.Load()
 	removed := make(map[uint32]bool, c.virtualRepl)
 	for i := 0; i < c.virtualRepl; i++ {
-		removed[c.hashFunc([]byte(string(rune(node.Id+i))+node.Addr))] = true
+		removed[c.hashFunc(virtualNodeKey(node, i))] = true
 	}
 
 	newNodes := make(map[uint32]*Node, len(old.nodes))
@@ -85,6 +87,12 @@ func (c *ConsistentHash) RemoveNode(node *Node) {
 		}
 	}
 	c.ring.Store(&ringSnapshot{nodes: newNodes, numbers: newNumbers})
+}
+
+// Keyed by Id first: two Nodes may share an Addr (the same Backend address
+// listed twice) and must still own disjoint virtual nodes.
+func virtualNodeKey(node *Node, i int) []byte {
+	return helper.S2B(strconv.Itoa(node.Id) + "|" + strconv.Itoa(i) + "|" + node.Addr)
 }
 
 func (c *ConsistentHash) GetNode(hash uint32) *Node {
