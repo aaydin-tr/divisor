@@ -169,7 +169,7 @@ custom_headers:
 
 ### Important Notes
 
-- **Protocol stripping**: Backend URLs automatically have `http://` or `https://` removed
+- **Backend address**: `backends[].url` must be a dialable `host:port`. An optional `http://` scheme and a bare trailing slash are accepted and stripped, and a missing port defaults to `80`. A path, query, or userinfo is rejected at startup, and so is `https://` — divisor terminates TLS itself and always speaks plain HTTP to backends
 - **HTTP/2 requirement**: `server.http_version: http2` requires both `cert_file` and `key_file`
 - **Weighted round-robin**: Single backend auto-converts to regular round-robin
 - **Middleware validation**: Must specify either `code` OR `file` (not both), unless `disabled: true`

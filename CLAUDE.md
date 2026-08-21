@@ -77,7 +77,7 @@ All algorithms share common behavior:
 `pkg/config`:
 - YAML-based configuration with validation in `PrepareConfig()`
 - Auto-sets defaults if not specified (e.g., `health_checker_time: 30s`, `type: round-robin`)
-- Backend URLs have protocols stripped (http:// or https://)
+- Backend `url` is normalized to a dialable Backend address (`host:port`): optional `http://` and bare trailing slash stripped, missing port defaults to 80; path/query/userinfo and `https://` are rejected at startup (ADR 0004: backends are plaintext-only)
 - HTTP/2 requires TLS (cert_file + key_file must be provided)
 - Weighted round-robin with single backend auto-converts to regular round-robin
 

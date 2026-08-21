@@ -55,26 +55,26 @@ func TestPrepareConfig(t *testing.T) {
 	})
 
 	t.Run("port is required", func(t *testing.T) {
-		config := Config{Backends: []Backend{{}}}
+		config := Config{Backends: []Backend{{Url: "localhost:8080"}}}
 		err := config.PrepareConfig()
 		assert.EqualError(t, err, "Please choose valid port")
 	})
 
 	t.Run("default round-robin", func(t *testing.T) {
-		config := Config{Backends: []Backend{{}}, Type: "", Port: "8000"}
+		config := Config{Backends: []Backend{{Url: "localhost:8080"}}, Type: "", Port: "8000"}
 		err := config.PrepareConfig()
 		assert.Nil(t, err)
 		assert.Equal(t, "round-robin", config.Type)
 	})
 
 	t.Run("is valid type", func(t *testing.T) {
-		config := Config{Backends: []Backend{{}}, Type: "test", Port: "8000"}
+		config := Config{Backends: []Backend{{Url: "localhost:8080"}}, Type: "test", Port: "8000"}
 		err := config.PrepareConfig()
 		assert.EqualError(t, err, fmt.Sprintf("Please choose valid load balancing type e.g %v", ValidTypes))
 	})
 
 	t.Run("w-round-robin to round-robin", func(t *testing.T) {
-		config := Config{Backends: []Backend{{}}, Type: "w-round-robin", Port: "8000"}
+		config := Config{Backends: []Backend{{Url: "localhost:8080"}}, Type: "w-round-robin", Port: "8000"}
 		err := config.PrepareConfig()
 
 		assert.Nil(t, err)
@@ -82,14 +82,14 @@ func TestPrepareConfig(t *testing.T) {
 	})
 
 	t.Run("default HealthCheckerTime", func(t *testing.T) {
-		config := Config{Backends: []Backend{{}}, Type: "round-robin", Port: "8000", HealthCheckerTime: -1}
+		config := Config{Backends: []Backend{{Url: "localhost:8080"}}, Type: "round-robin", Port: "8000", HealthCheckerTime: -1}
 		err := config.PrepareConfig()
 		assert.Nil(t, err)
 		assert.Equal(t, DefaultHealthCheckerTime, config.HealthCheckerTime)
 	})
 
 	t.Run("default monitoring host and port", func(t *testing.T) {
-		config := Config{Backends: []Backend{{}}, Type: "round-robin", Port: "8000"}
+		config := Config{Backends: []Backend{{Url: "localhost:8080"}}, Type: "round-robin", Port: "8000"}
 		err := config.PrepareConfig()
 
 		assert.Nil(t, err)
@@ -101,14 +101,14 @@ func TestPrepareConfig(t *testing.T) {
 		customHeaders := map[string]string{
 			"test": "test",
 		}
-		config := Config{Backends: []Backend{{}}, Type: "round-robin", Port: "8000", CustomHeaders: customHeaders}
+		config := Config{Backends: []Backend{{Url: "localhost:8080"}}, Type: "round-robin", Port: "8000", CustomHeaders: customHeaders}
 		err := config.PrepareConfig()
 
 		assert.EqualError(t, err, fmt.Sprintf("Please choose valid custom header, e.g %v", ValidCustomHeaders))
 	})
 
 	t.Run("default funcs", func(t *testing.T) {
-		config := Config{Backends: []Backend{{}}, Type: "round-robin", Port: "8000"}
+		config := Config{Backends: []Backend{{Url: "localhost:8080"}}, Type: "round-robin", Port: "8000"}
 		err := config.PrepareConfig()
 
 		assert.Nil(t, err)
@@ -117,7 +117,7 @@ func TestPrepareConfig(t *testing.T) {
 	})
 
 	t.Run("prepareServer return error", func(t *testing.T) {
-		config := Config{Backends: []Backend{{}}, Type: "round-robin", Port: "8000", Server: Server{HttpVersion: Http2}}
+		config := Config{Backends: []Backend{{Url: "localhost:8080"}}, Type: "round-robin", Port: "8000", Server: Server{HttpVersion: Http2}}
 		err := config.PrepareConfig()
 
 		assert.NotNil(t, err)
@@ -157,6 +157,7 @@ func TestPrepareBackends(t *testing.T) {
 
 	t.Run("set values", func(t *testing.T) {
 		config := Config{Backends: []Backend{{
+			Url:                       "localhost:8080",
 			MaxConnection:             1,
 			MaxConnWaitTimeout:        time.Duration(1),
 			MaxConnDuration:           time.Duration(1),
@@ -177,6 +178,7 @@ func TestPrepareBackends(t *testing.T) {
 
 	t.Run("w-round-robin", func(t *testing.T) {
 		config := Config{Backends: []Backend{{
+			Url:    "localhost:8080",
 			Weight: 0,
 		}}, Type: "w-round-robin", Port: "8000"}
 
@@ -184,6 +186,84 @@ func TestPrepareBackends(t *testing.T) {
 		assert.EqualError(t, err, ErrInvalidWeight.Error())
 	})
 
+}
+
+func TestNormalizeBackendAddress(t *testing.T) {
+	t.Parallel()
+
+	valid := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"bare host:port", "localhost:8080", "localhost:8080"},
+		{"http scheme stripped", "http://localhost:8080", "localhost:8080"},
+		{"bare trailing slash tolerated", "http://localhost:8080/", "localhost:8080"},
+		{"trailing slash without scheme", "localhost:8080/", "localhost:8080"},
+		{"missing port defaults to 80", "localhost", "localhost:80"},
+		{"scheme and missing port", "http://127.0.0.1", "127.0.0.1:80"},
+		{"ipv6 with port", "[::1]:9000", "[::1]:9000"},
+		{"ipv6 missing port", "[::1]", "[::1]:80"},
+	}
+	for _, tc := range valid {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := normalizeBackendAddress(tc.raw)
+			assert.Nil(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+
+	invalid := []struct {
+		name string
+		raw  string
+	}{
+		{"empty", ""},
+		{"whitespace only", "   "},
+		{"https rejected", "https://api.example.com"},
+		{"https with port rejected", "https://api.example.com:8443"},
+		{"unsupported scheme", "ftp://host:21"},
+		{"path", "http://localhost:8080/api"},
+		{"double slash is a path", "http://localhost:8080//"},
+		{"query", "http://localhost:8080?x=1"},
+		{"fragment", "http://localhost:8080#frag"},
+		{"userinfo", "http://user:pass@localhost:8080"},
+		{"invalid port", "localhost:80a0"},
+		{"no host", "http://"},
+	}
+	for _, tc := range invalid {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := normalizeBackendAddress(tc.raw)
+			assert.Error(t, err)
+			assert.Equal(t, "", got)
+		})
+	}
+
+	t.Run("errors match their sentinels", func(t *testing.T) {
+		_, err := normalizeBackendAddress("https://api.example.com")
+		assert.ErrorIs(t, err, ErrBackendUrlHttps)
+		assert.ErrorContains(t, err, "terminates TLS")
+
+		_, err = normalizeBackendAddress("")
+		assert.ErrorIs(t, err, ErrBackendUrlEmpty)
+
+		_, err = normalizeBackendAddress("ftp://host:21")
+		assert.ErrorIs(t, err, ErrBackendUrlScheme)
+
+		_, err = normalizeBackendAddress("http://user:pass@localhost:8080")
+		assert.ErrorIs(t, err, ErrBackendUrlUserinfo)
+
+		_, err = normalizeBackendAddress("localhost:80a0")
+		assert.ErrorIs(t, err, ErrBackendUrlInvalid)
+
+		_, err = normalizeBackendAddress("http://")
+		assert.ErrorIs(t, err, ErrBackendUrlNoHost)
+	})
+
+	t.Run("PrepareConfig surfaces the error", func(t *testing.T) {
+		config := Config{Backends: []Backend{{Url: "http://localhost:8080/api"}}, Port: "8000"}
+		err := config.PrepareConfig()
+		assert.ErrorIs(t, err, ErrBackendUrlNotHostPort)
+	})
 }
 
 func TestPrepareServer(t *testing.T) {

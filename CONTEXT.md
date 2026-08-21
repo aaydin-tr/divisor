@@ -14,6 +14,10 @@ _Avoid_: server, upstream, target, node
 The algorithm that picks which Backend serves a given request (round-robin, w-round-robin, ip-hash, random, least-connection, least-response-time).
 _Avoid_: algorithm, strategy, scheduler
 
+**Backend address**:
+The dialable `host:port` divisor connects to, derived from the config `url` key by validation: an optional `http://` scheme and a bare trailing slash are accepted and stripped, a missing port defaults to 80; a path, query, userinfo, or `https://` scheme is rejected at startup.
+_Avoid_: backend URL, upstream address
+
 **Probe**:
 A single health-check request sent to a Backend to decide whether it is Alive.
 _Avoid_: ping, heartbeat
