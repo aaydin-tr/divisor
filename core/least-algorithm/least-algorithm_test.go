@@ -56,11 +56,15 @@ func TestNext(t *testing.T) {
 			assert.NotNil(t, balancer)
 
 			leastConnection := balancer.(*LeastAlgorithm)
-			proxy := leastConnection.nextFunc()
-
-			assert.IsType(t, &mocks.MockProxy{}, proxy)
-			mProxy := proxy.(*mocks.MockProxy)
-			assert.Equal(t, caseFour.Config.Backends[0].Url, mProxy.Addr)
+			seen := map[string]int{}
+			for range caseFour.Config.Backends {
+				proxy := leastConnection.nextFunc()
+				assert.IsType(t, &mocks.MockProxy{}, proxy)
+				seen[proxy.(*mocks.MockProxy).Addr]++
+			}
+			for _, b := range caseFour.Config.Backends {
+				assert.Equal(t, 1, seen[b.Url], "equally idle backends must take turns")
+			}
 		})
 
 		t.Run("with non zero pending requests", func(t *testing.T) {
@@ -164,7 +168,7 @@ func TestStats(t *testing.T) {
 		s := leastAlgorithm.serversMap[hash]
 		p := s.proxy.(*mocks.MockProxy)
 
-		assert.Equal(t, s.isHostAlive, stats[i].IsHostAlive)
+		assert.Equal(t, s.isHostAlive.Load(), stats[i].IsHostAlive)
 		assert.Equal(t, hash, stats[i].BackendHash)
 		assert.Equal(t, backend.Url, p.Addr)
 	}
@@ -185,7 +189,7 @@ func TestRemoveOneServer(t *testing.T) {
 		oldServerCount := len(*leastAlgorithm.servers.Load())
 		leastAlgorithm.healthCheck(&backend, 0)
 
-		assert.False(t, b.isHostAlive, "expected isHostAlive equal to false, but got %v", b.isHostAlive)
+		assert.False(t, b.isHostAlive.Load(), "expected isHostAlive equal to false, but got %v", b.isHostAlive.Load())
 		assert.GreaterOrEqual(t, oldServerCount, len(*leastAlgorithm.servers.Load()), "expected server to be removed after health check, but it did not.")
 	}
 }
@@ -205,13 +209,13 @@ func TestRemoveAndAddServer(t *testing.T) {
 		oldServerCount := len(*leastAlgorithm.servers.Load())
 		leastAlgorithm.healthCheck(&backend, 0)
 
-		assert.False(t, b.isHostAlive, "expected isHostAlive equal to false, but got %v", b.isHostAlive)
+		assert.False(t, b.isHostAlive.Load(), "expected isHostAlive equal to false, but got %v", b.isHostAlive.Load())
 		assert.GreaterOrEqual(t, oldServerCount, len(*leastAlgorithm.servers.Load()), "expected server to be removed after health check, but it did not.")
 	}
 
 	// Add one server
 	if b, ok := leastAlgorithm.serversMap[leastAlgorithm.hashFunc([]byte(backend.Url+strconv.Itoa(0)))]; ok {
-		b.isHostAlive = false
+		b.isHostAlive.Store(false)
 		leastAlgorithm.isHostAlive = func(s string) bool {
 			return true
 		}
@@ -219,7 +223,7 @@ func TestRemoveAndAddServer(t *testing.T) {
 		oldServerCount := len(*leastAlgorithm.servers.Load())
 		leastAlgorithm.healthCheck(&backend, 0)
 
-		assert.True(t, b.isHostAlive, "expected isHostAlive equal to true, but got %v", b.isHostAlive)
+		assert.True(t, b.isHostAlive.Load(), "expected isHostAlive equal to true, but got %v", b.isHostAlive.Load())
 		assert.GreaterOrEqual(t, len(*leastAlgorithm.servers.Load()), oldServerCount, "expected server to be added after health check, but it did not.")
 
 	}
@@ -397,7 +401,7 @@ func TestBackendDownAtStartupCanRejoin(t *testing.T) {
 
 	assert.Len(t, *leastAlgorithm.servers.Load(), 2)
 	sm := leastAlgorithm.serversMap[leastAlgorithm.hashFunc([]byte("localhost:8080"+"0"))]
-	assert.True(t, sm.isHostAlive)
+	assert.True(t, sm.isHostAlive.Load())
 }
 
 func TestNextConcurrentWithHealthCheck(t *testing.T) {
@@ -409,11 +413,13 @@ func TestNextConcurrentWithHealthCheck(t *testing.T) {
 	leastAlgorithm := &LeastAlgorithm{
 		hashFunc:    hashFunc,
 		isHostAlive: func(string) bool { return alive.Load() },
-		lastIndex:   new(uint32),
 		serversMap: map[uint32]*serverMap{
-			hashFunc([]byte("localhost:8080" + "0")): {proxy: p1, isHostAlive: true, statsIdx: 0},
-			hashFunc([]byte("localhost:80" + "1")):   {proxy: p2, isHostAlive: true, statsIdx: 1},
+			hashFunc([]byte("localhost:8080" + "0")): {proxy: p1, statsIdx: 0},
+			hashFunc([]byte("localhost:80" + "1")):   {proxy: p2, statsIdx: 1},
 		},
+	}
+	for _, sm := range leastAlgorithm.serversMap {
+		sm.isHostAlive.Store(true)
 	}
 	servers := []proxy.IProxyClient{p1, p2}
 	leastAlgorithm.servers.Store(&servers)
@@ -493,7 +499,7 @@ func TestLeastResponseTimeNextPicksLeast(t *testing.T) {
 		for _, p := range proxies {
 			servers = append(servers, p)
 		}
-		leastAlgorithm := &LeastAlgorithm{lastIndex: new(uint32)}
+		leastAlgorithm := &LeastAlgorithm{}
 		leastAlgorithm.servers.Store(&servers)
 		return leastAlgorithm
 	}
@@ -541,4 +547,106 @@ func TestRejoinResetsResponseTimeScore(t *testing.T) {
 	leastAlgorithm.isHostAlive = func(string) bool { return true }
 	leastAlgorithm.healthCheck(&backend, 0)
 	assert.Equal(t, float64(0), mockProxy.ResTime, "a Rejoining Backend must start unmeasured")
+}
+
+func TestLeastConnectionNextPicksLeast(t *testing.T) {
+	newBalancer := func(proxies ...*mocks.MockProxy) *LeastAlgorithm {
+		servers := make([]proxy.IProxyClient, 0, len(proxies))
+		for _, p := range proxies {
+			servers = append(servers, p)
+		}
+		leastAlgorithm := &LeastAlgorithm{}
+		leastAlgorithm.servers.Store(&servers)
+		return leastAlgorithm
+	}
+
+	t.Run("picks the backend with the fewest pending requests, not the first improvement", func(t *testing.T) {
+		busy := &mocks.MockProxy{Addr: "localhost:9000", Pending: 5}
+		medium := &mocks.MockProxy{Addr: "localhost:9001", Pending: 3}
+		idle := &mocks.MockProxy{Addr: "localhost:9002", Pending: 1}
+
+		leastAlgorithm := newBalancer(busy, medium, idle)
+		for i := 0; i < 10; i++ {
+			assert.Equal(t, idle, leastAlgorithm.leastConnectionNext(), "call %d", i)
+		}
+	})
+
+	t.Run("rotates among equally loaded backends", func(t *testing.T) {
+		a := &mocks.MockProxy{Addr: "localhost:9000"}
+		b := &mocks.MockProxy{Addr: "localhost:9001"}
+		c := &mocks.MockProxy{Addr: "localhost:9002"}
+
+		leastAlgorithm := newBalancer(a, b, c)
+		seen := map[*mocks.MockProxy]int{}
+		for i := 0; i < 9; i++ {
+			seen[leastAlgorithm.leastConnectionNext().(*mocks.MockProxy)]++
+		}
+		assert.Equal(t, map[*mocks.MockProxy]int{a: 3, b: 3, c: 3}, seen)
+	})
+
+	t.Run("a backend that rejoins mid-rotation takes its turn", func(t *testing.T) {
+		a := &mocks.MockProxy{Addr: "localhost:9000", Pending: 2}
+		b := &mocks.MockProxy{Addr: "localhost:9001", Pending: 2}
+		leastAlgorithm := newBalancer(a, b)
+		leastAlgorithm.leastConnectionNext()
+
+		rejoined := &mocks.MockProxy{Addr: "localhost:9002", Pending: 2}
+		servers := append(*leastAlgorithm.servers.Load(), rejoined)
+		leastAlgorithm.servers.Store(&servers)
+
+		reached := false
+		for i := 0; i < len(servers) && !reached; i++ {
+			reached = leastAlgorithm.leastConnectionNext() == rejoined
+		}
+		assert.True(t, reached, "an equally loaded Rejoined Backend must be picked within one rotation")
+	})
+
+	t.Run("the pool shrinking mid-rotation never indexes past it", func(t *testing.T) {
+		a := &mocks.MockProxy{Addr: "localhost:9000"}
+		b := &mocks.MockProxy{Addr: "localhost:9001"}
+		c := &mocks.MockProxy{Addr: "localhost:9002"}
+		leastAlgorithm := newBalancer(a, b, c)
+		leastAlgorithm.leastConnectionNext()
+		leastAlgorithm.leastConnectionNext()
+
+		servers := []proxy.IProxyClient{a}
+		leastAlgorithm.servers.Store(&servers)
+
+		for i := 0; i < 5; i++ {
+			assert.Equal(t, a, leastAlgorithm.leastConnectionNext())
+		}
+	})
+}
+
+// Run with -race: Stats() reads each Backend's liveness while the health
+// checker flips it.
+func TestStatsConcurrentWithHealthCheck(t *testing.T) {
+	caseOne := mocks.TestCases[0]
+	caseOne.Config.Type = "least-connection"
+	var alive atomic.Bool
+	alive.Store(true)
+	caseOne.Config.HealthCheckerFunc = func(string) bool { return alive.Load() }
+	balancer := NewLeastAlgorithm(&caseOne.Config, nil, caseOne.ProxyFunc).(*LeastAlgorithm)
+	defer balancer.Shutdown() //nolint:errcheck
+
+	backend := caseOne.Config.Backends[0]
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 500; i++ {
+			alive.Store(false)
+			balancer.healthCheck(&backend, 0)
+			alive.Store(true)
+			balancer.healthCheck(&backend, 0)
+		}
+	}()
+
+	for {
+		select {
+		case <-done:
+			return
+		default:
+			balancer.Stats()
+		}
+	}
 }

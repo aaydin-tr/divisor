@@ -17,7 +17,7 @@ import (
 
 type serverMap struct {
 	proxy       proxy.IProxyClient
-	isHostAlive bool
+	isHostAlive atomic.Bool
 	statsIdx    int
 }
 
@@ -30,7 +30,7 @@ type LeastAlgorithm struct {
 	stopOnce          sync.Once
 	servers           atomic.Pointer[[]proxy.IProxyClient]
 	healthCheckerTime time.Duration
-	lastIndex         *uint32
+	cursor            atomic.Uint64
 	nextFunc          func() proxy.IProxyClient
 }
 
@@ -42,7 +42,6 @@ func NewLeastAlgorithm(cfg *config.Config, middlewareExecutor *middleware.Execut
 		hashFunc:          cfg.HashFunc,
 		stopHealthChecker: make(chan struct{}),
 		healthCheckerDone: make(chan struct{}),
-		lastIndex:         new(uint32),
 	}
 
 	servers := make([]proxy.IProxyClient, 0, len(cfg.Backends))
@@ -55,8 +54,9 @@ func NewLeastAlgorithm(cfg *config.Config, middlewareExecutor *middleware.Execut
 		} else {
 			zap.S().Warnf("Server is not live, it will be added for load balancing when its health check succeeds, Addr: %s", b.Url)
 		}
-		leastAlgorithm.serversMap[leastAlgorithm.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] =
-			&serverMap{proxy: proxyClient, isHostAlive: isHostAlive, statsIdx: len(leastAlgorithm.serversMap)}
+		backendState := &serverMap{proxy: proxyClient, statsIdx: len(leastAlgorithm.serversMap)}
+		backendState.isHostAlive.Store(isHostAlive)
+		leastAlgorithm.serversMap[leastAlgorithm.hashFunc(helper.S2B(b.Url+strconv.Itoa(i)))] = backendState
 	}
 
 	if len(servers) == 0 {
@@ -95,16 +95,16 @@ func (l *LeastAlgorithm) leastConnectionNext() proxy.IProxyClient {
 	if len(servers) == 0 {
 		return nil
 	}
-	lastIndex := atomic.LoadUint32(l.lastIndex)
-	if lastIndex >= uint32(len(servers)) {
-		lastIndex = 0
-	}
-	proxyClient := servers[lastIndex]
-	for i, proxy := range servers {
-		if proxy.PendingRequests() < proxyClient.PendingRequests() {
-			proxyClient = proxy
-			atomic.StoreUint32(l.lastIndex, uint32(i))
-			break
+	// The scan starts at a rotating offset so equally loaded Backends
+	// (an idle pool) take turns instead of the lowest index winning every tie.
+	offset := int(l.cursor.Add(1) % uint64(len(servers)))
+	proxyClient := servers[offset]
+	leastPending := proxyClient.PendingRequests()
+	for i := 1; i < len(servers); i++ {
+		server := servers[(offset+i)%len(servers)]
+		if pending := server.PendingRequests(); pending < leastPending {
+			proxyClient = server
+			leastPending = pending
 		}
 	}
 	return proxyClient
@@ -158,19 +158,16 @@ func (l *LeastAlgorithm) healthCheck(backend *config.Backend, index int) {
 	status := l.isHostAlive(backend.GetHealthCheckURL())
 	backendHash := l.hashFunc(helper.S2B(backend.Url + strconv.Itoa(index)))
 	proxyMap, ok := l.serversMap[backendHash]
-	if ok && (!status && proxyMap.isHostAlive) {
+	if ok && (!status && proxyMap.isHostAlive.Load()) {
 		newServers := helper.RemoveByValue(*l.servers.Load(), proxyMap.proxy)
 		l.servers.Store(&newServers)
-		if atomic.LoadUint32(l.lastIndex) >= uint32(len(newServers)) {
-			atomic.StoreUint32(l.lastIndex, 0)
-		}
-		proxyMap.isHostAlive = false
+		proxyMap.isHostAlive.Store(false)
 
 		zap.S().Infof("Server is down, removing from load balancer, Addr: %s", backend.Url)
 		if len(newServers) == 0 {
 			zap.S().Warn("All backends are down, serving 503 until a backend rejoins")
 		}
-	} else if ok && (status && !proxyMap.isHostAlive) {
+	} else if ok && (status && !proxyMap.isHostAlive.Load()) {
 		// A Rejoining Backend starts unmeasured: its score from before it
 		// went Down — possibly a failure penalty — says nothing about it now.
 		proxyMap.proxy.ResetRecentResponseTime()
@@ -179,7 +176,7 @@ func (l *LeastAlgorithm) healthCheck(backend *config.Backend, index int) {
 		newServers = append(newServers, oldServers...)
 		newServers = append(newServers, proxyMap.proxy)
 		l.servers.Store(&newServers)
-		proxyMap.isHostAlive = true
+		proxyMap.isHostAlive.Store(true)
 		zap.S().Infof("Server is live again, adding back to load balancer, Addr: %s", backend.Url)
 	}
 }
@@ -194,7 +191,7 @@ func (l *LeastAlgorithm) Stats() []types.ProxyStat {
 			AvgResTime:    s.AvgResTime,
 			LastUseTime:   s.LastUseTime,
 			ConnsCount:    s.ConnsCount,
-			IsHostAlive:   p.isHostAlive,
+			IsHostAlive:   p.isHostAlive.Load(),
 			BackendHash:   hash,
 		}
 	}
