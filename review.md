@@ -5,7 +5,7 @@
 
 No spec/issue tracker exists for this repo, so this is a bug-focused review plus a code-smell pass — not a spec-conformance review. Findings marked *(judgement call)* are defensible-design questions, not hard bugs.
 
-**Totals:** 4 critical · 8 high · 9 medium · 20 low · 6 smells — fixed so far: C1–C4, H1–H5, M3, L9
+**Totals:** 4 critical · 8 high · 9 medium · 20 low · 6 smells — fixed so far: C1–C4, H1–H8, M3, M6, L9–L11, S4
 
 ## Fix checklist
 
@@ -20,15 +20,15 @@ Tick items off as we fix them:
 - [x] [H3 — Middleware errors silently discarded → client gets 200 OK](#h3) ✅ fixed
 - [x] [H4 — Millisecond truncation breaks least-response-time](#h4) ✅ fixed
 - [x] [H5 — Failed requests shrink the response-time average → traffic black hole](#h5) ✅ fixed
-- [ ] [H6 — Trailing slash/path in backend URL → invalid dial address](#h6)
-- [ ] [H7 — Swallowed logger error → nil-logger panic at startup](#h7)
-- [ ] [H8 — net/http adapter forwards stale Content-Length](#h8)
+- [x] [H6 — Trailing slash/path in backend URL → invalid dial address](#h6) ✅ fixed
+- [x] [H7 — Swallowed logger error → nil-logger panic at startup](#h7) ✅ fixed
+- [x] [H8 — net/http adapter forwards stale Content-Length](#h8) ✅ fixed
 - [ ] [M1 — least-connection doesn't pick the least-connected server](#m1)
 - [ ] [M2 — `isHostAlive` data race between `Stats()` and health checker](#m2)
 - [x] [M3 — "All backends are down" panic makes transient outages permanent](#m3)
 - [ ] [M4 — Virtual-node key collisions corrupt the ip-hash ring](#m4)
 - [ ] [M5 — `OnResponse` cannot override backend errors as documented](#m5)
-- [ ] [M6 — `https://` backends silently downgraded to plain HTTP](#m6)
+- [x] [M6 — `https://` backends silently downgraded to plain HTTP](#m6) ✅ fixed with H6
 - [ ] [M7 — Typed-nil `any` defeats server-startup failure check](#m7)
 - [ ] [M8 — Connection-nominated headers not stripped (RFC 7230 §6.1)](#m8)
 - [ ] [M9 — `$incremental` header race produces duplicate values](#m9)
@@ -143,6 +143,7 @@ Tick items off as we fix them:
 - **Bug:** only the scheme prefix is stripped; a path, trailing slash, query, or userinfo survives into `b.Url`, which is used verbatim as `fasthttp.HostClient.Addr` (must be a dialable `host:port`). Nothing validates it.
 - **Failure scenario:** `url: http://localhost:8080/` (very common) yields `Addr = "localhost:8080/"`; dialing fails on port `"8080/"` so every proxied request returns 500 — while the health check (`http://localhost:8080//`) can still return 200 on slash-merging servers (nginx), so the backend is happily kept in rotation.
 - **Fix:** `url.Parse` the backend URL and extract only `Host`, erroring on anything with a path/query or malformed `host:port`.
+- **Status: FIXED (2026-08-22).** `protocolRegex` replaced by `normalizeBackendAddress` ([pkg/config/config.go](pkg/config/config.go)): `url.Parse`-based, producing a dialable **Backend address** (new CONTEXT.md term). An optional `http://` scheme and a bare trailing slash are accepted and stripped; a missing port is normalized to `:80` explicitly (previously implicit via fasthttp); startup errors on a real path, query, fragment, userinfo, malformed `host:port`, or empty url — so L10 is fixed as a side effect. `https://` is rejected with an error naming the TLS-termination model — M6's rejection arm, recorded as [docs/adr/0004-plaintext-only-backends.md](docs/adr/0004-plaintext-only-backends.md). All example configs already pass the new validation. Regression tests: `TestNormalizeBackendAddress` (accept/normalize/reject table) in `pkg/config`.
 
 <a id="h7"></a>
 ### H7. Logger build error swallowed → nil logger passed to `zap.ReplaceGlobals` → startup panic
@@ -151,6 +152,7 @@ Tick items off as we fix them:
 - **Bug:** if `config.Build()` fails (log sink can't be opened), the error is discarded and nil goes into `zap.ReplaceGlobals`, which immediately calls `logger.Sugar()` → nil-pointer panic (verified in zap v1.27.1). `CreateLogDirIfNotExist` makes this reachable: a permission error from `os.Stat` is not `ErrNotExist`, so it returns nil and the unwritable path is used instead of falling back to `./divisor.log`.
 - **Failure scenario:** on Linux, `/var/log/divisor/` exists from an earlier root run; the process now runs as non-root. `Build` fails to open the sink and `main.go:32` panics with a nil dereference before any usable error message.
 - **Fix:** check the `Build` error and fall back to a stdout-only config; treat any stat error other than "not exist" as failure in `CreateLogDirIfNotExist`.
+- **Status: FIXED (2026-08-22).** Done as a cascade so the process always starts: the log-path helpers moved from `pkg/helper` into `pkg/logger` (S4, now unexported in [pkg/logger/logfile.go](pkg/logger/logfile.go)); `createLogDirIfNotExist` surfaces *any* stat error (not just `ErrNotExist`) so an unusable dir falls back to `./divisor.log`; the Windows `LocalAppData` empty-check now runs before concatenation (L11 fixed — extracted as testable `logFolderFor(goos, localAppData)`); and `InitLogger` checks `Build`'s error, rebuilding with stdout-only sinks plus a warning naming the unopenable file (`zap.NewNop` as the last-resort guarantee that `ReplaceGlobals` never sees nil). Regression tests in `pkg/logger`: `TestInitLoggerFallsBackToStdoutOnUnopenableSink` (panicked on old code), `TestInitLoggerWritesFile`, `TestLogFolderFor`, `TestCreateLogDirIfNotExist` (incl. permission-denied stat).
 
 <a id="h8"></a>
 ### H8. net/http adapter forwards stale Content-Length — middleware body rewrites get truncated or hang
@@ -159,6 +161,7 @@ Tick items off as we fix them:
 - **Bug:** the adapter's header copy loop forwards the backend's parsed `Content-Length` into `w.Header()`, but fasthttp's `Response.SetBody/SetBodyString` (what an `OnResponse` middleware uses) does **not** update the stored content length — only `Response.Write` recomputes it, which the adapter path never calls.
 - **Failure scenario:** http2 mode + a middleware rewriting a response body: backend returns `"hello"` (CL=5), middleware sets `"goodbye world"` (13 bytes). The adapter sends `Content-Length: 5`; net/http truncates at 5 bytes and returns `http.ErrContentLength` (silently ignored). The client receives `"goodb"`. A shorter rewrite ends the stream early — client errors/hangs.
 - **Fix:** skip `Content-Length` (and `Trailer`) in the header copy loop and let net/http derive it from the bytes written, or set it from `len(ctx.Response.Body())`.
+- **Status: FIXED (2026-08-22).** The header-copy loop skips `Content-Length` ([internal/proxy/nethttp_adapter.go](internal/proxy/nethttp_adapter.go)); net/http derives framing from the bytes actually written — chosen over setting it from `len(Body())` so the path stays correct if response streaming (L8) ever lands. `Trailer` needed nothing: it was already in `hopHeaders`. Regression tests: `TestNetHttpAdapterIgnoresStaleContentLength` in `internal/proxy` (real `httptest.NewServer`, since the recorder doesn't enforce Content-Length; verified failing on the pre-fix code — the shorter rewrite dies with `unexpected EOF`), plus integration Scenario `TestHTTP2MiddlewareBodyRewrite` (HTTP/2 + a middleware rewriting the body shorter and much longer, full body asserted end to end).
 
 ---
 
@@ -214,6 +217,7 @@ Tick items off as we fix them:
 - **Bug:** a TLS-only backend can never work, but the config layer drops the scheme without error.
 - **Failure scenario:** `url: https://api.example.com` → health check GETs the plain-HTTP URL → 301 redirect → treated as down → backend never added; with all backends https, startup fails with the unrelated-looking "No available servers". If the health endpoint answers 200 over HTTP, traffic is proxied **unencrypted** to port 80.
 - **Fix:** either reject `https://` URLs with a clear error, or preserve the scheme, set `HostClient.IsTLS`, and use an https health-check URL.
+- **Status: FIXED (2026-08-22), with H6.** The reject arm was chosen: `normalizeBackendAddress` errors at startup on `https://` with a message naming the TLS-termination model. Decision recorded in [docs/adr/0004-plaintext-only-backends.md](docs/adr/0004-plaintext-only-backends.md) (TLS-to-backend deliberately deferred as an additive post-1.0 feature).
 
 <a id="m7"></a>
 ### M7. Typed-nil `any` comparison defeats the server-startup failure check
@@ -271,11 +275,11 @@ Tick items off as we fix them:
 ### L9. `GetNode` has no empty-ring guard — ✅ fixed with C3
 [pkg/consistent/consistent.go:90-102](pkg/consistent/consistent.go#L90-L102) — `GetNode` now returns nil on an empty ring, and ip-hash serves 503 via `proxy.NoAliveBackends` ([core/ip-hash/ip-hash.go:82-88](core/ip-hash/ip-hash.go#L82-L88)). Regression test `TestGetNodeEmptyRing`.
 
-### L10. Empty backend `url` passes validation
-[pkg/config/config.go:201-238](pkg/config/config.go#L201-L238) — a backend with no URL is accepted (the package's own tests construct `Backend{}` and get nil errors); the failure surfaces later as a confusing empty-Addr health-check warning. **Fix:** error when `b.Url` is empty after stripping.
+### L10. Empty backend `url` passes validation — ✅ fixed with H6
+`normalizeBackendAddress` rejects an empty (or whitespace-only) `url` at startup; the package tests that constructed `Backend{}` now use real addresses.
 
-### L11. `GetLogFolder` Windows fallback is dead code — logs can land in `\divisor\` at the drive root
-[pkg/helper/helper.go:71-74](pkg/helper/helper.go#L71-L74) — `os.Getenv("LocalAppData") + "\\divisor\\"` is never `""`, so the empty-check can't fire; with `LocalAppData` unset (service accounts) the dir becomes `\divisor\` at the drive root instead of falling back to `./divisor.log`. **Fix:** check the env var before appending.
+### L11. `GetLogFolder` Windows fallback is dead code — ✅ fixed with H7
+Now `logFolderFor(goos, localAppData)` in [pkg/logger/logfile.go](pkg/logger/logfile.go): the env var is checked *before* concatenating, so an unset `LocalAppData` falls back to `./divisor.log` instead of the drive root. Covered by `TestLogFolderFor` (testable cross-platform).
 
 ### L12. `tcp_keepalive_period` config option is a silent no-op
 [pkg/config/config.go:84](pkg/config/config.go#L84), wired at [main.go:109](main.go#L109) — fasthttp applies the period only when `Server.TCPKeepalive` is true, which divisor never sets. **Fix:** set `TCPKeepalive: true` when a period is configured.
@@ -318,8 +322,8 @@ Tick items off as we fix them:
 ### S3. `FindIndex` returns `(0, err)` on miss — a valid-index sentinel
 [pkg/helper/helper.go:48-56](pkg/helper/helper.go#L48-L56) — index 0 is a legitimate result, so any caller dropping the error deletes element 0. The sole current caller checks, but the API invites the bug. Return `-1` or `(int, bool)`.
 
-### S4. Log-path helpers misplaced in `pkg/helper` (low cohesion)
-[pkg/helper/helper.go:58-92](pkg/helper/helper.go#L58-L92) — `GetLogFile`/`GetLogFolder`/`CreateLogDirIfNotExist` exist solely for `pkg/logger` inside an otherwise generic utility package. Moving them makes H7 + L11 a single-package fix.
+### S4. Log-path helpers misplaced in `pkg/helper` (low cohesion) — ✅ addressed with H7
+Moved to [pkg/logger/logfile.go](pkg/logger/logfile.go); only `GetLogFile` stays exported (main.go's sole need), the rest are unexported.
 
 ### S5. Repeated type switches on `server any`
 [internal/monitoring/monitoring.go:45,84-91](internal/monitoring/monitoring.go#L84-L91) and [main.go:182-193](main.go#L182-L193) — parallel `case *fasthttp.Server / case *http.Server` switches in every consumer; a small interface (`OpenConnectionsCounter`/`Shutdowner`) removes both and fixes the M7 typed-nil trap structurally.
@@ -336,5 +340,5 @@ Tick items off as we fix them:
 3. **M4** — collision-free vnode keys in `pkg/consistent`. *(C3 and L9 done.)*
 4. **H3 + M5** — middleware error-to-response translation + explicit "handled" signal. *(C4's per-request `recover()` done.)*
 5. **M1 + M9** — remaining metrics/selection correctness in `internal/proxy` + `least-algorithm`. *(H4 and H5 done.)*
-6. **H6 + H7 + M6 + M7** — config/startup robustness.
-7. **H8 and the rest** — adapter and low-severity items, batched as convenient.
+6. **M7** — remaining config/startup robustness. *(H6, H7, M6 done.)*
+7. **The rest** — low-severity items, batched as convenient. *(H8 done.)*
