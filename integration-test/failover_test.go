@@ -89,9 +89,8 @@ func TestHealthToggleFailoverAndRejoin(t *testing.T) {
 func TestBackendDownAtStartupCanRejoin(t *testing.T) {
 	t.Parallel()
 	// SPEC (1.0): a backend that was Down when divisor booted must Rejoin
-	// once its Probe succeeds. BORN RED: divisor never adds such a backend
-	// to its server map (core/round-robin/round-robin.go healthCheck), so
-	// today it can never Rejoin.
+	// once its Probe succeeds (the Pool registers it Down at startup and
+	// Joins it on the first successful Probe: core/pool/pool.go).
 	s := startScenario(t, ScenarioSpec{
 		Name:              "fostart",
 		Type:              "round-robin",
