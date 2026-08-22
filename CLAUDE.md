@@ -27,6 +27,7 @@ go test -race ./...
 go test -v ./...
 
 # Run tests for specific package
+go test ./core/pool
 go test ./core/round-robin
 go test ./internal/proxy
 
@@ -48,20 +49,33 @@ go install github.com/aaydin-tr/divisor@latest
 
 ### Core Load Balancing System
 
-The load balancer uses a **factory pattern** via `balancer.NewBalancer()` which selects the appropriate algorithm implementation based on `config.Type`. All algorithms implement the `types.IBalancer` interface.
+`core/` has two halves (vocabulary in `CONTEXT.md`):
 
-**Algorithm Implementations** (in `core/`):
-- `round-robin` - Sequential server rotation
-- `w-round-robin` - Weighted rotation (requires `weight` in backend config)
-- `ip-hash` - Consistent hashing based on client IP (uses `pkg/consistent`)
-- `random` - Random server selection
-- `least-connection` - Routes to the Backend with the fewest pending requests (ties rotate)
-- `least-response-time` - Routes to server with lowest average response time
+- **Pool** (`core/pool`: `pool.go`, `backend.go`, `rotation.go`) — owns every
+  configured `Backend` (config index, address, weight, Probe URL, proxy
+  client, Alive flag), runs the Probe loop every `config.HealthCheckerTime`,
+  moves Backends between Alive and Down, resets a Rejoining Backend's
+  response-time score, builds `Stats()` rows in config order (`BackendHash`
+  is the config index), and closes every proxy on `Shutdown()`. `NewPool`
+  Probes once synchronously and does not start the loop;
+  `StartHealthChecker()` does. `ProbeAllBackends()` is the one Probe round,
+  shared by the loop and by tests, so unit tests never race a goroutine. It never imports a balancer package.
+- **Balancers** (one package each: `core/round-robin`, `core/w-round-robin`,
+  `core/random`, `core/least-connection`, `core/least-response-time`,
+  `core/ip-hash`) — selection only. Each exports `New(cfg, backends)
+  pool.Balancer`; `pool.Balancer` is `Join(*Backend)` / `Leave(*Backend)`,
+  called by the Pool (single writer) on liveness transitions, and
+  `Pick(ctx)`, which runs on request goroutines and returns nil when nothing
+  is Alive. The slice-based ones embed `pool.Rotation` (copy-on-write Alive
+  slice); ip-hash keeps one ring Node per Backend (`pkg/consistent`).
 
-All algorithms share common behavior:
-- Health checking via goroutine that runs every `config.HealthCheckerTime`
-- Graceful shutdown support via `Shutdown()` method
-- Statistics tracking via `Stats()` method returning `[]types.ProxyStat`
+`core.NewBalancer(cfg, middlewareExecutor, proxyFunc)` is the only wiring:
+it turns `cfg.Backends` into Backends, picks the balancer by `cfg.Type`,
+builds the Pool with `cfg.HealthCheckerFunc`, returns nil if no Backend is
+Alive after the first Probe round (or the type is unknown), otherwise starts
+the loop and returns a `types.IBalancer` (`Serve`/`Stats`/`Shutdown`) — the
+Pool plus the balancer as the rest of the process sees them. `Serve` answers
+503 (`proxy.NoAliveBackends`) when `Pick` returns nil.
 
 ### Proxy Layer
 
@@ -93,8 +107,8 @@ All algorithms share common behavior:
 
 1. Parse config file → `config.ParseConfigFile()`
 2. Prepare/validate config → `config.PrepareConfig()`
-3. Create balancer with algorithm → `balancer.NewBalancer()`
-4. Start health checkers (goroutines for each algorithm)
+3. Create the Pool + balancer → `core.NewBalancer()` (first Probe round runs synchronously here)
+4. The Probe loop starts inside `NewBalancer` (`Pool.StartHealthChecker()`)
 5. Start the client-facing server via `internal/server.Start()` (fasthttp for HTTP/1.1, net/http for HTTP/2); it returns a stack-agnostic `Server` plus a channel that reports a Serve failure
 6. Start monitoring server (goroutine)
 7. Select on SIGINT/SIGTERM (graceful shutdown, 30s timeout) vs a Serve failure (fatal, non-zero exit)
@@ -104,8 +118,8 @@ All algorithms share common behavior:
 Implemented in `performGracefulShutdown()`:
 - Stops accepting new connections
 - Waits for in-flight requests to complete
-- Stops health checker goroutines
-- Closes idle connections via `balancer.Shutdown()`
+- Stops the Probe loop and waits for a round in flight (capped by `types.HealthCheckerStopTimeout`)
+- Closes idle connections via `balancer.Shutdown()` → `Pool.Shutdown()`
 - 30-second timeout enforced
 
 ## Code style
@@ -113,6 +127,13 @@ Implemented in `performGracefulShutdown()`:
 Code explains itself: put the meaning in names and structure. A comment earns
 its place only for a constraint the code cannot show (a non-obvious library
 behavior, a spec decision, a pointer to an ADR) and stays to one or two lines.
+
+Names are explanatory, written out in full: say what the thing is or does,
+using the CONTEXT.md vocabulary, so a reader needs no comment and no jump to
+the definition. `StartHealthChecker` not `Start`, `runHealthCheckLoop` not
+`run`, `updateLiveness(backend, isAlive)` not `apply(b, ok)`,
+`AliveBackends()` not `Alive()`, `aliveBackendCount` not `n`. Idiomatic
+one-letter receivers and loop indices are the only short names.
 
 ## Git
 
@@ -124,18 +145,19 @@ at most two body lines when the change genuinely needs them.
 
 ## Key Implementation Details
 
-### Algorithm Selection
-All algorithms registered in `core/balancer.go` map:
+### Balancer Selection
+All balancers are registered in `core/balancer.go`:
 ```go
-var balancers = map[string]func(...) types.IBalancer{
-    "round-robin": round_robin.NewRoundRobin,
-    "w-round-robin": w_round_robin.NewWRoundRobin,
+var balancers = map[string]func(*config.Config, []*pool.Backend) pool.Balancer{
+    "round-robin":   round_robin.New,
+    "w-round-robin": w_round_robin.New,
     // ...
 }
 ```
+A new balancer is one package implementing `Join`/`Leave`/`Pick` plus a map entry; it never touches liveness.
 
 ### Backend Health Checking
-Each algorithm maintains `stopHealthChecker` channel and runs periodic health checks via ticker. Failed backends are marked but not removed, allowing recovery.
+The Pool owns it: one Probe loop per process, stopped by closing a channel and drained on `Shutdown`. A Down Backend stays registered (and in `Stats()`) and Rejoins when a Probe succeeds.
 
 ### Consistent Hashing (IP-Hash)
 Uses `pkg/consistent` package implementing consistent hashing ring for stable IP-to-backend mapping.
@@ -145,8 +167,8 @@ When `server.http_version: http2`, divisor serves via `net/http` + `golang.org/x
 
 ## Testing Notes
 
-- Tests use mock implementations in `mocks/mocks.go`
-- Each algorithm has `*_test.go` with unit tests
+- Tests use the test doubles in `mocks/mocks.go`: `MockProxy`, `MockBalancer`, `NewBackends(n)`, `RecordingBalancer` (records Join/Leave), `ProbeTable` (per-Backend Probe answers), `RequestFrom(ip)`
+- `core/pool/pool_test.go` drives the Pool through `NewPool` + `ProbeAllBackends` with a `RecordingBalancer`; each balancer package has a selection-only `*_test.go` that feeds `Join`/`Leave` and asserts `Pick`; `core/balancer_test.go` covers `NewBalancer`, `Serve` (forward vs 503) and `Pick` racing a Probe round for every balancer
 - Config validation tested in `pkg/config/config_test.go`
 - Proxy behavior tested in `internal/proxy/proxy_test.go`
 - `integration-test/` is a black-box Docker suite (dockertest): divisor and

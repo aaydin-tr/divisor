@@ -324,11 +324,12 @@ Reached only fasthttp's inbound HTTP/1.1 parsing (net/http has no such switch, B
 <a id="smells"></a>
 ## Code smells (judgement calls)
 
-### S1. Duplicated Code / Shotgun Surgery: five near-identical balancer implementations
-`core/round-robin`, `core/w-round-robin`, `core/random`, `core/least-algorithm`, `core/ip-hash` — `serverMap`, constructor loop, `healthChecker`, `healthCheck`, `Stats()`, and `Shutdown()` are near-verbatim copies (the `healthChecker` loop is byte-identical apart from the receiver). Concrete cost: **C1, C2, H1, H2, M3 and M2 each required the same fix in five files (all paid now); the M2 regression test `TestStatsConcurrentWithHealthCheck` also exists five times.** Extract a shared base type embedding servers/serversMap/health-checking/Stats/Shutdown, with algorithms supplying only `next()` — its own branch; the five duplicate tests collapse into one with it.
+### S1. Duplicated Code / Shotgun Surgery: five near-identical balancer implementations — ✅ FIXED (2026-08-22)
+`core/round-robin`, `core/w-round-robin`, `core/random`, `core/least-algorithm`, `core/ip-hash` — `serverMap`, constructor loop, `healthChecker`, `healthCheck`, `Stats()`, and `Shutdown()` were near-verbatim copies (the `healthChecker` loop byte-identical apart from the receiver). Concrete cost: **C1, C2, H1, H2, M3 and M2 each required the same fix in five files; the M2 regression test `TestStatsConcurrentWithHealthCheck` also existed five times.**
+- **Status: FIXED.** [core/pool](core/pool/pool.go) (the **Pool**, see CONTEXT.md) owns Backend registration, the Probe loop, Alive/Down transitions, the Rejoin score reset, `Stats()` (config order, `BackendHash` = config index) and `Shutdown()` once; the balancer packages ([core/round-robin](core/round-robin/round_robin.go), [core/w-round-robin](core/w-round-robin/w_round_robin.go), [core/random](core/random/random.go), [core/least-connection](core/least-connection/least_connection.go), [core/least-response-time](core/least-response-time/least_response_time.go), [core/ip-hash](core/ip-hash/ip_hash.go)) are selection only (`Join`/`Leave`/`Pick` behind `pool.Balancer`). The Pool receives transitions, not snapshots; `NewPool` runs the first Probe round synchronously and `StartHealthChecker()` launches the loop, so tests drive `ProbeAllBackends()` with no goroutine. The `hashFunc(Url+index)` identity key and `mocks.TestCases` are gone; `TestShutdownStopsHealthChecker` and `TestStatsConcurrentWithProbeRound` exist once, in [core/pool/pool_test.go](core/pool/pool_test.go). `Backend`-side `ResetRecentResponseTime` on Rejoin now happens in the Pool for every balancer (was least-* only).
 
-### S2. Mysterious Names: `len`, `i`, `lastIndex` *(partially addressed by the C1/C2 fixes)*
-`serverMap.i` is now `statsIdx` and the slice-based balancers' separate `len` fields are gone (length comes from the snapshot). Remaining: [core/ip-hash/ip-hash.go:30](core/ip-hash/ip-hash.go#L30) still has `len` (count of alive nodes), the rotation counter `i` at [core/round-robin/round-robin.go:29](core/round-robin/round-robin.go#L29)/[core/w-round-robin/w-round-robin.go:31](core/w-round-robin/w-round-robin.go#L31), and `lastIndex` in least-algorithm is gone with M1 (now `cursor`, an honest rotation counter). These names actively obscured C1 and M1; rename the rest to `aliveCount`, `counter`.
+### S2. Mysterious Names: `len`, `i`, `lastIndex` — ✅ resolved with S1
+`ip-hash`'s `len` shadow counter is gone (the Pool's `aliveCount` is the one count); the rotation counters are `requestCounter` in [core/round-robin](core/round-robin/round_robin.go) and [core/w-round-robin](core/w-round-robin/w_round_robin.go); `lastIndex` became `cursor` with M1 and is now `scanCursor` in [core/least-connection](core/least-connection/least_connection.go).
 
 ### S3. `FindIndex` returns `(0, err)` on miss — a valid-index sentinel
 [pkg/helper/helper.go:48-56](pkg/helper/helper.go#L48-L56) — index 0 is a legitimate result, so any caller dropping the error deletes element 0. The sole current caller checks, but the API invites the bug. Return `-1` or `(int, bool)`.
@@ -346,7 +347,7 @@ Moved to [pkg/logger/logfile.go](pkg/logger/logfile.go); only `GetLogFile` stays
 
 ## Suggested fix order
 
-1. **S1 (extract shared balancer base)** — every shared-base fix (C1/C2/H1/H2/M3/M2) has now landed five times over; do it on its own branch so the next one lands once.
+1. ~~**S1 (extract shared balancer base)**~~ — done (the Pool); the next shared fix lands once.
 2. **M5** — middleware explicit "handled" signal; design still under discussion. *(H3's error-to-response translation and C4's per-request `recover()` done.)*
 3. **M9** — `$incremental` atomicity in `internal/proxy`. *(H4, H5, M1, M8 done.)*
 4. **The rest** — low-severity items, batched as convenient. *(H6–H8, M2, M4, M6, M7 done; L21 added.)*

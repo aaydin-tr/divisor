@@ -1,25 +1,26 @@
-package random
+package round_robin
 
 import (
-	"math/rand/v2"
+	"sync/atomic"
 
 	"github.com/aaydin-tr/divisor/core/pool"
 	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/valyala/fasthttp"
 )
 
-type random struct {
+type roundRobin struct {
 	pool.Rotation
+	requestCounter atomic.Uint64
 }
 
 func New(*config.Config, []*pool.Backend) pool.Balancer {
-	return &random{}
+	return &roundRobin{}
 }
 
-func (r *random) Pick(*fasthttp.RequestCtx) *pool.Backend {
+func (r *roundRobin) Pick(*fasthttp.RequestCtx) *pool.Backend {
 	aliveBackends := r.AliveBackends()
 	if len(aliveBackends) == 0 {
 		return nil
 	}
-	return aliveBackends[rand.IntN(len(aliveBackends))] //nolint:gosec
+	return aliveBackends[r.requestCounter.Add(1)%uint64(len(aliveBackends))]
 }

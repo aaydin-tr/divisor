@@ -77,21 +77,17 @@ hardcoded or silently left at library defaults):
   Asymmetry to fix: all Backends Down 1s after boot → stay up + 503 + Rejoin;
   1s before boot → refuse to start. Orchestrated deploys (compose/k8s) often
   start the LB before the Backends; nginx/HAProxy/Envoy all boot regardless of
-  upstream health. The machinery already exists: Down Backends are registered
-  in `serversMap` at startup and the empty-rotation 503 path
+  upstream health. The machinery already exists: the Pool registers Down
+  Backends at startup and the empty-rotation 503 path
   (`proxy.NoAliveBackends`) is shipped and tested.
   Implementation notes:
-  - Each of the 5 constructors must `servers.Store(&servers)` **before** the
-    `len(servers) == 0` check it currently bails on (today it returns nil
-    before storing; removing the check naively nil-derefs in `next()`), then
-    start the health checker and return the balancer. ip-hash: drop the
-    `ipHash.len <= 0` bail (the consistent-hash ring handles empty).
+  - One decision in one place now: drop the `pool.AliveBackendCount() == 0 → nil`
+    check in `core.NewBalancer` (every balancer's `Pick` already returns nil
+    on an empty rotation, and the ring handles empty).
   - Keep `main.go`'s nil check as a defensive backstop — already exits
     non-zero since the Dockerfile/entrypoint exit-code item below shipped.
-  - Unit tests to flip: constructor tests asserting nil for
-    `mocks.TestCases[2]` (all Backends down, `ExpectedServerCount: 0`) now
-    expect a live balancer serving 503; `TestCases[3]` (empty backend list)
-    stays nil — that case can't pass `PrepareConfig` anyway.
+  - Unit test to flip: `TestNewBalancerIsNilWhenNothingIsAliveAtStartup` in
+    `core` becomes "serves 503 until a Probe succeeds".
   - Do it born-red: integration scenario with every Backend `StartDown: true`
     → divisor boots, serves 503, then one Probe succeeds → traffic flows.
   - Trade-off accepted: a typo'd backend URL no longer fails fast at boot —

@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// ip-hash hashes the TCP source IP (core/ip-hash/ip-hash.go), so every
+// ip-hash hashes the TCP source IP (core/ip-hash/ip_hash.go), so every
 // host-originated request shares one client identity. Stickiness is testable
 // from the host; distribution and remapping need ClientContainers, each with
 // its own IP on the suite network.
