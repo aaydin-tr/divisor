@@ -44,10 +44,11 @@ func Write(dir string) (certPath, keyPath string, err error) {
 	keyPath = filepath.Join(dir, "key.pem")
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
-	if err := os.WriteFile(certPath, certPEM, 0o600); err != nil {
+	const ownerOnly = 0o600
+	if err := os.WriteFile(certPath, certPEM, ownerOnly); err != nil {
 		return "", "", err
 	}
-	if err := os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
+	if err := os.WriteFile(keyPath, keyPEM, ownerOnly); err != nil {
 		return "", "", err
 	}
 	return certPath, keyPath, nil
