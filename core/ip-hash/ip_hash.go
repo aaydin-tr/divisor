@@ -18,16 +18,20 @@ type ipHash struct {
 	backends  []*pool.Backend
 }
 
+// New places every Backend by its Index, so a ring Node's Id resolves to
+// its Backend whatever order the slice came in.
 func New(cfg *config.Config, backends []*pool.Backend) pool.Balancer {
-	nodes := make([]*consistent.Node, len(backends))
-	for i, b := range backends {
-		nodes[i] = &consistent.Node{Id: b.Index, Proxy: b.Proxy, Addr: b.Addr}
+	ringNodes := make([]*consistent.Node, len(backends))
+	backendsByIndex := make([]*pool.Backend, len(backends))
+	for _, b := range backends {
+		ringNodes[b.Index] = &consistent.Node{Id: b.Index, Proxy: b.Proxy, Addr: b.Addr}
+		backendsByIndex[b.Index] = b
 	}
 	return &ipHash{
 		ring:      consistent.NewConsistentHash(len(backends)*len(backends), cfg.HashFunc),
 		hashFunc:  cfg.HashFunc,
-		ringNodes: nodes,
-		backends:  backends,
+		ringNodes: ringNodes,
+		backends:  backendsByIndex,
 	}
 }
 

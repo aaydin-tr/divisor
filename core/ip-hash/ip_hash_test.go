@@ -37,6 +37,18 @@ func TestIPHashIsStablePerClient(t *testing.T) {
 	assert.Len(t, seen, 3, "clients spread over every Alive Backend")
 }
 
+func TestIPHashAcceptsBackendsInAnyOrder(t *testing.T) {
+	backends := mocks.NewBackends(3)
+	shuffled := []*pool.Backend{backends[2], backends[0], backends[1]}
+	ih := New(ipHashConfig(3), shuffled)
+	mocks.JoinAll(ih, shuffled)
+
+	for i := 0; i < clientSamples; i++ {
+		picked := ih.Pick(mocks.RequestFrom(clientIP(i)))
+		assert.Same(t, backends[picked.Index], picked, "client %d resolved to a Backend whose Index does not match", i)
+	}
+}
+
 func TestIPHashNothingAlive(t *testing.T) {
 	backends := mocks.NewBackends(2)
 	ih := New(ipHashConfig(2), backends)

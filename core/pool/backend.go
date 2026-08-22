@@ -8,7 +8,8 @@ import (
 
 // Backend is one `backends` config entry as the Pool and the Balancers see
 // it: its identity is Index, its position in the config, so the same address
-// listed twice is two Backends.
+// listed twice is two Backends. The Backends handed to a Pool or a Balancer
+// constructor carry Indexes 0..n-1, each exactly once, in any order.
 type Backend struct {
 	Proxy    proxy.IProxyClient
 	Addr     string
