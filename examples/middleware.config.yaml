@@ -61,7 +61,38 @@ middlewares:
           return nil
       }
 
-  # Example 4: Custom headers injector
+  # Example 4: Maintenance switch (inline code) — a short-circuit answers the
+  # client itself; see "Short-circuiting" in the README
+  - name: maintenance
+    disabled: false
+    code: |
+      package middleware
+
+      import "github.com/aaydin-tr/divisor/middleware"
+
+      type Maintenance struct{ on bool }
+
+      func New(config map[string]any) middleware.Middleware {
+          on, _ := config["enabled"].(bool)
+          return &Maintenance{on: on}
+      }
+
+      func (m *Maintenance) OnRequest(ctx *middleware.Context) error {
+          if m.on {
+              ctx.SetStatusCode(503)
+              ctx.SetBodyString("down for maintenance")
+              return middleware.ErrShortCircuit // sent as written, no backend asked
+          }
+          return nil
+      }
+
+      func (m *Maintenance) OnResponse(ctx *middleware.Context, err error) error {
+          return nil
+      }
+    config:
+      enabled: false
+
+  # Example 5: Custom headers injector
   - name: header-injector
     disabled: false
     file: /path/to/middleware/headers.go
@@ -70,7 +101,7 @@ middlewares:
         X-Powered-By: Divisor
         X-Version: 1.0.0
 
-  # Example 5: Disabled middleware (for testing)
+  # Example 6: Disabled middleware (for testing)
   - name: debug-middleware
     disabled: true  # Skip this middleware
     file: /path/to/middleware/debug.go

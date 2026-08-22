@@ -82,14 +82,12 @@ func New(config map[string]any) middleware.Middleware {
 }
 `
 
+// abortMW short-circuits from OnRequest: the response it wrote goes out and
+// no Backend is asked.
 const abortMW = `
 package mw
 
-import (
-	"errors"
-
-	"github.com/aaydin-tr/divisor/middleware"
-)
+import "github.com/aaydin-tr/divisor/middleware"
 
 type Abort struct{}
 
@@ -97,7 +95,7 @@ func (m *Abort) OnRequest(ctx *middleware.Context) error {
 	if string(ctx.Path()) == "/blocked" {
 		ctx.SetStatusCode(403)
 		ctx.SetBodyString("blocked by middleware")
-		return errors.New("blocked")
+		return middleware.ErrShortCircuit
 	}
 	return nil
 }
@@ -108,6 +106,65 @@ func (m *Abort) OnResponse(ctx *middleware.Context, err error) error {
 
 func New(config map[string]any) middleware.Middleware {
 	return &Abort{}
+}
+`
+
+// failMW returns a plain error after writing a response: the written
+// response must be discarded and divisor must answer 500.
+const failMW = `
+package mw
+
+import (
+	"errors"
+
+	"github.com/aaydin-tr/divisor/middleware"
+)
+
+type Fail struct{}
+
+func (m *Fail) OnRequest(ctx *middleware.Context) error {
+	if string(ctx.Path()) == "/fail" {
+		ctx.SetStatusCode(418)
+		ctx.SetBodyString("this must not reach the client")
+		return errors.New("rejected")
+	}
+	return nil
+}
+
+func (m *Fail) OnResponse(ctx *middleware.Context, err error) error {
+	return nil
+}
+
+func New(config map[string]any) middleware.Middleware {
+	return &Fail{}
+}
+`
+
+// fallbackMW short-circuits from OnResponse on a Backend failure, replacing
+// divisor's 502 with its own 200.
+const fallbackMW = `
+package mw
+
+import "github.com/aaydin-tr/divisor/middleware"
+
+type Fallback struct{}
+
+func (m *Fallback) OnRequest(ctx *middleware.Context) error {
+	return nil
+}
+
+func (m *Fallback) OnResponse(ctx *middleware.Context, err error) error {
+	if err != nil {
+		ctx.SetStatusCode(200)
+		ctx.Response.Header.Set("X-Fallback", "1")
+		ctx.SetBodyString("served from cache")
+		return middleware.ErrShortCircuit
+	}
+	return nil
+}
+
+func New(config map[string]any) middleware.Middleware {
+	return &Fallback{}
 }
 `
 
@@ -195,6 +252,8 @@ func TestMiddlewareResponseAbortAndPanic(t *testing.T) {
 		Middlewares: []MiddlewareSpec{
 			{Name: "responder", Code: responseHeaderMW},
 			{Name: "abort", Code: abortMW},
+			{Name: "fail", Code: failMW},
+			{Name: "fallback", Code: fallbackMW},
 			{Name: "panicker", Code: panicMW},
 			{Name: "marker", Code: markerMW},
 		},
@@ -222,11 +281,48 @@ func TestMiddlewareResponseAbortAndPanic(t *testing.T) {
 			t.Errorf("aborted request body %q, want the middleware's body", res.Body)
 		}
 		if res.Header.Get("X-Backend-Id") != "" {
-			t.Errorf("aborted request reached backend %s; OnRequest errors must skip the backend", res.Header.Get("X-Backend-Id"))
+			t.Errorf("aborted request reached backend %s; an OnRequest short-circuit must skip the backend", res.Header.Get("X-Backend-Id"))
 		}
-		// Chain-stop-at-first-error has no direct observable here (the
+		// Chain-stop-at-short-circuit has no direct observable here (the
 		// backend is never contacted), but the positive case in
 		// ResponseMutation proves the marker runs on unaborted requests.
+	})
+
+	t.Run("PlainErrorAnswers500", func(t *testing.T) {
+		// ADR 0005: a non-short-circuit error means the middleware failed;
+		// whatever it wrote is discarded and divisor answers 500.
+		res, err := s.Request(http.MethodGet, "/fail", nil, nil)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		if res.StatusCode != http.StatusInternalServerError {
+			t.Errorf("failing middleware got status %d, want 500", res.StatusCode)
+		}
+		if string(res.Body) != `{"message":"rejected"}` {
+			t.Errorf("failing middleware body %q, want divisor's {\"message\":\"rejected\"}", res.Body)
+		}
+		if res.Header.Get("X-Backend-Id") != "" {
+			t.Errorf("request reached backend %s although a middleware failed", res.Header.Get("X-Backend-Id"))
+		}
+	})
+
+	t.Run("ShortCircuitReplacesBackendFailure", func(t *testing.T) {
+		// fail_times=5 outlasts every retry, so the proxy attempt fails and
+		// OnResponse sees the Backend error; its short-circuit must replace
+		// divisor's 502.
+		res, err := s.Request(http.MethodPost, "/retry?fail_key=mwfb&fail_times=5", nil, nil)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		if res.StatusCode != http.StatusOK {
+			t.Errorf("fallback got status %d, want the middleware's 200", res.StatusCode)
+		}
+		if string(res.Body) != "served from cache" {
+			t.Errorf("fallback body %q, want the middleware's body", res.Body)
+		}
+		if res.Header.Get("X-Fallback") != "1" {
+			t.Errorf("fallback header did not reach the client")
+		}
 	})
 
 	t.Run("PanicIsRecovered", func(t *testing.T) {

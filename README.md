@@ -262,6 +262,42 @@ middlewares:
       }
 ```
 
+### Short-circuiting
+
+A middleware can answer the request itself — a **short-circuit**. Write the response to `ctx.Response` and return `middleware.ErrShortCircuit`: divisor sends that response exactly as you left it, asks no backend (from `OnRequest`) or skips its own 502/504 (from `OnResponse`), and runs no later middleware.
+
+```go
+package middleware
+
+import "github.com/aaydin-tr/divisor/middleware"
+
+type Guard struct{}
+
+func New(config map[string]any) middleware.Middleware { return &Guard{} }
+
+// Deny before the backend is asked.
+func (g *Guard) OnRequest(ctx *middleware.Context) error {
+    if len(ctx.Request.Header.Peek("X-Api-Key")) == 0 {
+        ctx.SetStatusCode(401)
+        ctx.SetBodyString("missing api key")
+        return middleware.ErrShortCircuit
+    }
+    return nil
+}
+
+// Serve a fallback when the backend failed.
+func (g *Guard) OnResponse(ctx *middleware.Context, err error) error {
+    if err != nil {
+        ctx.SetStatusCode(200)
+        ctx.SetBodyString("cached page")
+        return middleware.ErrShortCircuit
+    }
+    return nil
+}
+```
+
+Any *other* non-nil error means the middleware failed: divisor discards whatever the response holds (a backend reply, an earlier middleware's edits, anything you wrote) and answers `500` with `{"message": "<error>"}`. Returning `nil` never stops the chain. Wrapping the sentinel (`fmt.Errorf("…: %w", middleware.ErrShortCircuit)`) still counts; the match is `errors.Is`.
+
 ### Request/Response Lifecycle
 
 The middleware execution flow allows you to intercept and control the complete request/response lifecycle. Here's exactly what happens when a request is processed:
@@ -275,12 +311,15 @@ The middleware execution flow allows you to intercept and control the complete r
 2.  **OnRequest Middleware Execution**
     -   Executed **before** the request is sent to the backend
     -   Receives the middleware context with full access to request/response
-    -   **If `OnRequest` returns an error:**
+    -   **If `OnRequest` returns `middleware.ErrShortCircuit`:**
         -   ⛔ The execution chain stops **immediately**
         -   ⛔ The request is **NOT** sent to the backend
         -   ⛔ `OnResponse` is **NOT** called
         -   ⛔ Post-response cleanup occurs
-        -   ⛔ The error is returned to the client: divisor answers `500` with `{"message": "<error>"}`, unless the middleware set its own status code or body — that response is sent untouched
+        -   ✅ The response the middleware wrote is sent to the client unchanged (any status, including 200)
+    -   **If `OnRequest` returns any other error:**
+        -   ⛔ Same chain stop; the backend is **NOT** asked, `OnResponse` is **NOT** called
+        -   ⛔ Whatever the middleware wrote is discarded; divisor answers `500` with `{"message": "<error>"}`
     -   **If `OnRequest` succeeds (returns `nil`):**
         -   ✅ Execution continues to backend proxy
 
@@ -295,15 +334,16 @@ The middleware execution flow allows you to intercept and control the complete r
         1. The middleware context
         2. The backend error (if any) - will be `nil` on success
     -   You can inspect the backend error and decide how to handle it
-    -   **If `OnResponse` returns an error:**
-        -   ⚠️ It **overrides** any backend error
-        -   ⚠️ Post-response cleanup occurs
-        -   ⚠️ This error is returned to the client the same way: `500` with `{"message": "<error>"}` when the middleware wrote no response of its own
-        -   ⚠️ The standard error response is replaced
+    -   **If `OnResponse` returns `middleware.ErrShortCircuit`:**
+        -   ✅ The response the middleware wrote is sent to the client unchanged — on a backend failure this replaces divisor's 502/504
+        -   ⚠️ No later middleware runs; post-response cleanup occurs
+    -   **If `OnResponse` returns any other error:**
+        -   ⚠️ The middleware failed: the response (backend's or otherwise) is discarded and divisor answers `500` with `{"message": "<error>"}`
+        -   ⚠️ No later middleware runs; post-response cleanup occurs
     -   **If `OnResponse` returns `nil`:**
         -   Execution continues normally
-        -   If backend error exists, standard 502 error response is generated
-        -   If no error, the backend response is sent to client
+        -   If a backend error exists, divisor's standard `502 {"message":"bad gateway"}` (or `504 {"message":"gateway timeout"}` on `proxy_timeout`) is generated; headers the middleware added are kept
+        -   If no error, the backend response (with any mutations the middleware made) is sent to the client
 
 5.  **Post-Response Cleanup**
     -   Internal response postprocessing occurs
@@ -314,10 +354,11 @@ The middleware execution flow allows you to intercept and control the complete r
 
 #### Key Takeaways
 
--   🎯 **OnRequest** acts as a gatekeeper - it can block requests before they reach the backend
--   🔄 **OnResponse** always runs after the proxy attempt, giving you a chance to handle backend errors
--   🛡️ **OnResponse** can override backend errors, allowing custom error handling and responses
--   ⏱️ Both middlewares have access to the full request/response context for inspection and modification
+-   🎯 **OnRequest** acts as a gatekeeper - short-circuit to answer the client before the backend is asked
+-   🔄 **OnResponse** always runs after the proxy attempt, giving you a chance to inspect backend errors
+-   🛡️ **OnResponse** can short-circuit to replace a backend error with a response of its own
+-   ⚠️ Any error other than `middleware.ErrShortCircuit` means "the middleware failed" and becomes a `500` — it never silently keeps or forwards a response
+-   ⏱️ Both hooks have access to the full request/response context for inspection and modification
 
 ### Request/Response Diagram
 
@@ -325,24 +366,30 @@ The middleware execution flow allows you to intercept and control the complete r
 flowchart TD
     Start([Client Request]) --> PreReq[Pre-Request Setup]
     PreReq --> OnReq{OnRequest Middleware}
-    
-    OnReq -->|Returns Error| PostRes1[Post-Response Cleanup]
-    PostRes1 --> ReturnErr([Return OnRequest Error])
-    
+
+    OnReq -->|ErrShortCircuit| PostRes1[Post-Response Cleanup]
+    PostRes1 --> ReturnShort1([Send middleware's response])
+
+    OnReq -->|Other error| PostRes4[Post-Response Cleanup]
+    PostRes4 --> Return500a([500 middleware error])
+
     OnReq -->|Returns nil| Proxy[Forward to Backend Server]
-    
+
     Proxy --> CaptureErr[Capture Backend Response/Error]
     CaptureErr --> OnRes{OnResponse Middleware}
-    
-    OnRes -->|Returns Error| PostRes2[Post-Response Cleanup]
-    PostRes2 --> ReturnMwErr([Return OnResponse Error<br/>Backend error overridden])
-    
+
+    OnRes -->|ErrShortCircuit| PostRes2[Post-Response Cleanup]
+    PostRes2 --> ReturnShort2([Send middleware's response<br/>Backend error replaced])
+
+    OnRes -->|Other error| PostRes5[Post-Response Cleanup]
+    PostRes5 --> Return500b([500 middleware error<br/>Backend response discarded])
+
     OnRes -->|Returns nil| PostRes3[Post-Response Cleanup]
     PostRes3 --> CheckBackendErr{Backend Error Exists?}
-    
-    CheckBackendErr -->|Yes| GenerateErr[Generate 502 Error Response]
+
+    CheckBackendErr -->|Yes| GenerateErr[Generate 502/504 Error Response]
     GenerateErr --> ReturnServerErr([Return Server Error])
-    
+
     CheckBackendErr -->|No| ReturnOK([Return Success Response])
 ```
 
