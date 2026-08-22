@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,13 +12,12 @@ import (
 	"github.com/aaydin-tr/divisor/core/types"
 	"github.com/aaydin-tr/divisor/internal/monitoring"
 	"github.com/aaydin-tr/divisor/internal/proxy"
+	"github.com/aaydin-tr/divisor/internal/server"
 	cfg "github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/aaydin-tr/divisor/pkg/logger"
 	"github.com/aaydin-tr/divisor/pkg/middleware"
-	"github.com/valyala/fasthttp"
 	"github.com/valyala/fasthttp/reuseport"
 	"go.uber.org/zap"
-	"golang.org/x/net/http2"
 )
 
 func main() {
@@ -73,25 +70,22 @@ func main() {
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
 
-	var server any
-	if config.Server.HttpVersion == cfg.Http2 {
-		zap.S().Info("Starting net/http server with HTTP/2")
-		server = startNetHttpServer(config, proxies, ln)
-	} else {
-		zap.S().Info("Starting fasthttp server with HTTP/1.1")
-		server = startFasthttpServer(config, proxies, ln)
+	srv, serveErr, err := server.Start(config, proxies, ln)
+	if err != nil {
+		zap.S().Fatalf("Error while starting divisor server %s", err)
 	}
 
-	if server == nil {
-		zap.S().Fatal("Failed to start server")
+	go monitoring.StartMonitoringServer(srv, proxies, config.GetMonitoringAddr())
+
+	select {
+	case <-shutdown:
+		zap.S().Info("Shutdown signal received, initiating graceful shutdown...")
+	case err := <-serveErr:
+		// A dead listener is a startup failure the process must not outlive.
+		zap.S().Fatalf("Divisor server stopped serving: %s", err)
 	}
 
-	go monitoring.StartMonitoringServer(server, proxies, config.GetMonitoringAddr())
-
-	<-shutdown
-	zap.S().Info("Shutdown signal received, initiating graceful shutdown...")
-
-	if err := performGracefulShutdown(server, proxies); err != nil {
+	if err := performGracefulShutdown(srv, proxies); err != nil {
 		zap.S().Errorf("Error during graceful shutdown: %s", err)
 		os.Exit(1)
 	}
@@ -99,75 +93,7 @@ func main() {
 	zap.S().Info("Divisor server shutdown completed successfully")
 }
 
-// startFasthttpServer starts the fasthttp server for HTTP/1.1
-func startFasthttpServer(config *cfg.Config, proxies types.IBalancer, ln net.Listener) *fasthttp.Server {
-	server := &fasthttp.Server{
-		Handler:                       proxies.Serve(),
-		MaxIdleWorkerDuration:         config.Server.MaxIdleWorkerDuration,
-		TCPKeepalivePeriod:            config.Server.TCPKeepalivePeriod,
-		Concurrency:                   config.Server.Concurrency,
-		ReadTimeout:                   config.Server.ReadTimeout,
-		WriteTimeout:                  config.Server.WriteTimeout,
-		IdleTimeout:                   config.Server.IdleTimeout,
-		DisableKeepalive:              config.Server.DisableKeepalive,
-		DisableHeaderNamesNormalizing: config.Server.DisableHeaderNamesNormalizing,
-		MaxRequestBodySize:            config.Server.MaxRequestBodySize,
-		ErrorHandler:                  proxy.ErrorHandler,
-		Name:                          "divisor",
-	}
-
-	go func() {
-		zap.S().Infof("Divisor server is running on %s", config.GetURL())
-		var err error
-		if config.Server.CertFile != "" && config.Server.KeyFile != "" {
-			err = server.ServeTLS(ln, config.Server.CertFile, config.Server.KeyFile)
-		} else {
-			err = server.Serve(ln)
-		}
-
-		if err != nil {
-			zap.S().Errorf("Error while running divisor server %s", err)
-		}
-	}()
-
-	return server
-}
-
-func startNetHttpServer(config *cfg.Config, proxies types.IBalancer, ln net.Listener) *http.Server {
-	adapter := proxy.NewNetHttpAdapter(proxies, config.Server.MaxRequestBodySize)
-
-	server := &http.Server{
-		Addr:         config.GetAddr(),
-		Handler:      adapter,
-		ReadTimeout:  config.Server.ReadTimeout,
-		WriteTimeout: config.Server.WriteTimeout,
-		IdleTimeout:  config.Server.IdleTimeout,
-	}
-
-	if config.Server.DisableKeepalive {
-		server.SetKeepAlivesEnabled(false)
-	} else {
-		server.SetKeepAlivesEnabled(true)
-	}
-
-	// TODO add configuration for HTTP/2 server
-	err := http2.ConfigureServer(server, &http2.Server{})
-	if err != nil {
-		zap.S().Errorf("Error while configuring HTTP/2 server %s", err)
-		return nil
-	}
-
-	go func() {
-		zap.S().Infof("Divisor server is running on %s", config.GetURL())
-		if err := server.ServeTLS(ln, config.Server.CertFile, config.Server.KeyFile); err != nil {
-			zap.S().Errorf("Error while running divisor server %s", err)
-		}
-	}()
-
-	return server
-}
-
-func performGracefulShutdown(server any, balancer types.IBalancer) error {
+func performGracefulShutdown(srv server.Server, balancer types.IBalancer) error {
 	const timeout = 30 * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -176,20 +102,10 @@ func performGracefulShutdown(server any, balancer types.IBalancer) error {
 
 	go func() {
 		zap.S().Info("Shutting down HTTP server...")
-
-		switch s := server.(type) {
-		case *fasthttp.Server:
-			if err := s.ShutdownWithContext(ctx); err != nil {
-				shutdownComplete <- err
-				return
-			}
-		case *http.Server:
-			if err := s.Shutdown(ctx); err != nil {
-				shutdownComplete <- err
-				return
-			}
+		if err := srv.Shutdown(ctx); err != nil {
+			shutdownComplete <- err
+			return
 		}
-
 		zap.S().Info("HTTP server shutdown completed")
 
 		// Shutdown the balancer (stop health checkers, close connections)

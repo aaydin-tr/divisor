@@ -95,9 +95,9 @@ All algorithms share common behavior:
 2. Prepare/validate config → `config.PrepareConfig()`
 3. Create balancer with algorithm → `balancer.NewBalancer()`
 4. Start health checkers (goroutines for each algorithm)
-5. Start monitoring server (goroutine)
-6. Start main fasthttp server
-7. Listen for SIGINT/SIGTERM for graceful shutdown (30s timeout)
+5. Start the client-facing server via `internal/server.Start()` (fasthttp for HTTP/1.1, net/http for HTTP/2); it returns a stack-agnostic `Server` plus a channel that reports a Serve failure
+6. Start monitoring server (goroutine)
+7. Select on SIGINT/SIGTERM (graceful shutdown, 30s timeout) vs a Serve failure (fatal, non-zero exit)
 
 ### Graceful Shutdown
 

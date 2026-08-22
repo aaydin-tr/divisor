@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -21,6 +22,7 @@ var (
 	ErrInvalidPort           = errors.New("Please choose valid port")
 	ErrInvalidWeight         = errors.New("When using the weighted-round-robin algorithm, a weight must be specified for each backend")
 	ErrHttp2WithoutTls       = errors.New("The HTTP/2 connection can be only established if the server is using TLS. Please provide cert and key file")
+	ErrInvalidTLSKeyPair     = errors.New("cert_file/key_file could not be loaded as a TLS key pair")
 	ErrBackendUrlEmpty       = errors.New("Backend url must not be empty")
 	ErrBackendUrlInvalid     = errors.New("Backend url is not valid")
 	ErrBackendUrlHttps       = errors.New("Backend url must not use https, divisor terminates TLS and always speaks plain HTTP to backends")
@@ -306,6 +308,14 @@ func (s *Server) prepareServer() error {
 
 	if err := helper.IsFileExist(s.KeyFile); err != nil && s.KeyFile != "" {
 		return err
+	}
+
+	// Parse the pair now: an unloadable pair would otherwise only surface
+	// when the listener starts, after every other startup step succeeded.
+	if s.CertFile != "" && s.KeyFile != "" {
+		if _, err := tls.LoadX509KeyPair(s.CertFile, s.KeyFile); err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalidTLSKeyPair, err)
+		}
 	}
 
 	if s.MaxIdleWorkerDuration == 0 {

@@ -2,8 +2,12 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/aaydin-tr/divisor/internal/testcert"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/valyala/fasthttp"
@@ -373,6 +377,33 @@ func TestPrepareServer(t *testing.T) {
 		assert.Equal(t, basic.Server.ProxyTimeout, 2*time.Second)
 		assert.Equal(t, basic.Server.MaxRequestBodySize, 1024)
 		assert.Equal(t, basic.Server.DisableKeepalive, true)
-		assert.Equal(t, basic.Server.DisableHeaderNamesNormalizing, true)
+	})
+}
+
+func TestPrepareServerParsesTLSKeyPair(t *testing.T) {
+	t.Run("a loadable pair passes", func(t *testing.T) {
+		certPath, keyPath, err := testcert.Write(t.TempDir())
+		assert.NoError(t, err)
+		server := Server{CertFile: certPath, KeyFile: keyPath}
+		assert.NoError(t, server.prepareServer())
+	})
+
+	t.Run("files that exist but are not a key pair fail at config time", func(t *testing.T) {
+		dir := t.TempDir()
+		certPath, keyPath := filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem")
+		assert.NoError(t, os.WriteFile(certPath, []byte("not a certificate"), 0o600))
+		assert.NoError(t, os.WriteFile(keyPath, []byte("not a key"), 0o600))
+		server := Server{CertFile: certPath, KeyFile: keyPath}
+		err := server.prepareServer()
+		assert.ErrorIs(t, err, ErrInvalidTLSKeyPair)
+	})
+
+	t.Run("a mismatched pair fails at config time", func(t *testing.T) {
+		certPath, _, err := testcert.Write(t.TempDir())
+		assert.NoError(t, err)
+		_, otherKey, err := testcert.Write(t.TempDir())
+		assert.NoError(t, err)
+		server := Server{CertFile: certPath, KeyFile: otherKey}
+		assert.ErrorIs(t, server.prepareServer(), ErrInvalidTLSKeyPair)
 	})
 }

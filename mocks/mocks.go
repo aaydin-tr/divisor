@@ -199,3 +199,11 @@ var TestCases = []testCaseStruct{
 		ProxyFunc:           CreateNewMockProxy,
 	},
 }
+
+// MockBalancer satisfies types.IBalancer with a no-op handler, for tests that
+// need a balancer to hand to the server or monitoring layers.
+type MockBalancer struct{}
+
+func (m *MockBalancer) Serve() func(ctx *fasthttp.RequestCtx) { return func(*fasthttp.RequestCtx) {} }
+func (m *MockBalancer) Stats() []types.ProxyStat              { return nil }
+func (m *MockBalancer) Shutdown() error                       { return nil }
