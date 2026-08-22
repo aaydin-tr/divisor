@@ -50,6 +50,10 @@ _Avoid_: end-to-end TLS, TLS passthrough (neither exists here)
 A user-supplied Go snippet, declared in the config file, that runs before and/or after proxying and may mutate the request or response.
 _Avoid_: plugin, hook, interceptor
 
+**Short-circuit**:
+A Middleware answering the request itself: from `OnRequest`, so the Backend is never asked, or from `OnResponse`, replacing a Backend failure with a response of its own. Divisor sends that response unchanged, and no later Middleware runs.
+_Avoid_: handled, override, fallback, intercept, abort
+
 ### Integration testing
 
 **Integration suite**:

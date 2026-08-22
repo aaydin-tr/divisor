@@ -9,6 +9,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 go build -o divisor
 ```
 
+### Regenerate yaegi symbols
+```bash
+# After any change to the middleware/ package (the author-facing contract):
+# rewrites pkg/middleware/middleware_symbols.go
+go generate ./pkg/middleware/
+```
+
 ### Run
 ```bash
 # Default config (config.yaml in current directory)

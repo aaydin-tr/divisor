@@ -67,6 +67,11 @@ const failureResponseTimePenalty = 10 * time.Second
 // Response times accumulate in microseconds and are reported in milliseconds.
 const microsPerMilli = float64(1000)
 
+const (
+	badGatewayMessage     = `{"message":"bad gateway"}`
+	gatewayTimeoutMessage = `{"message":"gateway timeout"}`
+)
+
 type ProxyClient struct {
 	proxy                *fasthttp.HostClient
 	totalRequestCount    *uint64
@@ -94,6 +99,9 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 	if h.middlewareExecutor != nil {
 		if err := h.middlewareExecutor.RunOnRequest(mwCtx); err != nil {
 			h.postRes(res)
+			if isShortCircuit(err) {
+				return nil
+			}
 			middlewareError(res, err)
 			return err
 		}
@@ -106,26 +114,40 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 	} else {
 		serverErr = h.proxy.Do(req, res)
 	}
+	// Scored here, before OnResponse: the score is the Backend's, whatever a
+	// Middleware does with its response afterwards.
 	if serverErr != nil {
 		h.recordFailure(time.Since(s))
+	} else {
+		h.recordResponseTime(time.Since(s))
 	}
 
 	if h.middlewareExecutor != nil {
-		if handledErr := h.middlewareExecutor.RunOnResponse(mwCtx, serverErr); handledErr != nil {
+		if err := h.middlewareExecutor.RunOnResponse(mwCtx, serverErr); err != nil {
 			h.postRes(res)
-			middlewareError(res, handledErr)
-			return handledErr
+			if isShortCircuit(err) {
+				return serverErr
+			}
+			middlewareError(res, err)
+			return err
 		}
 	}
 
 	h.postRes(res)
 	if serverErr != nil {
 		h.serverError(res, serverErr)
-		return serverErr
 	}
+	return serverErr
+}
 
-	h.recordResponseTime(time.Since(s))
-	return nil
+// isShortCircuit reports whether a Middleware answered the request itself
+// (CONTEXT.md: Short-circuit); ctx.Response then goes out as it left it.
+func isShortCircuit(err error) bool {
+	if !errors.Is(err, middleware.ErrShortCircuit) {
+		return false
+	}
+	zap.S().Debugf("middleware short-circuited the request: %s", err)
+	return true
 }
 
 // recordResponseTime keeps two measures of a successful request: a lifetime
@@ -218,15 +240,13 @@ func isConnectionOption(token []byte) bool {
 	return false
 }
 
-// middlewareError makes a Middleware short-circuit visible to the client: an
-// untouched pooled response would otherwise go out as an empty 200 OK. A
-// Middleware that wrote its own status or body keeps it.
+// middlewareError answers a Middleware failure. Whatever the response held —
+// a Backend's reply, an earlier Middleware's edits — is discarded: a failed
+// Middleware's response cannot be trusted, and an untouched pooled response
+// would otherwise go out as an empty 200 OK.
 func middlewareError(res *fasthttp.Response, err error) {
 	zap.S().Infof("middleware returned an error: %s", err)
-	if res.StatusCode() != fasthttp.StatusOK || len(res.Body()) > 0 {
-		return
-	}
-
+	res.Reset()
 	res.SetStatusCode(fasthttp.StatusInternalServerError)
 	res.Header.Set("Content-Type", "application/json")
 	res.SetBody(errorMessageBody(err))
@@ -274,17 +294,18 @@ func ErrorHandler(ctx *fasthttp.RequestCtx, err error) {
 
 // 504 means proxy_timeout expired on a hanging Backend, which fasthttp
 // reports as ErrTimeout; 502 covers everything else. Dial timeouts stay 502:
-// an unreachable Backend is Down, not hanging.
+// an unreachable Backend is Down, not hanging. The underlying error names
+// Backend addresses and dial details, so it is logged, not sent.
 func (h *ProxyClient) serverError(res *fasthttp.Response, err error) {
 	zap.S().Infof("error when proxying the request: %s", err)
-	status := fasthttp.StatusBadGateway
+	status, message := fasthttp.StatusBadGateway, badGatewayMessage
 	if errors.Is(err, fasthttp.ErrTimeout) {
-		status = fasthttp.StatusGatewayTimeout
+		status, message = fasthttp.StatusGatewayTimeout, gatewayTimeoutMessage
 	}
 	res.SetStatusCode(status)
 	res.SetConnectionClose()
 	res.Header.Set("Content-Type", "application/json")
-	res.SetBody(helper.S2B(`{"message":"` + err.Error() + `"}`))
+	res.SetBodyString(message)
 }
 
 func (h *ProxyClient) setCustomHeaders(req *fasthttp.Request, clientIP []byte) {

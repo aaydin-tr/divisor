@@ -5,7 +5,7 @@
 
 No spec/issue tracker exists for this repo, so this is a bug-focused review plus a code-smell pass — not a spec-conformance review. Findings marked *(judgement call)* are defensible-design questions, not hard bugs.
 
-**Totals:** 4 critical · 8 high · 9 medium · 21 low · 6 smells — fixed so far: C1–C4, H1–H8, M1–M4, M6–M8, L9–L11, L22, S4, S5
+**Totals:** 4 critical · 8 high · 9 medium · 21 low · 6 smells — fixed so far: C1–C4, H1–H8, M1–M8, L3, L9–L11, L22, S4, S5
 
 ## Fix checklist
 
@@ -27,7 +27,7 @@ Tick items off as we fix them:
 - [x] [M2 — `isHostAlive` data race between `Stats()` and health checker](#m2) ✅ fixed
 - [x] [M3 — "All backends are down" panic makes transient outages permanent](#m3)
 - [x] [M4 — Virtual-node key collisions corrupt the ip-hash ring](#m4) ✅ fixed
-- [ ] [M5 — `OnResponse` cannot override backend errors as documented](#m5)
+- [x] [M5 — `OnResponse` cannot override backend errors as documented](#m5) ✅ fixed
 - [x] [M6 — `https://` backends silently downgraded to plain HTTP](#m6) ✅ fixed with H6
 - [x] [M7 — Typed-nil `any` defeats server-startup failure check](#m7) ✅ fixed (with S5)
 - [x] [M8 — Connection-nominated headers not stripped (RFC 7230 §6.1)](#m8) ✅ fixed
@@ -212,6 +212,7 @@ Tick items off as we fix them:
 - **Bug:** when `proxy.Do` fails and `OnResponse` writes a fallback response then returns nil (the intuitive "handled" signal), `serverError()` unconditionally overwrites status to 502/504, sets `Connection: close`, and replaces the body with the raw dial error. The only way to preserve a crafted response is returning a non-nil error — which is then dropped (H3).
 - **Failure scenario:** middleware serves a cached page on backend failure, returns nil → client gets `{"message":"dial tcp …: connection refused"}` with 502 instead of the fallback (also leaking internals; see L3).
 - **Fix:** give the contract an explicit "handled" signal (sentinel error or response-modified check) and skip `serverError` when it's set.
+- **Status: FIXED (2026-08-23).** Re-read before fixing: the README already documented today's rule (`nil` → 502, any error → keep the crafted response), so the defect was the *spelling* of the signal — "I answered the client" could only be said by returning an arbitrary error, which divisor logged as a middleware failure, and the intuitive `nil` silently threw the fallback away. Grilled (grilling + domain-modeling, rounds 1–2): sentinel error chosen over a `Context` method (the Gin `Abort()` shape — makes `return nil` sometimes stop the chain, so a reader must check a flag as well as the return) and over a response-modified heuristic (fasthttp resets the response only *before* the attempt, so a mid-read failure leaves partial headers/body indistinguishable from a crafted fallback, and it cannot tell a Backend's 200 from a Middleware's 200) — recorded as [docs/adr/0005-middleware-short-circuit-sentinel.md](docs/adr/0005-middleware-short-circuit-sentinel.md); CONTEXT.md gained **Short-circuit**. Contract ([middleware/middleware.go](middleware/middleware.go)): `middleware.ErrShortCircuit` (matched with `errors.Is`, wrapping allowed) from *either* hook means "send `ctx.Response` as I left it" — from `OnRequest` no Backend is asked and `OnResponse` is skipped, from `OnResponse` divisor's 502/504 is skipped — and no later Middleware runs; **any other non-nil error means the Middleware failed**: the response is `Reset()` (a Backend's 200 and its headers, an earlier Middleware's edits, anything the failing one wrote) and divisor answers `500 {"message": …}`; `nil` never stops the chain. H3's crafted-response heuristic is gone — one mechanism. Handler ([internal/proxy/proxy.go](internal/proxy/proxy.go)): `isShortCircuit` (debug log) on both paths; `middlewareError` resets then writes the 500; `serverError` runs only when nothing short-circuited and writes status/body only, so headers a Middleware adds on the error path (correlation ids) survive as before; response-time scoring moved to right after `Do`, mirroring `recordFailure`, so a Backend success is scored whatever the Middleware does with it afterwards (previously an OnResponse error path skipped the sample); the handler returns `nil` on an OnRequest short-circuit and the Backend error on an OnResponse one (it reports the proxy outcome; `Serve` discards it). Pre-1.0 behavior break, accepted: a Middleware that wrote a 403 and returned `errors.New("blocked")` now yields a 500 until it returns `middleware.ErrShortCircuit` (README lifecycle, mermaid diagram, `examples/middleware.config.yaml` and the integration `Abort` example all updated; the yaegi symbol table is now a `go generate` step (`pkg/middleware/symbols.go` declares `Symbols` and carries the `//go:generate yaegi extract` directive; the entries live in the generated `middleware_symbols.go`) — the interpreted `middleware.ErrShortCircuit` is the host value, so `errors.Is` holds across the yaegi boundary, verified). L3 folded in: `serverError` bodies are the constants `{"message":"bad gateway"}` / `{"message":"gateway timeout"}`, the dial detail is logged only. Regression tests: `TestMiddlewareShortCircuit` (OnResponse short-circuit replaces the 502 and sets no `Connection: close`; a 200 fallback; wrapped sentinel; first short-circuit stops later middlewares; OnRequest short-circuit skips Backend and OnResponse, may answer 200; `nil` lets the 502 run and keeps added headers; a short-circuited Backend success is still scored) and `TestMiddlewareErrorReachesClient` (plain error discards a crafted response, discards a Backend success and its headers, 500 not 502 after a Backend failure) in `internal/proxy`; integration subtests `PlainErrorAnswers500` and `ShortCircuitReplacesBackendFailure` (Echo `fail_times=5` outlasts every retry) in `TestMiddlewareResponseAbortAndPanic`.
 
 <a id="m6"></a>
 ### M6. `https://` backend URLs silently accepted, then treated as plain HTTP everywhere
@@ -259,8 +260,8 @@ Tick items off as we fix them:
 ### L2. `$time` stamps local time with a literal `Z` (UTC) suffix
 [internal/proxy/proxy.go:172](internal/proxy/proxy.go#L172) — `time.Now().Local().Format("2006-01-02T15:04:05.000Z")`: `Z` is a literal in that layout, so a UTC+3 host claims `12:00Z` when UTC is 09:00. **Fix:** `time.Now().UTC().Format("2006-01-02T15:04:05.000Z07:00")`.
 
-### L3. `serverError` builds JSON by concatenation without escaping, and leaks internal error detail
-[internal/proxy/proxy.go:153-164](internal/proxy/proxy.go#L153-L164) — invalid JSON when the error contains `"` or `\`; exposes backend addresses/dial errors to clients. **Fix:** `json.Marshal` a generic message; log detail server-side.
+### L3. `serverError` builds JSON by concatenation without escaping, and leaks internal error detail — ✅ fixed with M5
+[internal/proxy/proxy.go:153-164](internal/proxy/proxy.go#L153-L164) — invalid JSON when the error contains `"` or `\`; exposes backend addresses/dial errors to clients. Now constant bodies `{"message":"bad gateway"}` / `{"message":"gateway timeout"}`; the error is logged, not sent. `TestServerErrorStatusMapping` asserts the bodies.
 
 ### L4. Monitoring stats goroutine can never be stopped, and starts before the listener bind succeeds
 [internal/monitoring/monitoring.go:102-108](internal/monitoring/monitoring.go#L102-L108), [:137-141](internal/monitoring/monitoring.go#L137-L141) — no stop channel; if `reuseport.Listen` fails it polls gopsutil + `Stats()` forever; keeps touching balancer state during/after graceful shutdown. **Fix:** `time.Ticker` + done channel wired into shutdown; start only after `Listen` succeeds.
@@ -348,6 +349,6 @@ Moved to [pkg/logger/logfile.go](pkg/logger/logfile.go); only `GetLogFile` stays
 ## Suggested fix order
 
 1. ~~**S1 (extract shared balancer base)**~~ — done (the Pool); the next shared fix lands once.
-2. **M5** — middleware explicit "handled" signal; design still under discussion. *(H3's error-to-response translation and C4's per-request `recover()` done.)*
+2. ~~**M5**~~ — done (ADR 0005, `middleware.ErrShortCircuit`; L3 folded in).
 3. **M9** — `$incremental` atomicity in `internal/proxy`. *(H4, H5, M1, M8 done.)*
 4. **The rest** — low-severity items, batched as convenient. *(H6–H8, M2, M4, M6, M7 done; L21 added.)*
