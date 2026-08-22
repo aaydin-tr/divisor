@@ -15,8 +15,6 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-var contentLengthHeader = []byte(fasthttp.HeaderContentLength)
-
 type NetHttpAdapter struct {
 	Balancer           types.IBalancer
 	maxRequestBodySize int

@@ -5,7 +5,7 @@
 
 No spec/issue tracker exists for this repo, so this is a bug-focused review plus a code-smell pass — not a spec-conformance review. Findings marked *(judgement call)* are defensible-design questions, not hard bugs.
 
-**Totals:** 4 critical · 8 high · 9 medium · 21 low · 6 smells — fixed so far: C1–C4, H1–H8, M1–M4, M6, L9–L11, S4
+**Totals:** 4 critical · 8 high · 9 medium · 21 low · 6 smells — fixed so far: C1–C4, H1–H8, M1–M4, M6–M8, L9–L11, L22, S4, S5
 
 ## Fix checklist
 
@@ -29,8 +29,8 @@ Tick items off as we fix them:
 - [x] [M4 — Virtual-node key collisions corrupt the ip-hash ring](#m4) ✅ fixed
 - [ ] [M5 — `OnResponse` cannot override backend errors as documented](#m5)
 - [x] [M6 — `https://` backends silently downgraded to plain HTTP](#m6) ✅ fixed with H6
-- [ ] [M7 — Typed-nil `any` defeats server-startup failure check](#m7)
-- [ ] [M8 — Connection-nominated headers not stripped (RFC 7230 §6.1)](#m8)
+- [x] [M7 — Typed-nil `any` defeats server-startup failure check](#m7) ✅ fixed (with S5)
+- [x] [M8 — Connection-nominated headers not stripped (RFC 7230 §6.1)](#m8) ✅ fixed
 - [ ] [M9 — `$incremental` header race produces duplicate values](#m9)
 - [ ] [L1–L20 — Low-severity bugs & sharp edges](#low)
 - [ ] [S1–S6 — Code smells](#smells)
@@ -229,6 +229,7 @@ Tick items off as we fix them:
 - **Bug:** `startNetHttpServer` returns a typed nil `*http.Server` when `http2.ConfigureServer` fails; stored in an `any`, the interface is non-nil, so `if server == nil` never fires.
 - **Failure scenario:** http2 configuration error → process runs indefinitely with no HTTP listener; later `performGracefulShutdown` calls `Shutdown` on the nil `*http.Server` and panics.
 - **Fix:** return `(server, error)` from both start functions and check the error.
+- **Status: FIXED (2026-08-22).** Re-verified first: `http2.ConfigureServer` on a fresh server essentially cannot fail, so the typed-nil path was nearly unreachable — the *reachable* zombie in the same code was the Serve goroutine: a `ServeTLS`/`Serve` error (config only checked that cert/key *exist*) was logged and `main` kept blocking on `<-shutdown` with no listener. Fixed as S5 proposed: new [internal/server](internal/server/server.go) with a `Server` interface (`Shutdown(ctx)`, `OpenConnectionsCount()`), two wrappers, and `Start(cfg, balancer, ln) (Server, <-chan error, error)` — a nil error guarantees a non-nil `Server`, so the typed-nil class is gone structurally; `main.go` is wiring only and `select`s the shutdown signal against the serve-error channel (`Fatal` on a dead listener, consistent with the orchestrator comment; `http.ErrServerClosed` and fasthttp's nil-on-shutdown are not errors). Both `server any` type switches are deleted — `internal/monitoring` now takes its own narrow `OpenConnectionsCounter`. `PrepareConfig` parses the pair with `tls.LoadX509KeyPair` whenever both files are set (`ErrInvalidTLSKeyPair`), so a bad pair fails at config time with a clear message instead of at listen time. Regression tests: `TestStartReturnsNonNilServerForBothStacks`, `TestServeFailureIsReported` (listener with a permanent Accept error → channel fires), `TestCleanShutdownReportsNothing` in `internal/server` (via new `mocks.MockBalancer` and `internal/testcert`); `TestPrepareServerParsesTLSKeyPair` in `pkg/config` (loadable pair, garbage files, mismatched pair); integration `TestConfigErrorExitsNonZero/UnloadableCertificate` (existing-but-garbage cert/key → non-zero exit). Noted, not fixed: setting only one of `cert_file`/`key_file` still silently serves plain HTTP.
 
 <a id="m8"></a>
 ### M8. Headers nominated in the `Connection` header are not removed (RFC 7230 §6.1)
@@ -237,6 +238,7 @@ Tick items off as we fix them:
 - **Bug:** only the fixed `hopHeaders` list is deleted; the `Connection` header's *value* is never parsed to remove the headers it nominates (the comment at proxy.go:30-34 acknowledges the requirement; Go's `httputil.ReverseProxy` does both).
 - **Failure scenario:** backend replies `Connection: X-Internal-Debug` + `X-Internal-Debug: <internal data>`; the internal header is forwarded to the client. Inbound, a client's `Connection: X-Secret` makes `X-Secret` reach the backend as if end-to-end.
 - **Fix:** before deleting `Connection`, split its value on commas and delete each nominated header on both request and response paths.
+- **Status: FIXED (2026-08-22).** `delConnectionNominated` ([internal/proxy/proxy.go](internal/proxy/proxy.go)) runs in `preReq` and `postRes` with `httputil.ReverseProxy` semantics: every `Connection` line is split on commas, each nominated header deleted, then the fixed RFC 2616 list as before (comment's RFC ref refreshed to 9110 §7.6.1). A single pass: `PeekAll("Connection")` tokens → `DelBytes(token)`; `close`/`keep-alive` are skipped as connection options, not header names, so ordinary traffic does no work beyond the lookup. Case-insensitivity comes from normalization, which is now unconditional — the `disable_header_names_normalizing` option was removed with this fix (L22): it only ever reached fasthttp's inbound HTTP/1.1 parsing (ignored in HTTP/2 mode, never applied to Backend responses) and it made every middleware header lookup case-sensitive, so `x-api-key` would bypass an auth middleware peeking `X-Api-Key` — the same class of hole as M8. It runs first in `preReq`, before divisor sets Host/scheme/X-Forwarded-For/custom headers, so a client nominating those only deletes its own values. One deviation from the agreed "no protected list": `Content-Length` is never removed — on the net/http adapter's streamed request body the stored value *is* the framing (deleting it truncates the forwarded body to zero bytes), and ReverseProxy keeps framing intact too since net/http frames from `req.ContentLength`; buffered bodies are recomputed on write regardless. Nothing needed in the adapter: both paths share the handler, and h2 forbids `Connection` on the wire. Regression tests: `TestConnectionNominatedHeadersStripped` in `internal/proxy` (request and response direction, Host/XFF nomination, Content-Length nomination keeps the body, several `Connection` lines — parsed, since fasthttp's programmatic `Add` overwrites `Connection`); integration subtests `RequestConnectionNominatedStripped` (raw fasthttp client) and `ResponseConnectionNominatedStripped` (Echo `rh=Connection:X-Internal-Debug`) in `TestProxyMatrix`.
 
 <a id="m9"></a>
 ### M9. `$incremental` header is not atomic — concurrent requests get duplicate values
@@ -311,6 +313,9 @@ Now `logFolderFor(goos, localAppData)` in [pkg/logger/logfile.go](pkg/logger/log
 ### L20. Middleware instances are shared across all request goroutines — undocumented
 [pkg/middleware/executor.go:106](pkg/middleware/executor.go#L106), [internal/proxy/proxy.go:71-91](internal/proxy/proxy.go#L71-L91) — the per-middleware yaegi setup avoids the classic concurrent-Eval hazard (same pattern as Traefik plugins), but each middleware is a single shared instance: any mutable field in a user's struct is raced by concurrent requests with no warning in the contract. **Fix:** document that stateful middleware must synchronize internally.
 
+### L22. `disable_header_names_normalizing` was a half-feature and a case-sensitivity foot-gun — ✅ removed with M8
+Reached only fasthttp's inbound HTTP/1.1 parsing (net/http has no such switch, Backend responses were always normalized) and made middleware header lookups case-sensitive. Header names are now always canonical on both stacks; README documents it. Pre-1.0 breaking change: the key is gone from the config (non-strict YAML, so an old config carrying it is silently ignored — strict unknown-key rejection is L13's territory).
+
 ### L21. ip-hash virtual-node count is `len(backends)²` — too few points for even distribution *(surfaced by M4)*
 [core/ip-hash/ip-hash.go:41](core/ip-hash/ip-hash.go#L41) — one Backend gets 1 virtual node, two get 4 each, three get 9; consistent-hash rings usually use 100+ per node for the keyspace split to approach even. With so few points the share between Backends is lumpy and a single Backend flap moves large contiguous arcs. **Fix:** a fixed constant (e.g. 100–160 per Backend) or a config knob; changing it reshuffles affinity once, same as M4 did.
 
@@ -331,8 +336,8 @@ Now `logFolderFor(goos, localAppData)` in [pkg/logger/logfile.go](pkg/logger/log
 ### S4. Log-path helpers misplaced in `pkg/helper` (low cohesion) — ✅ addressed with H7
 Moved to [pkg/logger/logfile.go](pkg/logger/logfile.go); only `GetLogFile` stays exported (main.go's sole need), the rest are unexported.
 
-### S5. Repeated type switches on `server any`
-[internal/monitoring/monitoring.go:45,84-91](internal/monitoring/monitoring.go#L84-L91) and [main.go:182-193](main.go#L182-L193) — parallel `case *fasthttp.Server / case *http.Server` switches in every consumer; a small interface (`OpenConnectionsCounter`/`Shutdowner`) removes both and fixes the M7 typed-nil trap structurally.
+### S5. Repeated type switches on `server any` — ✅ addressed with M7
+`internal/server.Server` (`Shutdown`, `OpenConnectionsCount`) and monitoring's own `OpenConnectionsCounter`; both switches and `server any` are gone.
 
 ### S6. net/http adapter re-derives the handler closure on every request
 [internal/proxy/nethttp_adapter.go:54](internal/proxy/nethttp_adapter.go#L54) — `a.Balancer.Serve()(&ctx)` constructs a new closure per request; every `Serve()` is a pure factory that main.go calls once and reuses. Cache `a.handler = balancer.Serve()` in the constructor.
@@ -342,7 +347,6 @@ Moved to [pkg/logger/logfile.go](pkg/logger/logfile.go); only `GetLogFile` stays
 ## Suggested fix order
 
 1. **S1 (extract shared balancer base)** — every shared-base fix (C1/C2/H1/H2/M3/M2) has now landed five times over; do it on its own branch so the next one lands once.
-2. **M5** — middleware explicit "handled" signal. *(H3's error-to-response translation and C4's per-request `recover()` done.)*
-3. **M9** — `$incremental` atomicity in `internal/proxy`. *(H4, H5, M1 done.)*
-4. **M7** — remaining config/startup robustness. *(H6, H7, M6 done.)*
-5. **The rest** — low-severity items, batched as convenient. *(H8, M2, M4 done; L21 added.)*
+2. **M5** — middleware explicit "handled" signal; design still under discussion. *(H3's error-to-response translation and C4's per-request `recover()` done.)*
+3. **M9** — `$incremental` atomicity in `internal/proxy`. *(H4, H5, M1, M8 done.)*
+4. **The rest** — low-severity items, batched as convenient. *(H6–H8, M2, M4, M6, M7 done; L21 added.)*

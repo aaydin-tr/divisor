@@ -216,6 +216,48 @@ func TestProxyMatrix(t *testing.T) {
 		}
 	})
 
+	t.Run("RequestConnectionNominatedStripped", func(t *testing.T) {
+		// RFC 9110 §7.6.1: headers named in Connection are hop-by-hop even
+		// when they are not on the classic list. Raw fasthttp client, since
+		// net/http's Transport rewrites Connection itself.
+		req := fasthttp.AcquireRequest()
+		defer fasthttp.ReleaseRequest(req)
+		res := fasthttp.AcquireResponse()
+		defer fasthttp.ReleaseResponse(res)
+
+		req.SetRequestURI(s.BaseURL + "/connhdr")
+		req.Header.Set("Connection", "X-Secret, X-Also-Secret")
+		req.Header.Set("X-Secret", "s3cr3t")
+		req.Header.Set("X-Also-Secret", "too")
+		req.Header.Set("X-Stays", "yes")
+
+		if err := (&fasthttp.Client{}).Do(req, res); err != nil {
+			t.Fatalf("raw request failed: %v", err)
+		}
+		var echo EchoResp
+		if err := decodeJSON(bytes.NewReader(res.Body()), &echo); err != nil {
+			t.Fatalf("response is not an echo reply: %.200s", res.Body())
+		}
+		for _, h := range []string{"X-Secret", "X-Also-Secret", "Connection"} {
+			if echo.Header(h) != "" {
+				t.Errorf("Connection-nominated header %s leaked to the backend with value %q", h, echo.Header(h))
+			}
+		}
+		if echo.Header("X-Stays") != "yes" {
+			t.Errorf("end-to-end header X-Stays was lost")
+		}
+	})
+
+	t.Run("ResponseConnectionNominatedStripped", func(t *testing.T) {
+		res := s.Get(t, "/connresp?rh=Connection:X-Internal-Debug&rh=X-Internal-Debug:pool%3D3&rh=X-Resp-Stays:1")
+		if res.Header.Get("X-Resp-Stays") != "1" {
+			t.Errorf("end-to-end response header X-Resp-Stays was lost")
+		}
+		if v := res.Header.Get("X-Internal-Debug"); v != "" {
+			t.Errorf("Connection-nominated response header X-Internal-Debug leaked to the client with value %q", v)
+		}
+	})
+
 	t.Run("XForwardedFor", func(t *testing.T) {
 		// Pinned current behavior: divisor OVERWRITES client-supplied
 		// X-Forwarded-For with the direct peer IP (anti-spoofing for an

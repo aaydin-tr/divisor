@@ -353,16 +353,15 @@ func TestPrepareServer(t *testing.T) {
 		basic, err := ParseConfigFile("../../examples/basic.config.yaml")
 
 		server := Server{
-			MaxIdleWorkerDuration:         time.Second,
-			TCPKeepalivePeriod:            time.Second,
-			Concurrency:                   1,
-			ReadTimeout:                   time.Second,
-			WriteTimeout:                  time.Second,
-			IdleTimeout:                   time.Second,
-			ProxyTimeout:                  2 * time.Second,
-			MaxRequestBodySize:            1024,
-			DisableKeepalive:              true,
-			DisableHeaderNamesNormalizing: true,
+			MaxIdleWorkerDuration: time.Second,
+			TCPKeepalivePeriod:    time.Second,
+			Concurrency:           1,
+			ReadTimeout:           time.Second,
+			WriteTimeout:          time.Second,
+			IdleTimeout:           time.Second,
+			ProxyTimeout:          2 * time.Second,
+			MaxRequestBodySize:    1024,
+			DisableKeepalive:      true,
 		}
 		basic.Server = server
 		err = basic.Server.prepareServer()

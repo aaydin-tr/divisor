@@ -138,7 +138,8 @@ backends:
 | server.proxy_timeout | Bound on each upstream attempt; expiry returns 504. `0` means the default, not unlimited | duration | `60s` |
 | server.max_request_body_size | Max request body size in bytes; larger bodies get 413 and never reach a backend. `0` means the default | int | `4194304` (4MB) |
 | server.disable_keepalive | Force connection close after response | bool | `false` |
-| server.disable_header_names_normalizing | Preserve original header name casing | bool | `false` |
+
+Header names are always normalized to canonical form (`x-api-key` → `X-Api-Key`) on both the request and the response, as RFC 9110 §5.1 makes them case-insensitive; middleware lookups such as `ctx.Request.Header.Peek("X-Api-Key")` therefore match whatever case the client sent.
 
 ### Custom Headers
 

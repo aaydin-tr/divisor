@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"math"
@@ -31,11 +32,10 @@ type IProxyClient interface {
 	Close() error
 }
 
-// Hop-by-hop headers. These are removed when sent to the backend.
-// As of RFC 7230, hop-by-hop headers are required to appear in the
-// Connection header field. These are the headers defined by the
-// obsoleted RFC 2616 (section 13.5.1) and are used for backward
-// compatibility.
+// Hop-by-hop headers, removed in both directions. RFC 9110 §7.6.1 makes the
+// Connection header the authority on which headers are hop-by-hop (see
+// delConnectionNominated); this is the RFC 2616 §13.5.1 list, kept for
+// backward compatibility with peers that do not nominate them.
 var hopHeaders = [][]byte{
 	[]byte("Connection"),
 	[]byte("Proxy-Connection"), // non-standard but still sent by libcurl and rejected by e.g. google
@@ -163,6 +163,9 @@ func (h *ProxyClient) storeRecentResTime(micros float64) {
 }
 
 func (h *ProxyClient) preReq(req *fasthttp.Request, clientIP []byte) {
+	// Nominated headers go first: a client nominating Host or X-Forwarded-For
+	// only deletes its own values, and divisor's are set below.
+	delConnectionNominated(&req.Header)
 	for _, h := range hopHeaders {
 		req.Header.DelBytes(h)
 	}
@@ -174,9 +177,45 @@ func (h *ProxyClient) preReq(req *fasthttp.Request, clientIP []byte) {
 }
 
 func (h *ProxyClient) postRes(res *fasthttp.Response) {
+	delConnectionNominated(&res.Header)
 	for _, h := range hopHeaders {
 		res.Header.DelBytes(h)
 	}
+}
+
+type headerSet interface {
+	PeekAll(key string) [][]byte
+	DelBytes(key []byte)
+}
+
+var contentLengthHeader = []byte(fasthttp.HeaderContentLength)
+
+// Tokens that name no header to delete: "close" and "keep-alive" are
+// connection options (Keep-Alive the header is in hopHeaders); Content-Length
+// is framing on a streamed body, and ReverseProxy keeps framing intact too.
+var connectionOptions = [][]byte{[]byte("close"), []byte("keep-alive"), contentLengthHeader}
+
+// delConnectionNominated removes the headers a Connection header nominates as
+// hop-by-hop (RFC 9110 §7.6.1), the way net/http's ReverseProxy does. Header
+// names are always normalized on both stacks, so DelBytes matches whatever
+// case the peer used.
+func delConnectionNominated(h headerSet) {
+	for _, value := range h.PeekAll(fasthttp.HeaderConnection) {
+		for token := range bytes.SplitSeq(value, helper.S2B(",")) {
+			if token = bytes.TrimSpace(token); len(token) > 0 && !isConnectionOption(token) {
+				h.DelBytes(token)
+			}
+		}
+	}
+}
+
+func isConnectionOption(token []byte) bool {
+	for _, option := range connectionOptions {
+		if bytes.EqualFold(token, option) {
+			return true
+		}
+	}
+	return false
 }
 
 // middlewareError makes a Middleware short-circuit visible to the client: an

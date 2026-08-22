@@ -86,19 +86,18 @@ type Monitoring struct {
 }
 
 type Server struct {
-	HttpVersion                   string        `yaml:"http_version"`
-	CertFile                      string        `yaml:"cert_file"`
-	KeyFile                       string        `yaml:"key_file"`
-	MaxIdleWorkerDuration         time.Duration `yaml:"max_idle_worker_duration"`
-	TCPKeepalivePeriod            time.Duration `yaml:"tcp_keepalive_period"`
-	Concurrency                   int           `yaml:"concurrency"`
-	ReadTimeout                   time.Duration `yaml:"read_timeout"`
-	WriteTimeout                  time.Duration `yaml:"write_timeout"`
-	IdleTimeout                   time.Duration `yaml:"idle_timeout"`
-	ProxyTimeout                  time.Duration `yaml:"proxy_timeout"`
-	MaxRequestBodySize            int           `yaml:"max_request_body_size"`
-	DisableKeepalive              bool          `yaml:"disable_keepalive"`
-	DisableHeaderNamesNormalizing bool          `yaml:"disable_header_names_normalizing"`
+	HttpVersion           string        `yaml:"http_version"`
+	CertFile              string        `yaml:"cert_file"`
+	KeyFile               string        `yaml:"key_file"`
+	MaxIdleWorkerDuration time.Duration `yaml:"max_idle_worker_duration"`
+	TCPKeepalivePeriod    time.Duration `yaml:"tcp_keepalive_period"`
+	Concurrency           int           `yaml:"concurrency"`
+	ReadTimeout           time.Duration `yaml:"read_timeout"`
+	WriteTimeout          time.Duration `yaml:"write_timeout"`
+	IdleTimeout           time.Duration `yaml:"idle_timeout"`
+	ProxyTimeout          time.Duration `yaml:"proxy_timeout"`
+	MaxRequestBodySize    int           `yaml:"max_request_body_size"`
+	DisableKeepalive      bool          `yaml:"disable_keepalive"`
 }
 
 type Config struct {

@@ -32,4 +32,3 @@ server:
   proxy_timeout: 60s # Bound on each upstream attempt (dial + full round trip to the backend); expiry returns 504. 0 means the default, not unlimited. Default: 60 seconds
   max_request_body_size: 4194304 # Maximum request body size in bytes; larger bodies get 413 and never reach a backend. 0 means the default. Default: 4194304 (4MB)
   disable_keepalive: false # The server will close all the incoming connections after sending the first response to client if this option is set to true. Default: false
-  disable_header_names_normalizing: false # Header names are passed as-is without normalization if this option is set true. Default: false
