@@ -1,10 +1,13 @@
 package config
 
 import (
+	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
-	"regexp"
+	"strings"
 	"time"
 
 	"github.com/aaydin-tr/divisor/core/types"
@@ -15,10 +18,18 @@ import (
 )
 
 var (
-	ErrAtLeastOneBackend = errors.New("At least one backend must be set")
-	ErrInvalidPort       = errors.New("Please choose valid port")
-	ErrInvalidWeight     = errors.New("When using the weighted-round-robin algorithm, a weight must be specified for each backend")
-	ErrHttp2WithoutTls   = errors.New("The HTTP/2 connection can be only established if the server is using TLS. Please provide cert and key file")
+	ErrAtLeastOneBackend     = errors.New("At least one backend must be set")
+	ErrInvalidPort           = errors.New("Please choose valid port")
+	ErrInvalidWeight         = errors.New("When using the weighted-round-robin algorithm, a weight must be specified for each backend")
+	ErrHttp2WithoutTls       = errors.New("The HTTP/2 connection can be only established if the server is using TLS. Please provide cert and key file")
+	ErrInvalidTLSKeyPair     = errors.New("cert_file/key_file could not be loaded as a TLS key pair")
+	ErrBackendUrlEmpty       = errors.New("Backend url must not be empty")
+	ErrBackendUrlInvalid     = errors.New("Backend url is not valid")
+	ErrBackendUrlHttps       = errors.New("Backend url must not use https, divisor terminates TLS and always speaks plain HTTP to backends")
+	ErrBackendUrlScheme      = errors.New("Backend url has an unsupported scheme")
+	ErrBackendUrlUserinfo    = errors.New("Backend url must not contain userinfo")
+	ErrBackendUrlNotHostPort = errors.New("Backend url must be host:port only, divisor cannot forward to a path")
+	ErrBackendUrlNoHost      = errors.New("Backend url has no host")
 )
 
 var ValidTypes = []string{"round-robin", "w-round-robin", "ip-hash", "random", "least-connection", "least-response-time"}
@@ -43,8 +54,6 @@ const (
 
 	DefaultMaxIdleWorkerDuration = 10 * time.Second
 )
-
-var protocolRegex = regexp.MustCompile(`(^https?://)`)
 
 type Middleware struct {
 	Name     string         `yaml:"name"`
@@ -77,19 +86,18 @@ type Monitoring struct {
 }
 
 type Server struct {
-	HttpVersion                   string        `yaml:"http_version"`
-	CertFile                      string        `yaml:"cert_file"`
-	KeyFile                       string        `yaml:"key_file"`
-	MaxIdleWorkerDuration         time.Duration `yaml:"max_idle_worker_duration"`
-	TCPKeepalivePeriod            time.Duration `yaml:"tcp_keepalive_period"`
-	Concurrency                   int           `yaml:"concurrency"`
-	ReadTimeout                   time.Duration `yaml:"read_timeout"`
-	WriteTimeout                  time.Duration `yaml:"write_timeout"`
-	IdleTimeout                   time.Duration `yaml:"idle_timeout"`
-	ProxyTimeout                  time.Duration `yaml:"proxy_timeout"`
-	MaxRequestBodySize            int           `yaml:"max_request_body_size"`
-	DisableKeepalive              bool          `yaml:"disable_keepalive"`
-	DisableHeaderNamesNormalizing bool          `yaml:"disable_header_names_normalizing"`
+	HttpVersion           string        `yaml:"http_version"`
+	CertFile              string        `yaml:"cert_file"`
+	KeyFile               string        `yaml:"key_file"`
+	MaxIdleWorkerDuration time.Duration `yaml:"max_idle_worker_duration"`
+	TCPKeepalivePeriod    time.Duration `yaml:"tcp_keepalive_period"`
+	Concurrency           int           `yaml:"concurrency"`
+	ReadTimeout           time.Duration `yaml:"read_timeout"`
+	WriteTimeout          time.Duration `yaml:"write_timeout"`
+	IdleTimeout           time.Duration `yaml:"idle_timeout"`
+	ProxyTimeout          time.Duration `yaml:"proxy_timeout"`
+	MaxRequestBodySize    int           `yaml:"max_request_body_size"`
+	DisableKeepalive      bool          `yaml:"disable_keepalive"`
 }
 
 type Config struct {
@@ -201,7 +209,12 @@ func (c *Config) PrepareConfig() error {
 func (c *Config) prepareBackends() error {
 	for i := 0; i < len(c.Backends); i++ {
 		b := &c.Backends[i]
-		b.Url = protocolRegex.ReplaceAllString(b.Url, "")
+
+		addr, err := normalizeBackendAddress(b.Url)
+		if err != nil {
+			return err
+		}
+		b.Url = addr
 
 		if c.Type == "w-round-robin" && b.Weight <= 0 {
 			return ErrInvalidWeight
@@ -237,6 +250,48 @@ func (c *Config) prepareBackends() error {
 	return nil
 }
 
+// normalizeBackendAddress derives the dialable Backend address (host:port)
+// from the config url: an optional http:// scheme and a bare trailing slash
+// are stripped, a missing port defaults to 80. Anything divisor cannot honor
+// (path, query, userinfo) is rejected, as is https://
+// (docs/adr/0004-plaintext-only-backends.md).
+func normalizeBackendAddress(raw string) (string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return "", ErrBackendUrlEmpty
+	}
+
+	withScheme := raw
+	if !strings.Contains(raw, "://") {
+		withScheme = "http://" + raw
+	}
+
+	u, err := url.Parse(withScheme)
+	if err != nil {
+		return "", fmt.Errorf("%w: %q: %v", ErrBackendUrlInvalid, raw, err)
+	}
+
+	if u.Scheme == "https" {
+		return "", fmt.Errorf("%w: %q", ErrBackendUrlHttps, raw)
+	}
+	if u.Scheme != "http" {
+		return "", fmt.Errorf("%w: %q", ErrBackendUrlScheme, raw)
+	}
+	if u.User != nil {
+		return "", fmt.Errorf("%w: %q", ErrBackendUrlUserinfo, raw)
+	}
+	if (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+		return "", fmt.Errorf("%w: %q", ErrBackendUrlNotHostPort, raw)
+	}
+	if u.Hostname() == "" {
+		return "", fmt.Errorf("%w: %q", ErrBackendUrlNoHost, raw)
+	}
+
+	if u.Port() == "" {
+		return net.JoinHostPort(u.Hostname(), "80"), nil
+	}
+	return u.Host, nil
+}
+
 func (s *Server) prepareServer() error {
 	if s.HttpVersion == "" || s.HttpVersion != Http2 {
 		s.HttpVersion = Http1
@@ -252,6 +307,14 @@ func (s *Server) prepareServer() error {
 
 	if err := helper.IsFileExist(s.KeyFile); err != nil && s.KeyFile != "" {
 		return err
+	}
+
+	// Parse the pair now: an unloadable pair would otherwise only surface
+	// when the listener starts, after every other startup step succeeded.
+	if s.CertFile != "" && s.KeyFile != "" {
+		if _, err := tls.LoadX509KeyPair(s.CertFile, s.KeyFile); err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalidTLSKeyPair, err)
+		}
 	}
 
 	if s.MaxIdleWorkerDuration == 0 {

@@ -54,7 +54,10 @@ func (a *NetHttpAdapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a.Balancer.Serve()(&ctx)
 
 	ctx.Response.Header.All()(func(k []byte, v []byte) bool {
-		if !isHopHeader(k) {
+		// Content-Length is skipped because fasthttp's Response.SetBody (what
+		// an OnResponse middleware uses to rewrite a body) does not update the
+		// stored value; net/http derives framing from the bytes written.
+		if !isHopHeader(k) && !bytes.EqualFold(k, contentLengthHeader) {
 			w.Header().Add(helper.B2S(k), helper.B2S(v))
 		}
 		return true

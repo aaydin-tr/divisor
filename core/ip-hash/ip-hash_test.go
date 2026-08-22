@@ -1,12 +1,14 @@
 package ip_hash
 
 import (
+	"math"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/aaydin-tr/divisor/internal/proxy"
 	"github.com/aaydin-tr/divisor/mocks"
 	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/aaydin-tr/divisor/pkg/helper"
@@ -107,7 +109,7 @@ func TestRemoveOneServer(t *testing.T) {
 		oldServerCount := ipHash.len
 		ipHash.healthCheck(&backend, 0)
 
-		assert.False(t, b.isHostAlive, "expected isHostAlive equal to false, but got %v", b.isHostAlive)
+		assert.False(t, b.isHostAlive.Load(), "expected isHostAlive equal to false, but got %v", b.isHostAlive.Load())
 		assert.GreaterOrEqual(t, oldServerCount, ipHash.len, "expected server to be removed after health check, but it did not.")
 	}
 
@@ -127,13 +129,13 @@ func TestRemoveAndAddServer(t *testing.T) {
 		oldServerCount := ipHash.len
 		ipHash.healthCheck(&backend, 0)
 
-		assert.False(t, b.isHostAlive, "expected isHostAlive equal to false, but got %v", b.isHostAlive)
+		assert.False(t, b.isHostAlive.Load(), "expected isHostAlive equal to false, but got %v", b.isHostAlive.Load())
 		assert.GreaterOrEqual(t, oldServerCount, ipHash.len, "expected server to be removed after health check, but it did not.")
 	}
 
 	// Add one server
 	if b, ok := ipHash.serversMap[ipHash.hashFunc([]byte(backend.Url+strconv.Itoa(0)))]; ok {
-		b.isHostAlive = false
+		b.isHostAlive.Store(false)
 		ipHash.isHostAlive = func(s string) bool {
 			return true
 		}
@@ -141,7 +143,7 @@ func TestRemoveAndAddServer(t *testing.T) {
 		oldServerCount := ipHash.len
 		ipHash.healthCheck(&backend, 0)
 
-		assert.True(t, b.isHostAlive, "expected isHostAlive equal to true, but got %v", b.isHostAlive)
+		assert.True(t, b.isHostAlive.Load(), "expected isHostAlive equal to true, but got %v", b.isHostAlive.Load())
 		assert.GreaterOrEqual(t, ipHash.len, oldServerCount, "expected server to be added after health check, but it did not.")
 
 	}
@@ -290,7 +292,7 @@ func TestBackendDownAtStartupCanRejoin(t *testing.T) {
 
 	assert.Equal(t, 2, ipHash.len)
 	sm := ipHash.serversMap[ipHash.hashFunc([]byte("localhost:8080"+"0"))]
-	assert.True(t, sm.isHostAlive)
+	assert.True(t, sm.isHostAlive.Load())
 }
 
 func BenchmarkNext(b *testing.B) {
@@ -325,4 +327,70 @@ func TestShutdownStopsHealthChecker(t *testing.T) {
 	afterShutdown := checks.Load()
 	time.Sleep(50 * time.Millisecond)
 	assert.Equal(t, afterShutdown, checks.Load(), "health checker kept running after Shutdown")
+}
+
+// Run with -race: Stats() reads each Backend's liveness while the health
+// checker flips it.
+func TestStatsConcurrentWithHealthCheck(t *testing.T) {
+	caseOne := mocks.TestCases[0]
+	var alive atomic.Bool
+	alive.Store(true)
+	caseOne.Config.HealthCheckerFunc = func(string) bool { return alive.Load() }
+	balancer := NewIPHash(&caseOne.Config, nil, caseOne.ProxyFunc).(*IPHash)
+	defer balancer.Shutdown() //nolint:errcheck
+
+	backend := caseOne.Config.Backends[0]
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 500; i++ {
+			alive.Store(false)
+			balancer.healthCheck(&backend, 0)
+			alive.Store(true)
+			balancer.healthCheck(&backend, 0)
+		}
+	}()
+
+	for {
+		select {
+		case <-done:
+			return
+		default:
+			balancer.Stats()
+		}
+	}
+}
+
+func TestDuplicateAddressTwinKeepsItsVirtualNodes(t *testing.T) {
+	cfg := mocks.TestCases[0].Config
+	cfg.HashFunc = helper.HashFunc
+	cfg.Backends = []config.Backend{{Url: "localhost:8080"}, {Url: "localhost:8080"}}
+	ipHash := NewIPHash(&cfg, nil, mocks.TestCases[0].ProxyFunc).(*IPHash)
+	defer ipHash.Shutdown() //nolint:errcheck
+
+	const samples = 1000
+	const sampleStride = math.MaxUint32 / samples
+	routeOf := func(i int) proxy.IProxyClient { return ipHash.get(uint32(i * sampleStride)) }
+	before := make([]proxy.IProxyClient, samples)
+	for i := range before {
+		before[i] = routeOf(i)
+	}
+
+	first := cfg.Backends[0]
+	twin := ipHash.serversMap[ipHash.hashFunc([]byte("localhost:8080"+strconv.Itoa(1)))]
+
+	ipHash.isHostAlive = func(string) bool { return false }
+	ipHash.healthCheck(&first, 0)
+	assert.Equal(t, 1, ipHash.len)
+	assert.True(t, twin.isHostAlive.Load())
+	for i := 0; i < samples; i++ {
+		assert.Same(t, twin.node.Proxy, routeOf(i), "hash %d must fail over to the twin", i)
+	}
+
+	ipHash.isHostAlive = func(string) bool { return true }
+	ipHash.healthCheck(&first, 0)
+	assert.Equal(t, 2, ipHash.len)
+	for i := 0; i < samples; i++ {
+		assert.Same(t, before[i], routeOf(i), "hash %d must route as it did before the flap", i)
+	}
 }

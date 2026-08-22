@@ -138,7 +138,8 @@ backends:
 | server.proxy_timeout | Bound on each upstream attempt; expiry returns 504. `0` means the default, not unlimited | duration | `60s` |
 | server.max_request_body_size | Max request body size in bytes; larger bodies get 413 and never reach a backend. `0` means the default | int | `4194304` (4MB) |
 | server.disable_keepalive | Force connection close after response | bool | `false` |
-| server.disable_header_names_normalizing | Preserve original header name casing | bool | `false` |
+
+Header names are always normalized to canonical form (`x-api-key` → `X-Api-Key`) on both the request and the response, as RFC 9110 §5.1 makes them case-insensitive; middleware lookups such as `ctx.Request.Header.Peek("X-Api-Key")` therefore match whatever case the client sent.
 
 ### Custom Headers
 
@@ -169,7 +170,7 @@ custom_headers:
 
 ### Important Notes
 
-- **Protocol stripping**: Backend URLs automatically have `http://` or `https://` removed
+- **Backend address**: `backends[].url` must be a dialable `host:port`. An optional `http://` scheme and a bare trailing slash are accepted and stripped, and a missing port defaults to `80`. A path, query, or userinfo is rejected at startup, and so is `https://` — divisor terminates TLS itself and always speaks plain HTTP to backends
 - **HTTP/2 requirement**: `server.http_version: http2` requires both `cert_file` and `key_file`
 - **Weighted round-robin**: Single backend auto-converts to regular round-robin
 - **Middleware validation**: Must specify either `code` OR `file` (not both), unless `disabled: true`

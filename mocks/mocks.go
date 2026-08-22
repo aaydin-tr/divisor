@@ -14,6 +14,7 @@ import (
 type MockProxy struct {
 	Addr               string
 	ResTime            float64
+	Pending            int
 	IsCalled           bool
 	CloseCalled        bool
 	middlewareExecutor *middleware.Executor
@@ -34,6 +35,9 @@ func (m *MockProxy) Stat() types.ProxyStat {
 }
 
 func (m *MockProxy) PendingRequests() int {
+	if m.Pending != 0 {
+		return m.Pending
+	}
 	if m.Addr == "localhost:8080" {
 		return 1
 	}
@@ -195,3 +199,11 @@ var TestCases = []testCaseStruct{
 		ProxyFunc:           CreateNewMockProxy,
 	},
 }
+
+// MockBalancer satisfies types.IBalancer with a no-op handler, for tests that
+// need a balancer to hand to the server or monitoring layers.
+type MockBalancer struct{}
+
+func (m *MockBalancer) Serve() func(ctx *fasthttp.RequestCtx) { return func(*fasthttp.RequestCtx) {} }
+func (m *MockBalancer) Stats() []types.ProxyStat              { return nil }
+func (m *MockBalancer) Shutdown() error                       { return nil }

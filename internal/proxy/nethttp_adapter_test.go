@@ -147,3 +147,46 @@ func TestNetHttpAdapterMaxRequestBodySize(t *testing.T) {
 		}
 	})
 }
+
+// A middleware rewriting a response body via SetBodyString leaves the parsed
+// backend Content-Length untouched; forwarding it truncated longer rewrites
+// and broke shorter ones. The adapter must let net/http derive the length
+// from the bytes actually written, so this test needs a real server — the
+// httptest recorder does not enforce Content-Length.
+func TestNetHttpAdapterIgnoresStaleContentLength(t *testing.T) {
+	cases := []struct {
+		name    string
+		staleCL int
+		body    string
+	}{
+		{"rewrite longer than stale length", 5, "goodbye world"},
+		{"rewrite shorter than stale length", 500, "hi"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			balancer := &stubBalancer{handler: func(ctx *fasthttp.RequestCtx) {
+				ctx.Response.SetStatusCode(fasthttp.StatusOK)
+				ctx.Response.Header.SetContentLength(tc.staleCL)
+				ctx.Response.SetBodyString(tc.body)
+			}}
+
+			server := httptest.NewServer(NewNetHttpAdapter(balancer, 0))
+			defer server.Close()
+
+			res, err := http.Get(server.URL)
+			if err != nil {
+				t.Fatalf("request failed: %v", err)
+			}
+			defer res.Body.Close()
+
+			got, err := io.ReadAll(res.Body)
+			if err != nil {
+				t.Fatalf("reading body: %v", err)
+			}
+			if string(got) != tc.body {
+				t.Errorf("client received %q, want %q", got, tc.body)
+			}
+		})
+	}
+}

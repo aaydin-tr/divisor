@@ -109,6 +109,19 @@ func TestConfigErrorExitsNonZero(t *testing.T) {
 		}
 	})
 
+	t.Run("UnloadableCertificate", func(t *testing.T) {
+		// cert_file/key_file exist but are not PEM: config validation parses
+		// the pair, so divisor exits instead of living on with no listener.
+		const shWriteCertsAndExec = `printf 'not a certificate' > /etc/divisor/cert.pem && ` +
+			`printf 'not a key' > /etc/divisor/key.pem && ` + shWriteConfigAndExec
+		code := runDivisorExpectExit(t, namePrefix+"exit-badcert",
+			[]string{"DIVISOR_CONFIG=host: 0.0.0.0\nport: 8080\nbackends:\n  - url: localhost:9000\nserver:\n  cert_file: /etc/divisor/cert.pem\n  key_file: /etc/divisor/key.pem\n"},
+			[]string{"/bin/sh", "-c"}, []string{shWriteCertsAndExec})
+		if code == 0 {
+			t.Errorf("divisor exited 0 on an unloadable TLS key pair; want non-zero")
+		}
+	})
+
 	t.Run("MalformedMaxRequestBodySize", func(t *testing.T) {
 		code := runDivisorExpectExit(t, namePrefix+"exit-bodysize",
 			[]string{"DIVISOR_CONFIG=host: 0.0.0.0\nport: 8080\nbackends:\n  - url: localhost:9000\nserver:\n  max_request_body_size: big\n"},

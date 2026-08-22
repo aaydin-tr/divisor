@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"hash/crc32"
 	"os"
-	"runtime"
 	"unsafe"
 )
 
@@ -65,42 +64,6 @@ func FindIndex[T comparable](s []T, value T) (int, error) {
 	}
 
 	return 0, errors.New("not found in slice")
-}
-
-func GetLogFile() string {
-	logDir := GetLogFolder()
-	err := CreateLogDirIfNotExist(logDir)
-	if err != nil {
-		return "./divisor.log"
-	}
-
-	return logDir + "divisor.log"
-}
-
-func GetLogFolder() string {
-	var dir string
-	switch runtime.GOOS {
-	case "windows":
-		dir = os.Getenv("LocalAppData") + "\\divisor\\"
-		if dir == "" {
-			return ""
-		}
-	default: // Unix
-		dir = "/var/log/divisor/"
-	}
-
-	return dir
-}
-
-func CreateLogDirIfNotExist(logDir string) error {
-	if _, err := os.Stat(logDir); errors.Is(err, os.ErrNotExist) {
-		err := os.Mkdir(logDir, os.ModePerm)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 func IsFileExist(file string) error {

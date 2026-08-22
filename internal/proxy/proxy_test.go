@@ -1,8 +1,10 @@
 package proxy
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +12,7 @@ import (
 	"reflect"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1344,4 +1347,102 @@ func TestAvgResponseTimeExcludesFailures(t *testing.T) {
 	// average covers successful requests only.
 	assert.Equal(t, avg, p.AvgResponseTime())
 	assert.Equal(t, uint64(2), p.Stat().TotalReqCount)
+}
+
+func TestConnectionNominatedHeadersStripped(t *testing.T) {
+	t.Run("request: headers the client nominates do not reach the backend", func(t *testing.T) {
+		var seen http.Header
+		bServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			seen = r.Header.Clone()
+		}))
+		defer bServer.Close()
+
+		b := config.Backend{Url: protocolRegex.ReplaceAllString(bServer.URL, "")}
+		p := NewProxyClient(&b, nil, nil).(*ProxyClient)
+
+		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+		ctx.Request.Header.Set("Connection", "X-Secret, x-also-secret ,close")
+		ctx.Request.Header.Set("X-Secret", "s3cr3t")
+		ctx.Request.Header.Set("X-Also-Secret", "too")
+		ctx.Request.Header.Set("X-Stays", "yes")
+
+		assert.NoError(t, p.ReverseProxyHandler(&ctx))
+		assert.Empty(t, seen.Get("X-Secret"))
+		assert.Empty(t, seen.Get("X-Also-Secret"))
+		assert.Empty(t, seen.Get("Connection"))
+		assert.Equal(t, "yes", seen.Get("X-Stays"))
+	})
+
+	t.Run("request: nominating Host or X-Forwarded-For cannot displace divisor's values", func(t *testing.T) {
+		var seen http.Header
+		var seenHost string
+		bServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			seen = r.Header.Clone()
+			seenHost = r.Host
+		}))
+		defer bServer.Close()
+
+		b := config.Backend{Url: protocolRegex.ReplaceAllString(bServer.URL, "")}
+		p := NewProxyClient(&b, nil, nil).(*ProxyClient)
+
+		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+		ctx.Request.SetHost("spoofed.example")
+		ctx.Request.Header.Set("Connection", "Host, X-Forwarded-For")
+		ctx.Request.Header.Set("X-Forwarded-For", "1.2.3.4")
+
+		assert.NoError(t, p.ReverseProxyHandler(&ctx))
+		assert.Equal(t, b.Url, seenHost)
+		assert.Equal(t, "0.0.0.0", seen.Get("X-Forwarded-For"))
+	})
+
+	t.Run("request: nominating Content-Length keeps the body framed", func(t *testing.T) {
+		var seenBody string
+		bServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, _ := io.ReadAll(r.Body)
+			seenBody = string(body)
+		}))
+		defer bServer.Close()
+
+		b := config.Backend{Url: protocolRegex.ReplaceAllString(bServer.URL, "")}
+		p := NewProxyClient(&b, nil, nil).(*ProxyClient)
+
+		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+		ctx.Request.Header.SetMethod(fasthttp.MethodPost)
+		ctx.Request.Header.Set("Connection", "Content-Length")
+		ctx.Request.SetBodyStream(strings.NewReader("payload"), len("payload"))
+
+		assert.NoError(t, p.ReverseProxyHandler(&ctx))
+		assert.Equal(t, "payload", seenBody)
+	})
+
+	t.Run("response: headers the backend nominates do not reach the client", func(t *testing.T) {
+		bServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Connection", "X-Internal-Debug,Keep-Alive")
+			w.Header().Set("X-Internal-Debug", "pool=3 shard=7")
+			w.Header().Set("X-Resp-Stays", "1")
+		}))
+		defer bServer.Close()
+
+		b := config.Backend{Url: protocolRegex.ReplaceAllString(bServer.URL, "")}
+		p := NewProxyClient(&b, nil, nil).(*ProxyClient)
+
+		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+		assert.NoError(t, p.ReverseProxyHandler(&ctx))
+		assert.Empty(t, ctx.Response.Header.Peek("X-Internal-Debug"))
+		assert.Empty(t, ctx.Response.Header.Peek("Connection"))
+		assert.Equal(t, "1", string(ctx.Response.Header.Peek("X-Resp-Stays")))
+	})
+
+	t.Run("several Connection header lines are all honoured", func(t *testing.T) {
+		// Programmatic Add overwrites Connection in fasthttp; only a parsed
+		// response carries several lines, which is how a backend sends them.
+		raw := "HTTP/1.1 200 OK\r\nConnection: X-One\r\nConnection: X-Two\r\nX-One: 1\r\nX-Two: 2\r\nContent-Length: 0\r\n\r\n"
+		res := fasthttp.AcquireResponse()
+		assert.NoError(t, res.Read(bufio.NewReader(strings.NewReader(raw))))
+		assert.Len(t, res.Header.PeekAll("Connection"), 2)
+
+		delConnectionNominated(&res.Header)
+		assert.Empty(t, res.Header.Peek("X-One"))
+		assert.Empty(t, res.Header.Peek("X-Two"))
+	})
 }

@@ -5,7 +5,7 @@
 
 No spec/issue tracker exists for this repo, so this is a bug-focused review plus a code-smell pass — not a spec-conformance review. Findings marked *(judgement call)* are defensible-design questions, not hard bugs.
 
-**Totals:** 4 critical · 8 high · 9 medium · 20 low · 6 smells — fixed so far: C1–C4, H1–H5, M3, L9
+**Totals:** 4 critical · 8 high · 9 medium · 21 low · 6 smells — fixed so far: C1–C4, H1–H8, M1–M4, M6–M8, L9–L11, L22, S4, S5
 
 ## Fix checklist
 
@@ -20,17 +20,17 @@ Tick items off as we fix them:
 - [x] [H3 — Middleware errors silently discarded → client gets 200 OK](#h3) ✅ fixed
 - [x] [H4 — Millisecond truncation breaks least-response-time](#h4) ✅ fixed
 - [x] [H5 — Failed requests shrink the response-time average → traffic black hole](#h5) ✅ fixed
-- [ ] [H6 — Trailing slash/path in backend URL → invalid dial address](#h6)
-- [ ] [H7 — Swallowed logger error → nil-logger panic at startup](#h7)
-- [ ] [H8 — net/http adapter forwards stale Content-Length](#h8)
-- [ ] [M1 — least-connection doesn't pick the least-connected server](#m1)
-- [ ] [M2 — `isHostAlive` data race between `Stats()` and health checker](#m2)
+- [x] [H6 — Trailing slash/path in backend URL → invalid dial address](#h6) ✅ fixed
+- [x] [H7 — Swallowed logger error → nil-logger panic at startup](#h7) ✅ fixed
+- [x] [H8 — net/http adapter forwards stale Content-Length](#h8) ✅ fixed
+- [x] [M1 — least-connection doesn't pick the least-connected server](#m1) ✅ fixed
+- [x] [M2 — `isHostAlive` data race between `Stats()` and health checker](#m2) ✅ fixed
 - [x] [M3 — "All backends are down" panic makes transient outages permanent](#m3)
-- [ ] [M4 — Virtual-node key collisions corrupt the ip-hash ring](#m4)
+- [x] [M4 — Virtual-node key collisions corrupt the ip-hash ring](#m4) ✅ fixed
 - [ ] [M5 — `OnResponse` cannot override backend errors as documented](#m5)
-- [ ] [M6 — `https://` backends silently downgraded to plain HTTP](#m6)
-- [ ] [M7 — Typed-nil `any` defeats server-startup failure check](#m7)
-- [ ] [M8 — Connection-nominated headers not stripped (RFC 7230 §6.1)](#m8)
+- [x] [M6 — `https://` backends silently downgraded to plain HTTP](#m6) ✅ fixed with H6
+- [x] [M7 — Typed-nil `any` defeats server-startup failure check](#m7) ✅ fixed (with S5)
+- [x] [M8 — Connection-nominated headers not stripped (RFC 7230 §6.1)](#m8) ✅ fixed
 - [ ] [M9 — `$incremental` header race produces duplicate values](#m9)
 - [ ] [L1–L20 — Low-severity bugs & sharp edges](#low)
 - [ ] [S1–S6 — Code smells](#smells)
@@ -143,6 +143,7 @@ Tick items off as we fix them:
 - **Bug:** only the scheme prefix is stripped; a path, trailing slash, query, or userinfo survives into `b.Url`, which is used verbatim as `fasthttp.HostClient.Addr` (must be a dialable `host:port`). Nothing validates it.
 - **Failure scenario:** `url: http://localhost:8080/` (very common) yields `Addr = "localhost:8080/"`; dialing fails on port `"8080/"` so every proxied request returns 500 — while the health check (`http://localhost:8080//`) can still return 200 on slash-merging servers (nginx), so the backend is happily kept in rotation.
 - **Fix:** `url.Parse` the backend URL and extract only `Host`, erroring on anything with a path/query or malformed `host:port`.
+- **Status: FIXED (2026-08-22).** `protocolRegex` replaced by `normalizeBackendAddress` ([pkg/config/config.go](pkg/config/config.go)): `url.Parse`-based, producing a dialable **Backend address** (new CONTEXT.md term). An optional `http://` scheme and a bare trailing slash are accepted and stripped; a missing port is normalized to `:80` explicitly (previously implicit via fasthttp); startup errors on a real path, query, fragment, userinfo, malformed `host:port`, or empty url — so L10 is fixed as a side effect. `https://` is rejected with an error naming the TLS-termination model — M6's rejection arm, recorded as [docs/adr/0004-plaintext-only-backends.md](docs/adr/0004-plaintext-only-backends.md). All example configs already pass the new validation. Regression tests: `TestNormalizeBackendAddress` (accept/normalize/reject table) in `pkg/config`.
 
 <a id="h7"></a>
 ### H7. Logger build error swallowed → nil logger passed to `zap.ReplaceGlobals` → startup panic
@@ -151,6 +152,7 @@ Tick items off as we fix them:
 - **Bug:** if `config.Build()` fails (log sink can't be opened), the error is discarded and nil goes into `zap.ReplaceGlobals`, which immediately calls `logger.Sugar()` → nil-pointer panic (verified in zap v1.27.1). `CreateLogDirIfNotExist` makes this reachable: a permission error from `os.Stat` is not `ErrNotExist`, so it returns nil and the unwritable path is used instead of falling back to `./divisor.log`.
 - **Failure scenario:** on Linux, `/var/log/divisor/` exists from an earlier root run; the process now runs as non-root. `Build` fails to open the sink and `main.go:32` panics with a nil dereference before any usable error message.
 - **Fix:** check the `Build` error and fall back to a stdout-only config; treat any stat error other than "not exist" as failure in `CreateLogDirIfNotExist`.
+- **Status: FIXED (2026-08-22).** Done as a cascade so the process always starts: the log-path helpers moved from `pkg/helper` into `pkg/logger` (S4, now unexported in [pkg/logger/logfile.go](pkg/logger/logfile.go)); `createLogDirIfNotExist` surfaces *any* stat error (not just `ErrNotExist`) so an unusable dir falls back to `./divisor.log`; the Windows `LocalAppData` empty-check now runs before concatenation (L11 fixed — extracted as testable `logFolderFor(goos, localAppData)`); and `InitLogger` checks `Build`'s error, rebuilding with stdout-only sinks plus a warning naming the unopenable file (`zap.NewNop` as the last-resort guarantee that `ReplaceGlobals` never sees nil). Regression tests in `pkg/logger`: `TestInitLoggerFallsBackToStdoutOnUnopenableSink` (panicked on old code), `TestInitLoggerWritesFile`, `TestLogFolderFor`, `TestCreateLogDirIfNotExist` (incl. permission-denied stat).
 
 <a id="h8"></a>
 ### H8. net/http adapter forwards stale Content-Length — middleware body rewrites get truncated or hang
@@ -159,6 +161,7 @@ Tick items off as we fix them:
 - **Bug:** the adapter's header copy loop forwards the backend's parsed `Content-Length` into `w.Header()`, but fasthttp's `Response.SetBody/SetBodyString` (what an `OnResponse` middleware uses) does **not** update the stored content length — only `Response.Write` recomputes it, which the adapter path never calls.
 - **Failure scenario:** http2 mode + a middleware rewriting a response body: backend returns `"hello"` (CL=5), middleware sets `"goodbye world"` (13 bytes). The adapter sends `Content-Length: 5`; net/http truncates at 5 bytes and returns `http.ErrContentLength` (silently ignored). The client receives `"goodb"`. A shorter rewrite ends the stream early — client errors/hangs.
 - **Fix:** skip `Content-Length` (and `Trailer`) in the header copy loop and let net/http derive it from the bytes written, or set it from `len(ctx.Response.Body())`.
+- **Status: FIXED (2026-08-22).** The header-copy loop skips `Content-Length` ([internal/proxy/nethttp_adapter.go](internal/proxy/nethttp_adapter.go)); net/http derives framing from the bytes actually written — chosen over setting it from `len(Body())` so the path stays correct if response streaming (L8) ever lands. `Trailer` needed nothing: it was already in `hopHeaders`. Regression tests: `TestNetHttpAdapterIgnoresStaleContentLength` in `internal/proxy` (real `httptest.NewServer`, since the recorder doesn't enforce Content-Length; verified failing on the pre-fix code — the shorter rewrite dies with `unexpected EOF`), plus integration Scenario `TestHTTP2MiddlewareBodyRewrite` (HTTP/2 + a middleware rewriting the body shorter and much longer, full body asserted end to end).
 
 ---
 
@@ -171,6 +174,7 @@ Tick items off as we fix them:
 - **Bug:** the loop `break`s at the first server with fewer pending requests than the baseline, instead of scanning for the minimum. (`leastResponseTimeNext` right below correctly omits the `break`, confirming it's unintended.)
 - **Failure scenario:** 3 backends with pending [5, 3, 1], `lastIndex=0`: picks the 3-pending server, never considers the 1-pending one. The truly least-loaded backend is systematically under-utilized. Existing tests use only 2 backends, masking it.
 - **Fix:** remove the `break`.
+- **Status: FIXED (2026-08-22).** `leastConnectionNext` scans every Alive Backend for the fewest **Pending requests** (new CONTEXT.md term — what least-connection actually compares, not TCP connections) ([core/least-algorithm/least-algorithm.go:92-110](core/least-algorithm/least-algorithm.go#L92-L110)). Ties rotate: a per-call `cursor` (replacing `lastIndex`, see S2) sets the scan's starting offset and strict `<` means the first equal Backend after the cursor wins, so an idle pool takes turns instead of Backend #0 absorbing everything. The health checker's `lastIndex >= len` reset is gone with the modulo cursor. Regression tests in `core/least-algorithm`: `TestLeastConnectionNextPicksLeast` (`[5,3,1]` picks the 1 regardless of cursor; equal loads rotate evenly; a Backend appended mid-rotation is reached) and `TestNext/least-connection/with zero pending requests` rewritten to assert rotation (it previously encoded lowest-index-wins). `mocks.MockProxy` gained a `Pending` field.
 
 <a id="m2"></a>
 ### M2. `isHostAlive` read by `Stats()` while written by the health checker — data race
@@ -179,6 +183,7 @@ Tick items off as we fix them:
 - **Bug:** the monitoring goroutine calls `Stats()` every 5s and on `/stats` requests, reading `serverMap.isHostAlive` unsynchronized against health-checker writes.
 - **Failure scenario:** monitoring scrape concurrent with a health-state flip: torn/stale liveness reporting; any future field on `serverMap` inherits the race.
 - **Fix:** fold into the mutex from C2, or make `isHostAlive` an `atomic.Bool`.
+- **Status: FIXED (2026-08-22).** `serverMap.isHostAlive` is an `atomic.Bool` in all five balancers (landed five times — S1 deliberately deferred to its own branch). Accepted: `/stats` liveness and rotation membership are two independent atomics, so a scrape racing a flip can see them disagree for nanoseconds; making them flip together would put a mutex on the request path for an unobservable gain. Regression test `TestStatsConcurrentWithHealthCheck` in each balancer package hammers `Stats()` against `healthCheck`; it fails only under `-race`, so `-race` is now on both unit-test workflows ([.github/workflows/go.yml](.github/workflows/go.yml), [.github/workflows/test.yml](.github/workflows/test.yml)) — previously nothing in CI could catch a data race.
 
 <a id="m3"></a>
 ### M3. `panic("All backends are down")` irrecoverably kills the proxy *(judgement call — deliberate but harsh)*
@@ -198,6 +203,7 @@ Tick items off as we fix them:
 - **Bug:** nodes with the same `Addr` generate overlapping rune ranges (Id=0,i=1 collides with Id=1,i=0), so `AddNode` overwrites map entries while `numbers` accumulates duplicate hashes; removing one node strips the shared hashes the other node still relies on.
 - **Failure scenario:** the same backend URL listed twice in config (accepted without complaint; a normal way to double a backend's share in other algorithms). When one duplicate flaps down, `RemoveNode` strips the shared hashes from both map and ring, silently removing the still-healthy twin's positions too. Even without removal, distribution is silently skewed. (Post-C3 the old nil-interface panic is structurally impossible — the damage is now silent misrouting/starvation rather than a crash.)
 - **Fix:** collision-free key, e.g. `fmt.Sprintf("%d|%d|%s", node.Id, i, node.Addr)`; optionally reject duplicate backend URLs in `PrepareConfig`.
+- **Status: FIXED (2026-08-22).** Virtual-node key is `Id|i|Addr` via `virtualNodeKey` ([pkg/consistent/consistent.go](pkg/consistent/consistent.go)); uniqueness comes from `Id|i` (`Id` is the config index), `Addr` is kept so keys stay self-describing. Duplicate addresses stay **allowed** and unwarned: CONTEXT.md now defines a Backend as one config entry, so the same address twice is two Backends sharing a server — a legitimate way to double that server's share (and already how every other balancer treats it). Breaking change accepted for the pre-1.0 alpha: every ip-hash position moves once on upgrade, so client-IP→Backend affinity reshuffles one time; the alternative (keep the old formula for duplicate-free configs) would make positions depend on config shape and reshuffle everyone the first time a duplicate is added. The old formula also collapsed `string(rune(x))` for `x` in the UTF-16 surrogate range to U+FFFD (≈235+ Backends), which the new key removes. Regression tests: `TestNodesWithSameAddrKeepSeparateVirtualNodes` in `pkg/consistent` (two same-`Addr` Nodes own `2×replicas` positions; removing one leaves the twin's intact and routing to it), `TestDuplicateAddressTwinKeepsItsVirtualNodes` in `core/ip-hash` (one twin Down → all traffic to the other; its Rejoin restores the pre-flap routing exactly — which the old keys broke, the rejoining twin overwrote its sibling's positions), `TestPrepareBackends/the same address twice is two backends` in `pkg/config`. `TestGetNode` updated to derive hashes from `virtualNodeKey` instead of the old formula. Out of scope, recorded as L21: the `len(backends)²` vnode count.
 
 <a id="m5"></a>
 ### M5. `OnResponse` cannot override backend errors as documented — `serverError` clobbers the custom response and leaks the dial error
@@ -214,6 +220,7 @@ Tick items off as we fix them:
 - **Bug:** a TLS-only backend can never work, but the config layer drops the scheme without error.
 - **Failure scenario:** `url: https://api.example.com` → health check GETs the plain-HTTP URL → 301 redirect → treated as down → backend never added; with all backends https, startup fails with the unrelated-looking "No available servers". If the health endpoint answers 200 over HTTP, traffic is proxied **unencrypted** to port 80.
 - **Fix:** either reject `https://` URLs with a clear error, or preserve the scheme, set `HostClient.IsTLS`, and use an https health-check URL.
+- **Status: FIXED (2026-08-22), with H6.** The reject arm was chosen: `normalizeBackendAddress` errors at startup on `https://` with a message naming the TLS-termination model. Decision recorded in [docs/adr/0004-plaintext-only-backends.md](docs/adr/0004-plaintext-only-backends.md) (TLS-to-backend deliberately deferred as an additive post-1.0 feature).
 
 <a id="m7"></a>
 ### M7. Typed-nil `any` comparison defeats the server-startup failure check
@@ -222,6 +229,7 @@ Tick items off as we fix them:
 - **Bug:** `startNetHttpServer` returns a typed nil `*http.Server` when `http2.ConfigureServer` fails; stored in an `any`, the interface is non-nil, so `if server == nil` never fires.
 - **Failure scenario:** http2 configuration error → process runs indefinitely with no HTTP listener; later `performGracefulShutdown` calls `Shutdown` on the nil `*http.Server` and panics.
 - **Fix:** return `(server, error)` from both start functions and check the error.
+- **Status: FIXED (2026-08-22).** Re-verified first: `http2.ConfigureServer` on a fresh server essentially cannot fail, so the typed-nil path was nearly unreachable — the *reachable* zombie in the same code was the Serve goroutine: a `ServeTLS`/`Serve` error (config only checked that cert/key *exist*) was logged and `main` kept blocking on `<-shutdown` with no listener. Fixed as S5 proposed: new [internal/server](internal/server/server.go) with a `Server` interface (`Shutdown(ctx)`, `OpenConnectionsCount()`), two wrappers, and `Start(cfg, balancer, ln) (Server, <-chan error, error)` — a nil error guarantees a non-nil `Server`, so the typed-nil class is gone structurally; `main.go` is wiring only and `select`s the shutdown signal against the serve-error channel (`Fatal` on a dead listener, consistent with the orchestrator comment; `http.ErrServerClosed` and fasthttp's nil-on-shutdown are not errors). Both `server any` type switches are deleted — `internal/monitoring` now takes its own narrow `OpenConnectionsCounter`. `PrepareConfig` parses the pair with `tls.LoadX509KeyPair` whenever both files are set (`ErrInvalidTLSKeyPair`), so a bad pair fails at config time with a clear message instead of at listen time. Regression tests: `TestStartReturnsNonNilServerForBothStacks`, `TestServeFailureIsReported` (listener with a permanent Accept error → channel fires), `TestCleanShutdownReportsNothing` in `internal/server` (via new `mocks.MockBalancer` and `internal/testcert`); `TestPrepareServerParsesTLSKeyPair` in `pkg/config` (loadable pair, garbage files, mismatched pair); integration `TestConfigErrorExitsNonZero/UnloadableCertificate` (existing-but-garbage cert/key → non-zero exit). Noted, not fixed: setting only one of `cert_file`/`key_file` still silently serves plain HTTP.
 
 <a id="m8"></a>
 ### M8. Headers nominated in the `Connection` header are not removed (RFC 7230 §6.1)
@@ -230,6 +238,7 @@ Tick items off as we fix them:
 - **Bug:** only the fixed `hopHeaders` list is deleted; the `Connection` header's *value* is never parsed to remove the headers it nominates (the comment at proxy.go:30-34 acknowledges the requirement; Go's `httputil.ReverseProxy` does both).
 - **Failure scenario:** backend replies `Connection: X-Internal-Debug` + `X-Internal-Debug: <internal data>`; the internal header is forwarded to the client. Inbound, a client's `Connection: X-Secret` makes `X-Secret` reach the backend as if end-to-end.
 - **Fix:** before deleting `Connection`, split its value on commas and delete each nominated header on both request and response paths.
+- **Status: FIXED (2026-08-22).** `delConnectionNominated` ([internal/proxy/proxy.go](internal/proxy/proxy.go)) runs in `preReq` and `postRes` with `httputil.ReverseProxy` semantics: every `Connection` line is split on commas, each nominated header deleted, then the fixed RFC 2616 list as before (comment's RFC ref refreshed to 9110 §7.6.1). A single pass: `PeekAll("Connection")` tokens → `DelBytes(token)`; `close`/`keep-alive` are skipped as connection options, not header names, so ordinary traffic does no work beyond the lookup. Case-insensitivity comes from normalization, which is now unconditional — the `disable_header_names_normalizing` option was removed with this fix (L22): it only ever reached fasthttp's inbound HTTP/1.1 parsing (ignored in HTTP/2 mode, never applied to Backend responses) and it made every middleware header lookup case-sensitive, so `x-api-key` would bypass an auth middleware peeking `X-Api-Key` — the same class of hole as M8. It runs first in `preReq`, before divisor sets Host/scheme/X-Forwarded-For/custom headers, so a client nominating those only deletes its own values. One deviation from the agreed "no protected list": `Content-Length` is never removed — on the net/http adapter's streamed request body the stored value *is* the framing (deleting it truncates the forwarded body to zero bytes), and ReverseProxy keeps framing intact too since net/http frames from `req.ContentLength`; buffered bodies are recomputed on write regardless. Nothing needed in the adapter: both paths share the handler, and h2 forbids `Connection` on the wire. Regression tests: `TestConnectionNominatedHeadersStripped` in `internal/proxy` (request and response direction, Host/XFF nomination, Content-Length nomination keeps the body, several `Connection` lines — parsed, since fasthttp's programmatic `Add` overwrites `Connection`); integration subtests `RequestConnectionNominatedStripped` (raw fasthttp client) and `ResponseConnectionNominatedStripped` (Echo `rh=Connection:X-Internal-Debug`) in `TestProxyMatrix`.
 
 <a id="m9"></a>
 ### M9. `$incremental` header is not atomic — concurrent requests get duplicate values
@@ -271,11 +280,11 @@ Tick items off as we fix them:
 ### L9. `GetNode` has no empty-ring guard — ✅ fixed with C3
 [pkg/consistent/consistent.go:90-102](pkg/consistent/consistent.go#L90-L102) — `GetNode` now returns nil on an empty ring, and ip-hash serves 503 via `proxy.NoAliveBackends` ([core/ip-hash/ip-hash.go:82-88](core/ip-hash/ip-hash.go#L82-L88)). Regression test `TestGetNodeEmptyRing`.
 
-### L10. Empty backend `url` passes validation
-[pkg/config/config.go:201-238](pkg/config/config.go#L201-L238) — a backend with no URL is accepted (the package's own tests construct `Backend{}` and get nil errors); the failure surfaces later as a confusing empty-Addr health-check warning. **Fix:** error when `b.Url` is empty after stripping.
+### L10. Empty backend `url` passes validation — ✅ fixed with H6
+`normalizeBackendAddress` rejects an empty (or whitespace-only) `url` at startup; the package tests that constructed `Backend{}` now use real addresses.
 
-### L11. `GetLogFolder` Windows fallback is dead code — logs can land in `\divisor\` at the drive root
-[pkg/helper/helper.go:71-74](pkg/helper/helper.go#L71-L74) — `os.Getenv("LocalAppData") + "\\divisor\\"` is never `""`, so the empty-check can't fire; with `LocalAppData` unset (service accounts) the dir becomes `\divisor\` at the drive root instead of falling back to `./divisor.log`. **Fix:** check the env var before appending.
+### L11. `GetLogFolder` Windows fallback is dead code — ✅ fixed with H7
+Now `logFolderFor(goos, localAppData)` in [pkg/logger/logfile.go](pkg/logger/logfile.go): the env var is checked *before* concatenating, so an unset `LocalAppData` falls back to `./divisor.log` instead of the drive root. Covered by `TestLogFolderFor` (testable cross-platform).
 
 ### L12. `tcp_keepalive_period` config option is a silent no-op
 [pkg/config/config.go:84](pkg/config/config.go#L84), wired at [main.go:109](main.go#L109) — fasthttp applies the period only when `Server.TCPKeepalive` is true, which divisor never sets. **Fix:** set `TCPKeepalive: true` when a period is configured.
@@ -304,25 +313,31 @@ Tick items off as we fix them:
 ### L20. Middleware instances are shared across all request goroutines — undocumented
 [pkg/middleware/executor.go:106](pkg/middleware/executor.go#L106), [internal/proxy/proxy.go:71-91](internal/proxy/proxy.go#L71-L91) — the per-middleware yaegi setup avoids the classic concurrent-Eval hazard (same pattern as Traefik plugins), but each middleware is a single shared instance: any mutable field in a user's struct is raced by concurrent requests with no warning in the contract. **Fix:** document that stateful middleware must synchronize internally.
 
+### L22. `disable_header_names_normalizing` was a half-feature and a case-sensitivity foot-gun — ✅ removed with M8
+Reached only fasthttp's inbound HTTP/1.1 parsing (net/http has no such switch, Backend responses were always normalized) and made middleware header lookups case-sensitive. Header names are now always canonical on both stacks; README documents it. Pre-1.0 breaking change: the key is gone from the config (non-strict YAML, so an old config carrying it is silently ignored — strict unknown-key rejection is L13's territory).
+
+### L21. ip-hash virtual-node count is `len(backends)²` — too few points for even distribution *(surfaced by M4)*
+[core/ip-hash/ip-hash.go:41](core/ip-hash/ip-hash.go#L41) — one Backend gets 1 virtual node, two get 4 each, three get 9; consistent-hash rings usually use 100+ per node for the keyspace split to approach even. With so few points the share between Backends is lumpy and a single Backend flap moves large contiguous arcs. **Fix:** a fixed constant (e.g. 100–160 per Backend) or a config knob; changing it reshuffles affinity once, same as M4 did.
+
 ---
 
 <a id="smells"></a>
 ## Code smells (judgement calls)
 
 ### S1. Duplicated Code / Shotgun Surgery: five near-identical balancer implementations
-`core/round-robin`, `core/w-round-robin`, `core/random`, `core/least-algorithm`, `core/ip-hash` — `serverMap`, constructor loop, `healthChecker`, `healthCheck`, `Stats()`, and `Shutdown()` are near-verbatim copies (the `healthChecker` loop is byte-identical apart from the receiver). Concrete cost: **C1, C2, H1, H2, and M3 each required the same fix in five files (already paid); M2 still does.** Extract a shared base type embedding servers/serversMap/health-checking/Stats/Shutdown, with algorithms supplying only `next()` — ideally *before* fixing the remaining one, so each fix lands once.
+`core/round-robin`, `core/w-round-robin`, `core/random`, `core/least-algorithm`, `core/ip-hash` — `serverMap`, constructor loop, `healthChecker`, `healthCheck`, `Stats()`, and `Shutdown()` are near-verbatim copies (the `healthChecker` loop is byte-identical apart from the receiver). Concrete cost: **C1, C2, H1, H2, M3 and M2 each required the same fix in five files (all paid now); the M2 regression test `TestStatsConcurrentWithHealthCheck` also exists five times.** Extract a shared base type embedding servers/serversMap/health-checking/Stats/Shutdown, with algorithms supplying only `next()` — its own branch; the five duplicate tests collapse into one with it.
 
 ### S2. Mysterious Names: `len`, `i`, `lastIndex` *(partially addressed by the C1/C2 fixes)*
-`serverMap.i` is now `statsIdx` and the slice-based balancers' separate `len` fields are gone (length comes from the snapshot). Remaining: [core/ip-hash/ip-hash.go:30](core/ip-hash/ip-hash.go#L30) still has `len` (count of alive nodes), the rotation counter `i` at [core/round-robin/round-robin.go:29](core/round-robin/round-robin.go#L29)/[core/w-round-robin/w-round-robin.go:31](core/w-round-robin/w-round-robin.go#L31), and [core/least-algorithm/least-algorithm.go:30](core/least-algorithm/least-algorithm.go#L30) `lastIndex` (actually stores "index of the current least server"). These names actively obscured C1 and M1; rename to `aliveCount`, `counter`, `leastIndex`.
+`serverMap.i` is now `statsIdx` and the slice-based balancers' separate `len` fields are gone (length comes from the snapshot). Remaining: [core/ip-hash/ip-hash.go:30](core/ip-hash/ip-hash.go#L30) still has `len` (count of alive nodes), the rotation counter `i` at [core/round-robin/round-robin.go:29](core/round-robin/round-robin.go#L29)/[core/w-round-robin/w-round-robin.go:31](core/w-round-robin/w-round-robin.go#L31), and `lastIndex` in least-algorithm is gone with M1 (now `cursor`, an honest rotation counter). These names actively obscured C1 and M1; rename the rest to `aliveCount`, `counter`.
 
 ### S3. `FindIndex` returns `(0, err)` on miss — a valid-index sentinel
 [pkg/helper/helper.go:48-56](pkg/helper/helper.go#L48-L56) — index 0 is a legitimate result, so any caller dropping the error deletes element 0. The sole current caller checks, but the API invites the bug. Return `-1` or `(int, bool)`.
 
-### S4. Log-path helpers misplaced in `pkg/helper` (low cohesion)
-[pkg/helper/helper.go:58-92](pkg/helper/helper.go#L58-L92) — `GetLogFile`/`GetLogFolder`/`CreateLogDirIfNotExist` exist solely for `pkg/logger` inside an otherwise generic utility package. Moving them makes H7 + L11 a single-package fix.
+### S4. Log-path helpers misplaced in `pkg/helper` (low cohesion) — ✅ addressed with H7
+Moved to [pkg/logger/logfile.go](pkg/logger/logfile.go); only `GetLogFile` stays exported (main.go's sole need), the rest are unexported.
 
-### S5. Repeated type switches on `server any`
-[internal/monitoring/monitoring.go:45,84-91](internal/monitoring/monitoring.go#L84-L91) and [main.go:182-193](main.go#L182-L193) — parallel `case *fasthttp.Server / case *http.Server` switches in every consumer; a small interface (`OpenConnectionsCounter`/`Shutdowner`) removes both and fixes the M7 typed-nil trap structurally.
+### S5. Repeated type switches on `server any` — ✅ addressed with M7
+`internal/server.Server` (`Shutdown`, `OpenConnectionsCount`) and monitoring's own `OpenConnectionsCounter`; both switches and `server any` are gone.
 
 ### S6. net/http adapter re-derives the handler closure on every request
 [internal/proxy/nethttp_adapter.go:54](internal/proxy/nethttp_adapter.go#L54) — `a.Balancer.Serve()(&ctx)` constructs a new closure per request; every `Serve()` is a pure factory that main.go calls once and reuses. Cache `a.handler = balancer.Serve()` in the constructor.
@@ -331,10 +346,7 @@ Tick items off as we fix them:
 
 ## Suggested fix order
 
-1. **S1 (extract shared balancer base)** — C1/C2/H1/H2/M3 already landed five times over without it; still worth doing before the next step so M2 lands once.
-2. **M2** — remaining shared-base fix: atomic/mutexed `isHostAlive`. *(C1, C2, H1, H2, M3 done.)*
-3. **M4** — collision-free vnode keys in `pkg/consistent`. *(C3 and L9 done.)*
-4. **H3 + M5** — middleware error-to-response translation + explicit "handled" signal. *(C4's per-request `recover()` done.)*
-5. **M1 + M9** — remaining metrics/selection correctness in `internal/proxy` + `least-algorithm`. *(H4 and H5 done.)*
-6. **H6 + H7 + M6 + M7** — config/startup robustness.
-7. **H8 and the rest** — adapter and low-severity items, batched as convenient.
+1. **S1 (extract shared balancer base)** — every shared-base fix (C1/C2/H1/H2/M3/M2) has now landed five times over; do it on its own branch so the next one lands once.
+2. **M5** — middleware explicit "handled" signal; design still under discussion. *(H3's error-to-response translation and C4's per-request `recover()` done.)*
+3. **M9** — `$incremental` atomicity in `internal/proxy`. *(H4, H5, M1, M8 done.)*
+4. **The rest** — low-severity items, batched as convenient. *(H6–H8, M2, M4, M6, M7 done; L21 added.)*

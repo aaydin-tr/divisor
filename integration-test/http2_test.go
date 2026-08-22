@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -175,5 +176,72 @@ func TestIPHashUnderHTTP2(t *testing.T) {
 	}
 	if len(distinct) < 2 {
 		t.Errorf("6 distinct client IPs all mapped to one backend over HTTP/2; the client IP is probably lost in nethttp_adapter")
+	}
+}
+
+const bodyRewriterMW = `
+package mw
+
+import (
+	"strconv"
+	"strings"
+
+	"github.com/aaydin-tr/divisor/middleware"
+)
+
+type Rewriter struct{}
+
+func (m *Rewriter) OnRequest(ctx *middleware.Context) error { return nil }
+
+func (m *Rewriter) OnResponse(ctx *middleware.Context, err error) error {
+	if err != nil {
+		return err
+	}
+	n, convErr := strconv.Atoi(string(ctx.Request.Header.Peek("X-Rewrite-Len")))
+	if convErr != nil || n <= 0 {
+		return nil
+	}
+	ctx.Response.SetBodyString(strings.Repeat("R", n))
+	return nil
+}
+
+func New(config map[string]any) middleware.Middleware { return &Rewriter{} }
+`
+
+// A middleware body rewrite leaves the backend's parsed Content-Length
+// stale; the adapter must not forward it, or net/http truncates longer
+// rewrites and breaks the stream on shorter ones. Exercised end to end over
+// real HTTP/2 because only the net/http path had the bug.
+func TestHTTP2MiddlewareBodyRewrite(t *testing.T) {
+	t.Parallel()
+	s := startScenario(t, ScenarioSpec{
+		Name:  "h2rw",
+		Type:  "round-robin",
+		HTTP2: true,
+		Backends: []BackendSpec{
+			{ID: "a"},
+		},
+		Middlewares: []MiddlewareSpec{
+			{Name: "rewriter", Code: bodyRewriterMW},
+		},
+	})
+
+	// The echo reply is a few hundred bytes, so 16 is shorter than the stale
+	// Content-Length and 65536 is far longer.
+	for _, n := range []int{16, 65536} {
+		res, err := s.Request(http.MethodGet, fmt.Sprintf("/rewrite?n=%d", n), nil,
+			http.Header{"X-Rewrite-Len": []string{fmt.Sprintf("%d", n)}})
+		if err != nil {
+			t.Fatalf("rewrite to %d bytes: %v", n, err)
+		}
+		if res.ProtoMajor != 2 {
+			t.Fatalf("negotiated %s, want HTTP/2", res.Proto)
+		}
+		if len(res.Body) != n {
+			t.Fatalf("rewrite to %d bytes: client received %d bytes", n, len(res.Body))
+		}
+		if trimmed := strings.TrimLeft(string(res.Body), "R"); trimmed != "" {
+			t.Errorf("rewrite to %d bytes: body corrupted, unexpected suffix %.50q", n, trimmed)
+		}
 	}
 }

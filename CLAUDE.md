@@ -20,8 +20,8 @@ go build -o divisor
 
 ### Testing
 ```bash
-# Run all tests
-go test ./...
+# Run all tests (CI runs them with -race; data races are build failures)
+go test -race ./...
 
 # Run tests with verbose output
 go test -v ./...
@@ -55,7 +55,7 @@ The load balancer uses a **factory pattern** via `balancer.NewBalancer()` which 
 - `w-round-robin` - Weighted rotation (requires `weight` in backend config)
 - `ip-hash` - Consistent hashing based on client IP (uses `pkg/consistent`)
 - `random` - Random server selection
-- `least-connection` - Routes to server with fewest active connections
+- `least-connection` - Routes to the Backend with the fewest pending requests (ties rotate)
 - `least-response-time` - Routes to server with lowest average response time
 
 All algorithms share common behavior:
@@ -77,7 +77,7 @@ All algorithms share common behavior:
 `pkg/config`:
 - YAML-based configuration with validation in `PrepareConfig()`
 - Auto-sets defaults if not specified (e.g., `health_checker_time: 30s`, `type: round-robin`)
-- Backend URLs have protocols stripped (http:// or https://)
+- Backend `url` is normalized to a dialable Backend address (`host:port`): optional `http://` and bare trailing slash stripped, missing port defaults to 80; path/query/userinfo and `https://` are rejected at startup (ADR 0004: backends are plaintext-only)
 - HTTP/2 requires TLS (cert_file + key_file must be provided)
 - Weighted round-robin with single backend auto-converts to regular round-robin
 
@@ -95,9 +95,9 @@ All algorithms share common behavior:
 2. Prepare/validate config → `config.PrepareConfig()`
 3. Create balancer with algorithm → `balancer.NewBalancer()`
 4. Start health checkers (goroutines for each algorithm)
-5. Start monitoring server (goroutine)
-6. Start main fasthttp server
-7. Listen for SIGINT/SIGTERM for graceful shutdown (30s timeout)
+5. Start the client-facing server via `internal/server.Start()` (fasthttp for HTTP/1.1, net/http for HTTP/2); it returns a stack-agnostic `Server` plus a channel that reports a Serve failure
+6. Start monitoring server (goroutine)
+7. Select on SIGINT/SIGTERM (graceful shutdown, 30s timeout) vs a Serve failure (fatal, non-zero exit)
 
 ### Graceful Shutdown
 
