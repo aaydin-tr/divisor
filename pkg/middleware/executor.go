@@ -15,15 +15,9 @@ import (
 )
 
 var (
-	ErrPackageNameEmpty           = errors.New("Package name is empty for middleware please provide a package name")
-	ErrNewFunctionNotFound        = errors.New("New function not found")
-	ErrOnRequestFunctionNotFound  = errors.New("OnRequest function not found")
-	ErrOnResponseFunctionNotFound = errors.New("OnResponse function not found")
-	ErrCodeAndFileEmpty           = errors.New("Middleware code and file cannot both be empty")
-	ErrCodeAndFileBothSet         = errors.New("Middleware code and file cannot both be set, choose one")
-	ErrNewFunctionNotValid        = errors.New("New function does not satisfy new function signature")
-	ErrOnRequestFunctionNotValid  = errors.New("OnRequest function does not satisfy OnRequest function signature")
-	ErrOnResponseFunctionNotValid = errors.New("OnResponse function does not satisfy OnResponse function signature")
+	ErrPackageNameEmpty    = errors.New("Package name is empty for middleware please provide a package name")
+	ErrNewFunctionNotFound = errors.New("New function not found")
+	ErrNewFunctionNotValid = errors.New("New function does not satisfy new function signature")
 )
 
 type Executor struct {
@@ -51,14 +45,7 @@ func NewExecutor(configs []config.Middleware) (*Executor, error) {
 				return nil, nil
 			}
 
-			if cfg.Code == "" && cfg.File == "" {
-				return nil, ErrCodeAndFileEmpty
-			}
-
-			if cfg.Code != "" && cfg.File != "" {
-				return nil, ErrCodeAndFileBothSet
-			}
-
+			// code/file presence is validated by config.PrepareConfig.
 			i := interp.New(interp.Options{})
 			if err := i.Use(stdlib.Symbols); err != nil {
 				return nil, err
@@ -92,7 +79,7 @@ func NewExecutor(configs []config.Middleware) (*Executor, error) {
 
 			v, err := i.Eval(fmt.Sprintf("%s.New", program.PackageName()))
 			if err != nil {
-				return nil, ErrNewFunctionNotFound
+				return nil, fmt.Errorf("%w: %v", ErrNewFunctionNotFound, err)
 			}
 
 			newFunc, ok := v.Interface().(func(map[string]any) middleware.Middleware)
