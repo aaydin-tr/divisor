@@ -401,6 +401,8 @@ While Divisor has several features and benefits, it also has some limitations to
 - Divisor currently operates at layer 7, meaning it is specifically designed for HTTP(S) load balancing. It does not support other protocols, such as TCP or UDP.
 - Divisor does not support HTTP/3, which may be important for some applications.
 - Divisor does not support HTTPS for backend servers. HTTPS only available for frontend server.
+- Divisor does not stream responses. The whole backend response is read before it is sent to the client (on HTTP/1.1 and HTTP/2 alike), so Server-Sent Events and other never-ending bodies do not work: nothing reaches the client and the request ends with `504` when `server.proxy_timeout` expires. Long-polling (a response that does eventually end) works; set `proxy_timeout` above the poll time.
+- A client that disconnects does not cancel its backend request; the backend attempt runs until it answers or `server.proxy_timeout` expires, and the result is dropped.
 
 Please keep these limitations in mind when considering whether this load balancer is the right choice for your project.
 

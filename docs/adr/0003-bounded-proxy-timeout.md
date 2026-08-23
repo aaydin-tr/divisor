@@ -17,5 +17,7 @@ Before 1.0, `internal/proxy` called `Do` with no deadline, so one hanging Backen
 
 - A hanging Backend costs a client at most `proxy_timeout`; the Probe (5s timeout) evicts it independently.
 - Clients can distinguish "Backend unreachable" (502) from "Backend hanging" (504).
-- Long-polling or streaming upstreams slower than 60s need an explicit higher `proxy_timeout`; there is no off switch, only bigger numbers.
+- Long-polling upstreams slower than 60s need an explicit higher `proxy_timeout`; there is no off switch, only bigger numbers.
+- Response streaming (SSE, never-ending bodies) is **not supported**: divisor reads the whole Backend response before answering, on both stacks, so nothing is flushed to the client until the Backend finishes — and a body that never finishes is a 504 at `proxy_timeout`. A bigger `proxy_timeout` does not make streaming work. This is a 1.0 non-goal, not a bug; streaming needs its own design (what `OnResponse` Middleware sees, what the bound means for an open stream) and is additive when it lands. (Amended 2026-08-23, review L8.)
+- A client that disconnects does not cancel its Backend request, on either stack (`fasthttp.HostClient` has no cancellation hook; the net/http adapter does not consult `r.Context()`). The attempt runs until the Backend answers or `proxy_timeout` expires, then the result is discarded. `proxy_timeout` is therefore also the bound on work a vanished client can leave behind. (Amended 2026-08-23, review L6.)
 - `TestPausedBackendBoundedFailure` pins the behavior end to end (bounded latency, 504, eviction, Rejoin).
