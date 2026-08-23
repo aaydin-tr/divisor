@@ -3,6 +3,8 @@ package server
 import (
 	"net"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 // tcpKeepaliveListener enables TCP keepalive, with the configured period, on
@@ -27,13 +29,13 @@ func (l tcpKeepaliveListener) Accept() (net.Conn, error) {
 		return nil, err
 	}
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		// Best-effort: both stacks treat a non-nil Accept error as fatal, so a
+		// failed setsockopt on one connection must not stop the server. A
+		// connection whose fd is already dead fails on first read instead.
 		if err := tcpConn.SetKeepAlive(true); err != nil {
-			conn.Close()
-			return nil, err
-		}
-		if err := tcpConn.SetKeepAlivePeriod(l.period); err != nil {
-			conn.Close()
-			return nil, err
+			zap.S().Warnf("Enabling TCP keepalive for %s failed: %v", conn.RemoteAddr().String(), err)
+		} else if err := tcpConn.SetKeepAlivePeriod(l.period); err != nil {
+			zap.S().Warnf("Setting TCP keepalive period for %s failed: %v", conn.RemoteAddr().String(), err)
 		}
 	}
 	return conn, nil
