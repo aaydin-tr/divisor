@@ -1,9 +1,11 @@
 package config
 
 import (
+	"bytes"
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"os"
@@ -22,6 +24,8 @@ var (
 	ErrInvalidPort           = errors.New("Please choose valid port")
 	ErrInvalidWeight         = errors.New("When using the weighted-round-robin algorithm, a weight must be specified for each backend")
 	ErrHttp2WithoutTls       = errors.New("The HTTP/2 connection can be only established if the server is using TLS. Please provide cert and key file")
+	ErrInvalidHttpVersion    = errors.New("server.http_version must be http1 or http2")
+	ErrConfigFileEmpty       = errors.New("Config file is empty")
 	ErrInvalidTLSKeyPair     = errors.New("cert_file/key_file could not be loaded as a TLS key pair")
 	ErrBackendUrlEmpty       = errors.New("Backend url must not be empty")
 	ErrBackendUrlInvalid     = errors.New("Backend url is not valid")
@@ -136,11 +140,17 @@ func ParseConfigFile(path string) (*Config, error) {
 		return nil, err
 	}
 
-	var config Config
-	err = yaml.Unmarshal(configFile, &config)
+	// KnownFields: a misspelled or removed key is a startup error, never a
+	// silently ignored setting.
+	decoder := yaml.NewDecoder(bytes.NewReader(configFile))
+	decoder.KnownFields(true)
 
-	if err != nil {
-		return nil, err
+	var config Config
+	if err := decoder.Decode(&config); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, ErrConfigFileEmpty
+		}
+		return nil, fmt.Errorf("parsing config file %s: %w", path, err)
 	}
 
 	return &config, nil
@@ -293,8 +303,13 @@ func normalizeBackendAddress(raw string) (string, error) {
 }
 
 func (s *Server) prepareServer() error {
-	if s.HttpVersion == "" || s.HttpVersion != Http2 {
+	// "http1" is the documented spelling; Http1 ("http1.1") is tolerated.
+	switch s.HttpVersion {
+	case "", "http1", Http1:
 		s.HttpVersion = Http1
+	case Http2:
+	default:
+		return fmt.Errorf("%w, got %q", ErrInvalidHttpVersion, s.HttpVersion)
 	}
 
 	if s.HttpVersion == Http2 && (s.CertFile == "" || s.KeyFile == "") {

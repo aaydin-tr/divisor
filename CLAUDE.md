@@ -96,7 +96,7 @@ Pool plus the balancer as the rest of the process sees them. `Serve` answers
 ### Configuration System
 
 `pkg/config`:
-- YAML-based configuration with validation in `PrepareConfig()`
+- YAML-based configuration with validation in `PrepareConfig()`; decoding is strict (`KnownFields`), so an unknown or removed key is a startup error
 - Auto-sets defaults if not specified (e.g., `health_checker_time: 30s`, `type: round-robin`)
 - Backend `url` is normalized to a dialable Backend address (`host:port`): optional `http://` and bare trailing slash stripped, missing port defaults to 80; path/query/userinfo and `https://` are rejected at startup (ADR 0004: backends are plaintext-only)
 - HTTP/2 requires TLS (cert_file + key_file must be provided)

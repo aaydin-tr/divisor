@@ -126,11 +126,11 @@ backends:
 
 | Name | Description | Type | Default |
 | --- | --- | --- | --- |
-| server.http_version | HTTP protocol version (`http1` or `http2`) | string | `http1` |
+| server.http_version | HTTP protocol version: `http1` or `http2` (any other value is a startup error) | string | `http1` |
 | server.cert_file | TLS certificate file path | string | - |
 | server.key_file | TLS private key file path | string | - |
 | server.max_idle_worker_duration | Worker pool idle timeout | duration | `10s` |
-| server.tcp_keepalive_period | TCP keep-alive interval (OS default if unset) | duration | - |
+| server.tcp_keepalive_period | TCP keep-alive idle period for accepted client connections, on both HTTP/1.1 and HTTP/2 (Go's 15s default if unset) | duration | - |
 | server.concurrency | Max concurrent connections | int | `262144` |
 | server.read_timeout | Request read timeout | duration | unlimited |
 | server.write_timeout | Response write timeout | duration | unlimited |
@@ -173,6 +173,7 @@ custom_headers:
 ### Important Notes
 
 - **Backend address**: `backends[].url` must be a dialable `host:port`. An optional `http://` scheme and a bare trailing slash are accepted and stripped, and a missing port defaults to `80`. A path, query, or userinfo is rejected at startup, and so is `https://` — divisor terminates TLS itself and always speaks plain HTTP to backends
+- **Unknown keys are errors**: a misspelled or removed key anywhere in the config (`proxy_timout`, `disable_header_names_normalizing`, …) fails startup with the offending key and line, instead of being silently ignored. `middlewares[].config` stays free-form
 - **HTTP/2 requirement**: `server.http_version: http2` requires both `cert_file` and `key_file`
 - **Weighted round-robin**: Single backend auto-converts to regular round-robin
 - **Middleware validation**: Must specify either `code` OR `file` (not both), unless `disabled: true`
