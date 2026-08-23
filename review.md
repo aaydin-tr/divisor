@@ -5,7 +5,7 @@
 
 No spec/issue tracker exists for this repo, so this is a bug-focused review plus a code-smell pass — not a spec-conformance review. Findings marked *(judgement call)* are defensible-design questions, not hard bugs.
 
-**Totals:** 4 critical · 8 high · 9 medium · 21 low · 6 smells — fixed so far: C1–C4, H1–H8, M1–M9, L1–L22, S1, S2, S4, S5
+**Totals:** 4 critical · 8 high · 9 medium · 21 low · 6 smells — fixed so far: C1–C4, H1–H8, M1–M9, L1–L22, S1–S5
 
 ## Fix checklist
 
@@ -350,8 +350,9 @@ Reached only fasthttp's inbound HTTP/1.1 parsing (net/http has no such switch, B
 ### S2. Mysterious Names: `len`, `i`, `lastIndex` — ✅ resolved with S1
 `ip-hash`'s `len` shadow counter is gone (the Pool's `aliveCount` is the one count); the rotation counters are `requestCounter` in [core/round-robin](core/round-robin/round_robin.go) and [core/w-round-robin](core/w-round-robin/w_round_robin.go); `lastIndex` became `cursor` with M1 and is now `scanCursor` in [core/least-connection](core/least-connection/least_connection.go).
 
-### S3. `FindIndex` returns `(0, err)` on miss — a valid-index sentinel
+### S3. `FindIndex` returns `(0, err)` on miss — a valid-index sentinel — ✅ resolved: deleted (2026-08-23)
 [pkg/helper/helper.go:48-56](pkg/helper/helper.go#L48-L56) — index 0 is a legitimate result, so any caller dropping the error deletes element 0. The sole current caller checks, but the API invites the bug. Return `-1` or `(int, bool)`.
+- **Status: DELETED — orphaned by S1.** The Pool refactor removed `FindIndex`'s only caller, so fixing the signature would have polished dead code. `helper.Remove` (the in-place index-shift remover, the C3 sharp edge) was orphaned by the same refactor and is deleted with it, so the pattern cannot be reintroduced by a future caller. Their tests went too; every remaining `pkg/helper` function has production callers.
 
 ### S4. Log-path helpers misplaced in `pkg/helper` (low cohesion) — ✅ addressed with H7
 Moved to [pkg/logger/logfile.go](pkg/logger/logfile.go); only `GetLogFile` stays exported (main.go's sole need), the rest are unexported.
