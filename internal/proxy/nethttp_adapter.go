@@ -30,10 +30,16 @@ func (a *NetHttpAdapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if a.maxRequestBodySize > 0 && r.ContentLength < 0 && r.Body != nil && r.Body != http.NoBody {
-		// Mirror fasthttp's chunked-body handling: buffer a length-less body
+	if a.mustBufferBody(r) {
+		// Length-less bodies mirror fasthttp's chunked-body handling: buffered
 		// up to the cap so an oversized payload never reaches a Backend.
-		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, int64(a.maxRequestBodySize)))
+		// Announced trailers need the whole body read first: net/http fills
+		// r.Trailer's values only at EOF, and the conversion below copies them.
+		reader := r.Body
+		if a.maxRequestBodySize > 0 {
+			reader = http.MaxBytesReader(w, r.Body, int64(a.maxRequestBodySize))
+		}
+		body, err := io.ReadAll(reader)
 		var maxBytesErr *http.MaxBytesError
 		switch {
 		case errors.As(err, &maxBytesErr):
@@ -66,6 +72,13 @@ func (a *NetHttpAdapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(ctx.Response.StatusCode())
 	ctx.Response.BodyWriteTo(w) //nolint:errcheck
+}
+
+func (a *NetHttpAdapter) mustBufferBody(r *http.Request) bool {
+	if r.Body == nil || r.Body == http.NoBody {
+		return false
+	}
+	return len(r.Trailer) > 0 || (a.maxRequestBodySize > 0 && r.ContentLength < 0)
 }
 
 func writeBodyTooLarge(w http.ResponseWriter) {
@@ -122,6 +135,8 @@ func ConvertNetHTTPRequestToFastHTTPRequest(r *http.Request, ctx *fasthttp.Reque
 		}
 	}
 
+	// Trailer values are only present once the body has been read (see
+	// ServeHTTP); an unread body leaves them empty and they are not sent.
 	for k, values := range r.Trailer {
 		if ctx.Request.Header.AddTrailer(k) != nil {
 			continue
@@ -138,7 +153,9 @@ func ConvertNetHTTPRequestToFastHTTPRequest(r *http.Request, ctx *fasthttp.Reque
 
 	if r.Body != nil && r.Body != http.NoBody {
 		contentLength := int(r.ContentLength)
-		if r.ContentLength <= 0 || r.ContentLength >= int64(math.MaxInt) {
+		// Trailers travel only after a chunked body, so a request carrying
+		// them is sent length-less whatever the client declared.
+		if r.ContentLength <= 0 || r.ContentLength >= int64(math.MaxInt) || len(r.Trailer) > 0 {
 			contentLength = -1
 		}
 		ctx.Request.SetBodyStream(r.Body, contentLength)

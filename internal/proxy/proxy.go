@@ -191,9 +191,11 @@ func (h *ProxyClient) preReq(req *fasthttp.Request, clientIP []byte, requestSequ
 	// Nominated headers go first: a client nominating Host or X-Forwarded-For
 	// only deletes its own values, and divisor's are set below.
 	delConnectionNominated(&req.Header)
+	trailerKeys := copyTrailerKeys(req.Header.PeekTrailerKeys())
 	for _, h := range hopHeaders {
 		req.Header.DelBytes(h)
 	}
+	reannounceTrailers(req, trailerKeys)
 
 	req.URI().SetSchemeBytes(httpB)
 	req.SetHostBytes(h.addrB)

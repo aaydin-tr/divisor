@@ -2,12 +2,15 @@ package proxy
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aaydin-tr/divisor/core/types"
+	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/valyala/fasthttp"
 )
 
@@ -186,6 +189,65 @@ func TestNetHttpAdapterIgnoresStaleContentLength(t *testing.T) {
 			}
 			if string(got) != tc.body {
 				t.Errorf("client received %q, want %q", got, tc.body)
+			}
+		})
+	}
+}
+
+// trailerBody mimics net/http: the announced trailer's value appears in
+// r.Trailer only once the body has been read to EOF.
+type trailerBody struct {
+	io.Reader
+	trailer http.Header
+	value   string
+}
+
+func (b *trailerBody) Read(p []byte) (int, error) {
+	n, err := b.Reader.Read(p)
+	if err == io.EOF {
+		b.trailer.Set("X-Checksum", b.value)
+	}
+	return n, err
+}
+
+func (b *trailerBody) Close() error { return nil }
+
+func TestNetHttpAdapterForwardsAnnouncedTrailers(t *testing.T) {
+	var seenBody string
+	var seenTrailer string
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		seenBody = string(body)
+		seenTrailer = r.Trailer.Get("X-Checksum")
+	}))
+	defer backendServer.Close()
+
+	backend := config.Backend{Url: protocolRegex.ReplaceAllString(backendServer.URL, "")}
+	proxyClient := NewProxyClient(&backend, nil, nil).(*ProxyClient)
+	adapter := NewNetHttpAdapter(&stubBalancer{handler: func(ctx *fasthttp.RequestCtx) {
+		_ = proxyClient.ReverseProxyHandler(ctx)
+	}}, 1<<20)
+
+	for _, declaredLength := range []int64{-1, 5} {
+		t.Run(fmt.Sprintf("ContentLength=%d", declaredLength), func(t *testing.T) {
+			seenBody, seenTrailer = "", ""
+			trailer := http.Header{"X-Checksum": nil}
+			req := httptest.NewRequest(http.MethodPost, "http://example.com/upload", nil)
+			req.Body = &trailerBody{Reader: strings.NewReader("hello"), trailer: trailer, value: "abc123"}
+			req.ContentLength = declaredLength
+			req.Trailer = trailer
+			rec := httptest.NewRecorder()
+
+			adapter.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d", rec.Code)
+			}
+			if seenBody != "hello" {
+				t.Errorf("backend body = %q, want %q", seenBody, "hello")
+			}
+			if seenTrailer != "abc123" {
+				t.Errorf("backend trailer X-Checksum = %q, want %q", seenTrailer, "abc123")
 			}
 		})
 	}
