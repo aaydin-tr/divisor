@@ -287,8 +287,27 @@ func TestReverseProxyHandler(t *testing.T) {
 
 		timeHeader := string(ctx.Request.Header.Peek("X-Time"))
 		assert.NotEmpty(t, timeHeader, "X-Time header should be set")
-		_, err = time.Parse("2006-01-02T15:04:05.000Z", timeHeader)
-		assert.NoError(t, err, "X-Time header should be a valid timestamp")
+		stamped, err := time.Parse(time.RFC3339Nano, timeHeader)
+		assert.NoError(t, err, "X-Time header should be a valid RFC 3339 timestamp")
+		assert.True(t, strings.HasSuffix(timeHeader, "Z"), "X-Time is stamped in UTC: %s", timeHeader)
+		assert.WithinDuration(t, time.Now(), stamped, time.Minute, "a local-time value with a Z suffix is off by the zone offset")
+	})
+
+	t.Run("x-forwarded-for appends the peer to a client-sent chain", func(t *testing.T) {
+		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+		ctx.Request.Header.Set("X-Forwarded-For", "203.0.113.9, 198.51.100.2")
+		p.ReverseProxyHandler(&ctx)
+		assert.Equal(t, "203.0.113.9, 198.51.100.2, 0.0.0.0", string(ctx.Request.Header.PeekBytes(XForwardedFor)))
+	})
+
+	t.Run("x-forwarded-for folds repeated header lines into one chain", func(t *testing.T) {
+		ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+		ctx.Request.Header.Add("X-Forwarded-For", "203.0.113.9")
+		ctx.Request.Header.Add("X-Forwarded-For", "")
+		ctx.Request.Header.Add("X-Forwarded-For", "198.51.100.2")
+		p.ReverseProxyHandler(&ctx)
+		assert.Equal(t, "203.0.113.9, 198.51.100.2, 0.0.0.0", string(ctx.Request.Header.PeekBytes(XForwardedFor)))
+		assert.Len(t, ctx.Request.Header.PeekAll("X-Forwarded-For"), 1)
 	})
 
 	t.Run("default http", func(t *testing.T) {

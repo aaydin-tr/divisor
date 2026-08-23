@@ -67,6 +67,9 @@ const failureResponseTimePenalty = 10 * time.Second
 // Response times accumulate in microseconds and are reported in milliseconds.
 const microsPerMilli = float64(1000)
 
+// $time is always UTC, RFC 3339 with millisecond precision.
+const timeHeaderLayout = "2006-01-02T15:04:05.000Z07:00"
+
 const (
 	badGatewayMessage     = `{"message":"bad gateway"}`
 	gatewayTimeoutMessage = `{"message":"gateway timeout"}`
@@ -194,8 +197,32 @@ func (h *ProxyClient) preReq(req *fasthttp.Request, clientIP []byte, requestSequ
 
 	req.URI().SetSchemeBytes(httpB)
 	req.SetHostBytes(h.addrB)
-	req.Header.SetBytesKV(XForwardedFor, clientIP)
+	appendForwardedFor(req, clientIP)
 	h.setCustomHeaders(req, clientIP, requestSequenceNumber)
+}
+
+// appendForwardedFor adds the Client IP (CONTEXT.md) to the end of the
+// X-Forwarded-For chain, as every proxy in a chain does. A client-sent chain
+// is passed through, never trusted: the Backend knows the rightmost entry is
+// the peer divisor actually saw.
+func appendForwardedFor(req *fasthttp.Request, clientIP []byte) {
+	prior := req.Header.PeekAll(helper.B2S(XForwardedFor))
+	if len(prior) == 0 {
+		req.Header.SetBytesKV(XForwardedFor, clientIP)
+		return
+	}
+	chain := make([]byte, 0, len(clientIP)+len(prior)*16)
+	for _, value := range prior {
+		if len(bytes.TrimSpace(value)) == 0 {
+			continue
+		}
+		chain = append(chain, value...)
+		chain = append(chain, ", "...)
+	}
+	chain = append(chain, clientIP...)
+	// Del before Set: Set replaces only the first of repeated header lines.
+	req.Header.DelBytes(XForwardedFor)
+	req.Header.SetBytesKV(XForwardedFor, chain)
 }
 
 func (h *ProxyClient) postRes(res *fasthttp.Response) {
@@ -314,7 +341,7 @@ func (h *ProxyClient) setCustomHeaders(req *fasthttp.Request, clientIP []byte, r
 		case "$remote_addr":
 			req.Header.SetBytesV(k, clientIP)
 		case "$time":
-			req.Header.Set(k, time.Now().Local().Format("2006-01-02T15:04:05.000Z"))
+			req.Header.Set(k, time.Now().UTC().Format(timeHeaderLayout))
 		case "$incremental":
 			req.Header.Set(k, strconv.FormatUint(requestSequenceNumber, 10))
 		case "$uuid":

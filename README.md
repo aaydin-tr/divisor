@@ -148,7 +148,9 @@ Header names are always normalized to canonical form (`x-api-key` → `X-Api-Key
 | custom_headers | Headers injected into backend requests | map |
 | custom_headers.`<name>` | Header value (special variables supported) | string |
 
-**Special variables**: `$remote_addr` (client IP), `$time` (request timestamp), `$uuid` (request UUID), `$incremental` (per-Backend request sequence number — unique and increasing per Backend for the life of the process; see CONTEXT.md)
+**Special variables**: `$remote_addr` (client IP — the TCP peer that connected to divisor), `$time` (request timestamp, always UTC in RFC 3339 with milliseconds, e.g. `2026-08-23T09:41:07.123Z`), `$uuid` (request UUID), `$incremental` (per-Backend request sequence number — unique and increasing per Backend for the life of the process; see CONTEXT.md)
+
+Divisor always forwards `X-Forwarded-For`: the client IP is appended to any chain the client sent (`client-sent, peer-ip`), so a Backend reads the rightmost entry as the address divisor actually saw. Client-sent chains are passed through, never trusted — behind another proxy, divisor's notion of the client IP (and the ip-hash key) is that proxy.
 
 **Example**:
 ```yaml

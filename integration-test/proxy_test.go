@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -259,17 +260,18 @@ func TestProxyMatrix(t *testing.T) {
 	})
 
 	t.Run("XForwardedFor", func(t *testing.T) {
-		// Pinned current behavior: divisor OVERWRITES client-supplied
-		// X-Forwarded-For with the direct peer IP (anti-spoofing for an
-		// edge balancer). Revisit for 1.0 if append semantics are wanted.
+		// Divisor appends the Client IP (the TCP peer) to a client-sent chain;
+		// the chain is passed through, never trusted, and the rightmost entry
+		// is always the peer divisor saw (CONTEXT.md, Client IP).
 		hdr := http.Header{"X-Forwarded-For": []string{"1.2.3.4"}}
 		res := s.MustEcho(t, http.MethodGet, "/xff", nil, hdr)
 		xff := res.Echo.Header("X-Forwarded-For")
-		if net.ParseIP(xff) == nil {
-			t.Errorf("X-Forwarded-For at backend is %q, want a valid IP", xff)
+		hops := strings.Split(xff, ", ")
+		if len(hops) != 2 || hops[0] != "1.2.3.4" {
+			t.Fatalf("X-Forwarded-For at backend is %q, want %q followed by the peer IP", xff, "1.2.3.4")
 		}
-		if xff == "1.2.3.4" {
-			t.Errorf("client-supplied X-Forwarded-For was trusted verbatim; divisor should replace it with the peer IP")
+		if net.ParseIP(hops[1]) == nil || hops[1] == "1.2.3.4" {
+			t.Errorf("X-Forwarded-For rightmost entry is %q, want the peer IP divisor saw", hops[1])
 		}
 	})
 
