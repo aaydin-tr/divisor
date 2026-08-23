@@ -96,7 +96,7 @@ Pool plus the balancer as the rest of the process sees them. `Serve` answers
 ### Configuration System
 
 `pkg/config`:
-- YAML-based configuration with validation in `PrepareConfig()`
+- YAML-based configuration with validation in `PrepareConfig()`; decoding is strict (`KnownFields`), so an unknown or removed key is a startup error
 - Auto-sets defaults if not specified (e.g., `health_checker_time: 30s`, `type: round-robin`)
 - Backend `url` is normalized to a dialable Backend address (`host:port`): optional `http://` and bare trailing slash stripped, missing port defaults to 80; path/query/userinfo and `https://` are rejected at startup (ADR 0004: backends are plaintext-only)
 - HTTP/2 requires TLS (cert_file + key_file must be provided)
@@ -109,6 +109,7 @@ Pool plus the balancer as the rest of the process sees them. `Serve` answers
 - Provides real-time stats: CPU, RAM, goroutines, open connections
 - Prometheus metrics endpoint at `/metrics`
 - Per-backend stats: average response time, request count, last use time
+- A failed gopsutil read keeps the last good CPU/memory values (logged); Backend rows never depend on it
 
 ### Main Server Flow
 
@@ -117,7 +118,7 @@ Pool plus the balancer as the rest of the process sees them. `Serve` answers
 3. Create the Pool + balancer → `core.NewBalancer()` (first Probe round runs synchronously here)
 4. The Probe loop starts inside `NewBalancer` (`Pool.StartHealthChecker()`)
 5. Start the client-facing server via `internal/server.Start()` (fasthttp for HTTP/1.1, net/http for HTTP/2); it returns a stack-agnostic `Server` plus a channel that reports a Serve failure
-6. Start monitoring server (goroutine)
+6. Start the monitoring server via `monitoring.Start()` (binds synchronously; a bind failure is fatal; the Prometheus poller starts only after the bind)
 7. Select on SIGINT/SIGTERM (graceful shutdown, 30s timeout) vs a Serve failure (fatal, non-zero exit)
 
 ### Graceful Shutdown
@@ -125,6 +126,7 @@ Pool plus the balancer as the rest of the process sees them. `Serve` answers
 Implemented in `performGracefulShutdown()`:
 - Stops accepting new connections
 - Waits for in-flight requests to complete
+- Stops the monitoring server (poller first, then its listener) so nothing reads Pool stats after the next step
 - Stops the Probe loop and waits for a round in flight (capped by `types.HealthCheckerStopTimeout`)
 - Closes idle connections via `balancer.Shutdown()` → `Pool.Shutdown()`
 - 30-second timeout enforced

@@ -30,10 +30,6 @@ func HashFunc(b []byte) uint32 {
 	return crc32.ChecksumIEEE(b)
 }
 
-func Remove[T any](s []T, index int) []T {
-	return append(s[:index], s[index+1:]...)
-}
-
 func RemoveByValue[T comparable](s []T, value T) []T {
 	temp := make([]T, 0, len(s))
 	for _, elem := range s {
@@ -54,16 +50,6 @@ func IsClosed(ch <-chan struct{}) bool {
 	default:
 		return false
 	}
-}
-
-func FindIndex[T comparable](s []T, value T) (int, error) {
-	for i, elem := range s {
-		if elem == value {
-			return i, nil
-		}
-	}
-
-	return 0, errors.New("not found in slice")
 }
 
 func IsFileExist(file string) error {

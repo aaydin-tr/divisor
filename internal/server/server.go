@@ -27,6 +27,7 @@ type Server interface {
 // that ended serving, if any; a clean Shutdown delivers nothing. A nil error
 // return guarantees a non-nil Server.
 func Start(cfg *config.Config, balancer types.IBalancer, ln net.Listener) (Server, <-chan error, error) {
+	ln = withTCPKeepalive(ln, cfg.Server.TCPKeepalivePeriod)
 	if cfg.Server.HttpVersion == config.Http2 {
 		zap.S().Info("Starting net/http server with HTTP/2")
 		return startNetHttp(cfg, balancer, ln)
@@ -44,7 +45,6 @@ func startFasthttp(cfg *config.Config, balancer types.IBalancer, ln net.Listener
 	srv := &fasthttp.Server{
 		Handler:               balancer.Serve(),
 		MaxIdleWorkerDuration: cfg.Server.MaxIdleWorkerDuration,
-		TCPKeepalivePeriod:    cfg.Server.TCPKeepalivePeriod,
 		Concurrency:           cfg.Server.Concurrency,
 		ReadTimeout:           cfg.Server.ReadTimeout,
 		WriteTimeout:          cfg.Server.WriteTimeout,

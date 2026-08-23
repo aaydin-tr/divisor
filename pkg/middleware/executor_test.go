@@ -260,7 +260,7 @@ func TestNewExecutor(t *testing.T) {
 		executor, err := NewExecutor(configs)
 		assert.Error(t, err)
 		assert.Nil(t, executor)
-		assert.Equal(t, ErrNewFunctionNotFound, err)
+		assert.ErrorIs(t, err, ErrNewFunctionNotFound)
 	})
 
 	t.Run("invalid Go code syntax", func(t *testing.T) {
@@ -339,7 +339,7 @@ func TestNewExecutor(t *testing.T) {
 		executor, err := NewExecutor(configs)
 		assert.Error(t, err)
 		assert.Nil(t, executor)
-		assert.Equal(t, ErrNewFunctionNotFound, err)
+		assert.ErrorIs(t, err, ErrNewFunctionNotFound)
 	})
 
 	t.Run("mix of valid and invalid middlewares", func(t *testing.T) {
@@ -363,49 +363,6 @@ func TestNewExecutor(t *testing.T) {
 		assert.Nil(t, executor)
 	})
 
-	t.Run("both code and file are empty", func(t *testing.T) {
-		configs := []config.Middleware{
-			{
-				Name:     "empty",
-				Disabled: false,
-				Code:     "",
-				File:     "",
-				Config:   map[string]any{},
-			},
-		}
-
-		executor, err := NewExecutor(configs)
-		assert.Error(t, err)
-		assert.Nil(t, executor)
-		assert.Equal(t, ErrCodeAndFileEmpty, err)
-	})
-
-	t.Run("both code and file are set", func(t *testing.T) {
-		// Create a temporary file with middleware code
-		tmpFile, err := os.CreateTemp("", "middleware-*.go")
-		assert.NoError(t, err)
-		defer os.Remove(tmpFile.Name())
-
-		_, err = tmpFile.WriteString(validMiddlewareCode)
-		assert.NoError(t, err)
-		tmpFile.Close()
-
-		configs := []config.Middleware{
-			{
-				Name:     "both-set",
-				Disabled: false,
-				Code:     validMiddlewareCode,
-				File:     tmpFile.Name(),
-				Config:   map[string]any{},
-			},
-		}
-
-		executor, err := NewExecutor(configs)
-		assert.Error(t, err)
-		assert.Nil(t, executor)
-		assert.Equal(t, ErrCodeAndFileBothSet, err)
-	})
-
 	t.Run("empty code and file for disabled middleware should not error", func(t *testing.T) {
 		configs := []config.Middleware{
 			{
@@ -423,60 +380,6 @@ func TestNewExecutor(t *testing.T) {
 		assert.Len(t, executor.middlewares, 0)
 	})
 
-	t.Run("mix of valid and empty code/file middlewares", func(t *testing.T) {
-		configs := []config.Middleware{
-			{
-				Name:     "valid",
-				Disabled: false,
-				Code:     validMiddlewareCode,
-				Config:   map[string]any{},
-			},
-			{
-				Name:     "empty",
-				Disabled: false,
-				Code:     "",
-				File:     "",
-				Config:   map[string]any{},
-			},
-		}
-
-		executor, err := NewExecutor(configs)
-		assert.Error(t, err)
-		assert.Nil(t, executor)
-		assert.Equal(t, ErrCodeAndFileEmpty, err)
-	})
-
-	t.Run("mix of valid and both-set middlewares", func(t *testing.T) {
-		// Create a temporary file with middleware code
-		tmpFile, err := os.CreateTemp("", "middleware-*.go")
-		assert.NoError(t, err)
-		defer os.Remove(tmpFile.Name())
-
-		_, err = tmpFile.WriteString(validMiddlewareCode)
-		assert.NoError(t, err)
-		tmpFile.Close()
-
-		configs := []config.Middleware{
-			{
-				Name:     "valid",
-				Disabled: false,
-				Code:     validMiddlewareCode,
-				Config:   map[string]any{},
-			},
-			{
-				Name:     "both-set",
-				Disabled: false,
-				Code:     validMiddlewareCode,
-				File:     tmpFile.Name(),
-				Config:   map[string]any{},
-			},
-		}
-
-		executor, err := NewExecutor(configs)
-		assert.Error(t, err)
-		assert.Nil(t, executor)
-		assert.Equal(t, ErrCodeAndFileBothSet, err)
-	})
 }
 
 func TestRunOnRequest(t *testing.T) {

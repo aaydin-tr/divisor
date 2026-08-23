@@ -5,7 +5,7 @@
 
 No spec/issue tracker exists for this repo, so this is a bug-focused review plus a code-smell pass — not a spec-conformance review. Findings marked *(judgement call)* are defensible-design questions, not hard bugs.
 
-**Totals:** 4 critical · 8 high · 9 medium · 21 low · 6 smells — fixed so far: C1–C4, H1–H8, M1–M8, L3, L9–L11, L22, S4, S5
+**Totals:** 4 critical · 8 high · 9 medium · 21 low · 6 smells — **everything fixed or settled** (C1–C4, H1–H8, M1–M9, L1–L22, S1–S6)
 
 ## Fix checklist
 
@@ -31,9 +31,9 @@ Tick items off as we fix them:
 - [x] [M6 — `https://` backends silently downgraded to plain HTTP](#m6) ✅ fixed with H6
 - [x] [M7 — Typed-nil `any` defeats server-startup failure check](#m7) ✅ fixed (with S5)
 - [x] [M8 — Connection-nominated headers not stripped (RFC 7230 §6.1)](#m8) ✅ fixed
-- [ ] [M9 — `$incremental` header race produces duplicate values](#m9)
-- [ ] [L1–L20 — Low-severity bugs & sharp edges](#low)
-- [ ] [S1–S6 — Code smells](#smells)
+- [x] [M9 — `$incremental` header race produces duplicate values](#m9)
+- [x] [L1–L21 — Low-severity bugs & sharp edges](#low) ✅ all fixed or settled 2026-08-23 (L8 streaming: declared unsupported for 1.0)
+- [x] [S1–S6 — Code smells](#smells) ✅ all fixed or resolved 2026-08-23
 
 ---
 
@@ -248,35 +248,43 @@ Tick items off as we fix them:
 - **Bug:** `atomic.AddUint64` at handler entry discards the return value; the counter is re-read later with `atomic.LoadUint64` — a read-after-add race.
 - **Failure scenario:** request A: Add→1; request B: Add→2; both Load→2. Both backend requests carry the value 2 and 1 never appears — duplicated/skipped sequence numbers break request correlation.
 - **Fix:** capture `v := atomic.AddUint64(…)` at entry and use `v` in `setCustomHeaders`.
+- **Status: FIXED (2026-08-23).** `ReverseProxyHandler` captures the return of `atomic.AddUint64` as `requestSequenceNumber` and threads it through `preReq` → `setCustomHeaders`; the `Load` is gone, so the value is the one this request's increment produced. Contract written down: CONTEXT.md **Request sequence number** (per Backend, starts at 1, strictly increasing, unique per process lifetime, equals `TotalReqCount` at the moment of counting — so a short-circuited request still consumes a number and the Backend sees a gap); README line reworded to match. Covers the HTTP/2 adapter too, since both stacks share the handler. Regression test `TestIncrementalHeaderUniquePerRequest` in `internal/proxy` fires 1000 concurrent handlers and asserts the `X-Incremental` values are exactly `{1..1000}` with no duplicates (old code: ~300 duplicates per run).
 
 ---
 
 <a id="low"></a>
 ## Low — bugs & sharp edges
 
-### L1. `X-Forwarded-For` overwrites any existing chain *(judgement call)*
+### L1. `X-Forwarded-For` overwrites any existing chain — ✅ fixed (2026-08-23)
 [internal/proxy/proxy.go:110](internal/proxy/proxy.go#L110) — an incoming XFF from an upstream proxy/CDN is replaced, not appended; behind another proxy the real client IP is lost. Overwriting is a defensible anti-spoofing default. **Fix:** append (`prior + ", " + clientIP`) or make it configurable.
+- **Status: FIXED.** `appendForwardedFor` appends the Client IP to whatever chain the client sent (repeated header lines folded into one); the chain is passed through, never trusted. No trusted-proxy feature for 1.0 — CONTEXT.md now defines **Client IP** as the TCP peer (what XFF is appended with, `$remote_addr` carries, and ip-hash hashes). Tests: `TestReverseProxyHandler/x-forwarded-for …` (unit), integration `XForwardedFor` re-pinned to append semantics.
 
-### L2. `$time` stamps local time with a literal `Z` (UTC) suffix
+### L2. `$time` stamps local time with a literal `Z` (UTC) suffix — ✅ fixed (2026-08-23)
 [internal/proxy/proxy.go:172](internal/proxy/proxy.go#L172) — `time.Now().Local().Format("2006-01-02T15:04:05.000Z")`: `Z` is a literal in that layout, so a UTC+3 host claims `12:00Z` when UTC is 09:00. **Fix:** `time.Now().UTC().Format("2006-01-02T15:04:05.000Z07:00")`.
+- **Status: FIXED.** `timeHeaderLayout` = RFC 3339 with milliseconds, always UTC; README documents the format. Test asserts the `Z` suffix and that the value is within a minute of now (a local-time value would be off by the zone offset).
 
 ### L3. `serverError` builds JSON by concatenation without escaping, and leaks internal error detail — ✅ fixed with M5
 [internal/proxy/proxy.go:153-164](internal/proxy/proxy.go#L153-L164) — invalid JSON when the error contains `"` or `\`; exposes backend addresses/dial errors to clients. Now constant bodies `{"message":"bad gateway"}` / `{"message":"gateway timeout"}`; the error is logged, not sent. `TestServerErrorStatusMapping` asserts the bodies.
 
-### L4. Monitoring stats goroutine can never be stopped, and starts before the listener bind succeeds
+### L4. Monitoring stats goroutine can never be stopped, and starts before the listener bind succeeds — ✅ fixed (2026-08-23)
 [internal/monitoring/monitoring.go:102-108](internal/monitoring/monitoring.go#L102-L108), [:137-141](internal/monitoring/monitoring.go#L137-L141) — no stop channel; if `reuseport.Listen` fails it polls gopsutil + `Stats()` forever; keeps touching balancer state during/after graceful shutdown. **Fix:** `time.Ticker` + done channel wired into shutdown; start only after `Listen` succeeds.
+- **Status: FIXED.** `monitoring.Start` binds synchronously and returns a `*monitoring.Server` (bind failure is now **fatal** at startup, like the client-facing server since M7); the Prometheus poller starts only after the bind and runs on a `time.Ticker` with a stop channel; `Server.Shutdown(ctx)` stops the poller, waits for a poll in flight, then shuts the HTTP server down. `performGracefulShutdown` calls it after the client server and **before** `balancer.Shutdown()`, so nothing reads Pool stats after the Pool closes. Prometheus registration is `sync.Once`-guarded. Tests: `TestStartServesStatsAndShutdownStopsPolling` (asserts the balancer's `Stats()` count is frozen after Shutdown and the listener is closed), `TestStartReportsBindFailure`.
 
-### L5. Transient gopsutil error zeroes all global Prometheus gauges
+### L5. Transient gopsutil error zeroes all global Prometheus gauges — ✅ fixed (2026-08-23)
 [internal/monitoring/monitoring.go:50-77](internal/monitoring/monitoring.go#L50-L77), [internal/monitoring/prometheus.go:69-77](internal/monitoring/prometheus.go#L69-L77) — one failed collection publishes a zero-valued snapshot (CPU/mem/goroutines → 0), firing false alerts. **Fix:** skip the update on error, keep last values.
+- **Status: FIXED.** `statsCollector.Snapshot()` splits the two sources: Backend rows, goroutine count and connection count come from the process and are always current; the gopsutil part (`systemStats`) keeps its last good values when a read fails, with the error logged (no staleness field in `/stats`). Previously a gopsutil error also blanked the Backend rows in `/stats`. Test: `TestSnapshotKeepsLastGoodSystemStatsOnError`.
 
-### L6. net/http adapter ignores client cancellation *(judgement call)*
+### L6. net/http adapter ignores client cancellation — ✅ settled: documented limitation (2026-08-23)
 [internal/proxy/nethttp_adapter.go:27-66](internal/proxy/nethttp_adapter.go#L27-L66) — `r.Context()` never consulted; a disconnected HTTP/2 client leaves the backend request running, holding a connection. **Fix:** watch `r.Context().Done()` with `DoDeadline`/abort, or document the limitation.
+- **Status: DOCUMENTED, not implemented.** Re-verified: the finding is not HTTP/2-specific — the fasthttp path cannot cancel either (`HostClient.Do` has no cancellation hook), so implementing it in the adapter alone would make the two stacks behave differently. Chosen: one consistent rule, bounded by `proxy_timeout` — recorded in ADR 0003's Consequences and README Limitations.
 
-### L7. net/http adapter drops client-sent trailer values
+### L7. net/http adapter drops client-sent trailer values — ✅ fixed (2026-08-23)
 [internal/proxy/nethttp_adapter.go:122-129](internal/proxy/nethttp_adapter.go#L122-L129) — `r.Trailer` is read before the body is consumed (net/http populates values only after full body read), so actual trailer values are never forwarded. **Fix:** forward trailers after body consumption, or drop trailer support explicitly.
+- **Status: FIXED, and the root cause was elsewhere.** The adapter now buffers the body (up to `max_request_body_size`) whenever trailers are announced (`len(r.Trailer) > 0`) before copying them, and sends such a request length-less so the trailers can travel after a chunked body. But trailers never reached a Backend *as trailers* on either stack: `preReq` strips `Trailer` as hop-by-hop, and fasthttp's `Del("Trailer")` also forgets which headers are trailers, so their values were forwarded as ordinary headers. `reannounceTrailers` now re-registers them after hop-header stripping and re-sends an in-memory body as a chunked stream. Tests: `TestNetHttpAdapterForwardsAnnouncedTrailers` (declared and length-less bodies, end to end through a real `ProxyClient`), `TestRequestTrailersReachBackendAsTrailers` (fasthttp path; asserts the value is a trailer, not a header).
 
-### L8. Streaming responses (SSE/long-poll) are fully buffered and never reach the client
+### L8. Streaming responses (SSE/long-poll) are fully buffered and never reach the client — ✅ settled: unsupported in 1.0 (2026-08-23)
 [internal/proxy/proxy.go:78-84](internal/proxy/proxy.go#L78-L84) (`HostClient.Do`/`DoTimeout` reads the whole response; no `StreamResponseBody`), [internal/proxy/nethttp_adapter.go:64-65](internal/proxy/nethttp_adapter.go#L64-L65) (no `http.Flusher` path) — an SSE backend never terminates its body, so `Do` blocks indefinitely and nothing is flushed. **Fix:** enable `StreamResponseBody` and stream/flush in both paths, or document streaming as unsupported.
+- **Status: DECLARED UNSUPPORTED for 1.0.** Streaming is a feature with its own design tree (what `OnResponse` sees, what `proxy_timeout` means for an open stream, H8's content-length handling), not a Low fix. ADR 0003's Consequences were amended — they wrongly implied a bigger `proxy_timeout` makes streaming work; long-polling does, SSE 504s at `proxy_timeout` — and README Limitations says so. Post-1.0 feature; additive when it lands.
 
 ### L9. `GetNode` has no empty-ring guard — ✅ fixed with C3
 [pkg/consistent/consistent.go:90-102](pkg/consistent/consistent.go#L90-L102) — `GetNode` now returns nil on an empty ring, and ip-hash serves 503 via `proxy.NoAliveBackends` ([core/ip-hash/ip-hash.go:82-88](core/ip-hash/ip-hash.go#L82-L88)). Regression test `TestGetNodeEmptyRing`.
@@ -287,38 +295,48 @@ Tick items off as we fix them:
 ### L11. `GetLogFolder` Windows fallback is dead code — ✅ fixed with H7
 Now `logFolderFor(goos, localAppData)` in [pkg/logger/logfile.go](pkg/logger/logfile.go): the env var is checked *before* concatenating, so an unset `LocalAppData` falls back to `./divisor.log` instead of the drive root. Covered by `TestLogFolderFor` (testable cross-platform).
 
-### L12. `tcp_keepalive_period` config option is a silent no-op
+### L12. `tcp_keepalive_period` config option is a silent no-op — ✅ fixed (2026-08-23)
 [pkg/config/config.go:84](pkg/config/config.go#L84), wired at [main.go:109](main.go#L109) — fasthttp applies the period only when `Server.TCPKeepalive` is true, which divisor never sets. **Fix:** set `TCPKeepalive: true` when a period is configured.
+- **Status: FIXED, at the listener.** The suggested fix would have covered fasthttp only; the HTTP/2 stack (`net/http` on a listener it did not create) would still ignore the knob. `internal/server.withTCPKeepalive` wraps the shared listener so every accepted `*net.TCPConn` gets `SetKeepAlive(true)` + `SetKeepAlivePeriod`, on both stacks; fasthttp's own keepalive fields stay unset. Test reads the idle period back from the socket (`TCP_KEEPALIVE`/`TCP_KEEPIDLE`) since Go enables keepalive by default anyway.
 
-### L13. Unknown `http_version` values silently coerced to `http1.1`
+### L13. Unknown `http_version` values silently coerced to `http1.1` — ✅ fixed (2026-08-23)
 [pkg/config/config.go:241-243](pkg/config/config.go#L241-L243) — any typo (`HTTP2`, `h2`, `http/2`) silently becomes http1.1; the user believes HTTP/2 is active. **Fix:** error on values other than `""`, `"http1.1"`, `"http2"`.
+- **Status: FIXED, and widened.** `http_version` accepts `""`, `http1` (the documented spelling, used by every example), `http1.1` (the internal constant) and `http2`; anything else is `ErrInvalidHttpVersion` naming the value. And the config decoder is now strict (`yaml.v3` `KnownFields(true)`): any unknown or removed key anywhere (`proxy_timout`, `disable_header_names_normalizing`, …) fails startup with the key and line; `middlewares[].config` stays free-form; an empty file is `ErrConfigFileEmpty`. Pre-1.0 breaking change, accepted. Tests: `TestPrepareServerHttpVersion`, `TestParseConfigFileRejectsUnknownKeys`, and `TestExamplesParseUnderStrictKeys` (every shipped example must parse strictly).
 
-### L14. Health check accepts only exactly HTTP 200
+### L14. Health check accepts only exactly HTTP 200 — ✅ fixed (2026-08-23)
 [pkg/http/http.go:39](pkg/http/http.go#L39) — backends answering 204/301/302 on their health path are permanently down (fasthttp doesn't follow redirects), not configurable. **Fix:** accept 2xx or make the expected status configurable.
+- **Status: FIXED.** A Probe succeeds on any 2xx or 3xx (nginx/HAProxy default); redirects are not followed; no knob (additive later). CONTEXT.md's **Probe** entry now states the rule. Test table in `TestIsHostAlive`.
 
-### L15. Yaegi `Eval` failure masked by `ErrNewFunctionNotFound`
+### L15. Yaegi `Eval` failure masked by `ErrNewFunctionNotFound` — ✅ fixed (2026-08-23)
 [pkg/middleware/executor.go:93-96](pkg/middleware/executor.go#L93-L96) — any `Eval` error is replaced wholesale, discarding the underlying cause; operators debug the wrong thing. **Fix:** wrap: `fmt.Errorf("%w: %v", ErrNewFunctionNotFound, err)`.
+- **Status: FIXED** as suggested; tests use `ErrorIs`.
 
-### L16. Dead middleware validation error variables
+### L16. Dead middleware validation error variables — ✅ fixed (2026-08-23)
 [pkg/middleware/executor.go:20-26](pkg/middleware/executor.go#L20-L26) — the `ErrOnRequestFunctionNotFound/NotValid` and `ErrOnResponseFunctionNotFound/NotValid` variables are declared, never referenced (`ErrNewFunctionNotValid` is used now); they advertise checks that don't exist. **Fix:** delete or implement.
+- **Status: FIXED** — deleted (together with `ErrCodeAndFileEmpty`/`BothSet`, see L17).
 
-### L17. Duplicated middleware validation with divergent error values
+### L17. Duplicated middleware validation with divergent error values — ✅ fixed (2026-08-23)
 [pkg/middleware/executor.go:54-60](pkg/middleware/executor.go#L54-L60) vs [pkg/config/config.go:277-292](pkg/config/config.go#L277-L292) — same empty/both-set checks in two places with different error values; the executor's copy is unreachable in the production startup path. **Fix:** validate in one place.
+- **Status: FIXED.** `config.validateMiddlewares` is the one place, with sentinel errors (`ErrMiddlewareNameRequired`, `ErrMiddlewareCodeAndFileEmpty`, `ErrMiddlewareCodeAndFileBothSet`); the executor trusts its input. The four executor subtests that asserted those checks moved to `pkg/config` (`TestValidateMiddlewares`).
 
-### L18. Middleware contract exposes the pooled `RequestCtx` with no retention warning
+### L18. Middleware contract exposes the pooled `RequestCtx` with no retention warning — ✅ fixed (2026-08-23)
 [middleware/middleware.go:7-18](middleware/middleware.go#L7-L18) — the contract's `Context` embeds `*fasthttp.RequestCtx`, and fasthttp recycles `RequestCtx`; a middleware that captures it in a goroutine reads a recycled ctx serving a different request — cross-request data leakage. **Fix:** document the no-retention rule in the interface and README.
+- **Status: FIXED** — doc comment on `middleware.Context` and a "Rules Every Middleware Must Follow" subsection in README; CONTEXT.md's **Middleware** entry carries the rule.
 
-### L19. `OnResponse` chain runs in registration order, not reverse (onion) order *(judgement call — undocumented)*
+### L19. `OnResponse` chain runs in registration order, not reverse (onion) order — ✅ fixed (2026-08-23)
 [pkg/middleware/executor.go:134-141](pkg/middleware/executor.go#L134-L141) — outer middleware never observes inner middleware's response mutations. **Fix:** iterate in reverse for `RunOnResponse` and document the ordering.
+- **Status: FIXED.** `RunOnResponse` iterates in reverse config order. An `OnRequest` short-circuit or error still skips every `OnResponse` (the response is sent "unchanged", as the glossary promises); an `OnResponse` short-circuit skips the hooks before it in config order. CONTEXT.md **Short-circuit** entry, the contract doc comment and README lifecycle all state the order. Behavior change, pre-1.0. Tests updated in `TestMiddlewareExecutionOrder` and `TestMiddlewareShortCircuit`.
 
-### L20. Middleware instances are shared across all request goroutines — undocumented
+### L20. Middleware instances are shared across all request goroutines — ✅ fixed (2026-08-23)
 [pkg/middleware/executor.go:106](pkg/middleware/executor.go#L106), [internal/proxy/proxy.go:71-91](internal/proxy/proxy.go#L71-L91) — the per-middleware yaegi setup avoids the classic concurrent-Eval hazard (same pattern as Traefik plugins), but each middleware is a single shared instance: any mutable field in a user's struct is raced by concurrent requests with no warning in the contract. **Fix:** document that stateful middleware must synchronize internally.
+- **Status: FIXED** — doc comment on `middleware.Middleware`, README rules subsection, and CONTEXT.md's **Middleware** entry now names the instance model (one instance per config entry, shared by every request).
 
 ### L22. `disable_header_names_normalizing` was a half-feature and a case-sensitivity foot-gun — ✅ removed with M8
 Reached only fasthttp's inbound HTTP/1.1 parsing (net/http has no such switch, Backend responses were always normalized) and made middleware header lookups case-sensitive. Header names are now always canonical on both stacks; README documents it. Pre-1.0 breaking change: the key is gone from the config (non-strict YAML, so an old config carrying it is silently ignored — strict unknown-key rejection is L13's territory).
 
-### L21. ip-hash virtual-node count is `len(backends)²` — too few points for even distribution *(surfaced by M4)*
+### L21. ip-hash virtual-node count is `len(backends)²` — too few points for even distribution — ✅ fixed (2026-08-23)
 [core/ip-hash/ip-hash.go:41](core/ip-hash/ip-hash.go#L41) — one Backend gets 1 virtual node, two get 4 each, three get 9; consistent-hash rings usually use 100+ per node for the keyspace split to approach even. With so few points the share between Backends is lumpy and a single Backend flap moves large contiguous arcs. **Fix:** a fixed constant (e.g. 100–160 per Backend) or a config knob; changing it reshuffles affinity once, same as M4 did.
+- **Status: FIXED.** `virtualNodesPerBackend = 100`, no knob. One-time affinity reshuffle on upgrade, as with M4. Test `TestIPHashSpreadsClientsEvenly` (10 000 client IPs over 3 Backends, every share within 25% of ideal; verified failing at the old 9-per-Backend count, where one Backend took 43%).
 
 ---
 
@@ -332,8 +350,9 @@ Reached only fasthttp's inbound HTTP/1.1 parsing (net/http has no such switch, B
 ### S2. Mysterious Names: `len`, `i`, `lastIndex` — ✅ resolved with S1
 `ip-hash`'s `len` shadow counter is gone (the Pool's `aliveCount` is the one count); the rotation counters are `requestCounter` in [core/round-robin](core/round-robin/round_robin.go) and [core/w-round-robin](core/w-round-robin/w_round_robin.go); `lastIndex` became `cursor` with M1 and is now `scanCursor` in [core/least-connection](core/least-connection/least_connection.go).
 
-### S3. `FindIndex` returns `(0, err)` on miss — a valid-index sentinel
+### S3. `FindIndex` returns `(0, err)` on miss — a valid-index sentinel — ✅ resolved: deleted (2026-08-23)
 [pkg/helper/helper.go:48-56](pkg/helper/helper.go#L48-L56) — index 0 is a legitimate result, so any caller dropping the error deletes element 0. The sole current caller checks, but the API invites the bug. Return `-1` or `(int, bool)`.
+- **Status: DELETED — orphaned by S1.** The Pool refactor removed `FindIndex`'s only caller, so fixing the signature would have polished dead code. `helper.Remove` (the in-place index-shift remover, the C3 sharp edge) was orphaned by the same refactor and is deleted with it, so the pattern cannot be reintroduced by a future caller. Their tests went too; every remaining `pkg/helper` function has production callers.
 
 ### S4. Log-path helpers misplaced in `pkg/helper` (low cohesion) — ✅ addressed with H7
 Moved to [pkg/logger/logfile.go](pkg/logger/logfile.go); only `GetLogFile` stays exported (main.go's sole need), the rest are unexported.
@@ -341,8 +360,9 @@ Moved to [pkg/logger/logfile.go](pkg/logger/logfile.go); only `GetLogFile` stays
 ### S5. Repeated type switches on `server any` — ✅ addressed with M7
 `internal/server.Server` (`Shutdown`, `OpenConnectionsCount`) and monitoring's own `OpenConnectionsCounter`; both switches and `server any` are gone.
 
-### S6. net/http adapter re-derives the handler closure on every request
+### S6. net/http adapter re-derives the handler closure on every request — ✅ fixed (2026-08-23)
 [internal/proxy/nethttp_adapter.go:54](internal/proxy/nethttp_adapter.go#L54) — `a.Balancer.Serve()(&ctx)` constructs a new closure per request; every `Serve()` is a pure factory that main.go calls once and reuses. Cache `a.handler = balancer.Serve()` in the constructor.
+- **Status: FIXED** as suggested: `NewNetHttpAdapter` calls `balancer.Serve()` once and stores the handler; the exported `Balancer` field is gone (the private `handler` replaces it — every construction already went through the constructor), so the adapter can no longer be built in a way that re-derives per request. Matches the fasthttp path, where `internal/server` has always called `Serve()` once.
 
 ---
 
@@ -350,5 +370,5 @@ Moved to [pkg/logger/logfile.go](pkg/logger/logfile.go); only `GetLogFile` stays
 
 1. ~~**S1 (extract shared balancer base)**~~ — done (the Pool); the next shared fix lands once.
 2. ~~**M5**~~ — done (ADR 0005, `middleware.ErrShortCircuit`; L3 folded in).
-3. **M9** — `$incremental` atomicity in `internal/proxy`. *(H4, H5, M1, M8 done.)*
+3. ~~**M9**~~ — done (`$incremental` now the captured increment; Request sequence number in CONTEXT.md). *(H4, H5, M1, M8 done.)*
 4. **The rest** — low-severity items, batched as convenient. *(H6–H8, M2, M4, M6, M7 done; L21 added.)*

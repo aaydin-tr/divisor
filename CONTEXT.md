@@ -23,7 +23,7 @@ The dialable `host:port` divisor connects to, derived from the config `url` key 
 _Avoid_: backend URL, upstream address
 
 **Probe**:
-A single health-check request sent to a Backend to decide whether it is Alive.
+A single health-check request (GET on the Backend's `health_check_path`) sent to a Backend to decide whether it is Alive. A Probe succeeds when the Backend answers with a 2xx or 3xx status within the Probe timeout; a connection failure, a timeout, or any other status is a failed Probe. Redirects are not followed.
 _Avoid_: ping, heartbeat
 
 **Alive / Down**:
@@ -38,6 +38,10 @@ _Avoid_: recovery, re-add
 A request divisor has forwarded to a Backend and not yet received the response for. It is what least-connection counts and compares — not TCP connections.
 _Avoid_: in-flight request, active connection, open connection
 
+**Client IP**:
+The address of the TCP peer that opened the connection to divisor. It is what `X-Forwarded-For` is appended with, what `$remote_addr` carries, and what ip-hash hashes. Divisor never reads a client-sent `X-Forwarded-For` to decide it: behind another proxy, the Client IP is that proxy.
+_Avoid_: real IP, remote address, origin IP
+
 **Virtual node**:
 One of the several positions a Backend occupies on the ip-hash ring so that client IPs spread evenly across Backends; a Backend leaves or rejoins the ring with all of its virtual nodes at once.
 _Avoid_: replica, vnode
@@ -47,12 +51,16 @@ Divisor decrypts client TLS itself; traffic from divisor to Backends is always p
 _Avoid_: end-to-end TLS, TLS passthrough (neither exists here)
 
 **Middleware**:
-A user-supplied Go snippet, declared in the config file, that runs before and/or after proxying and may mutate the request or response.
+A user-supplied Go snippet, declared in the config file, that runs before and/or after proxying and may mutate the request or response. Each config entry is constructed once at startup by its `New` function and that single instance serves every request concurrently; it must not keep the request context beyond the hook that received it.
 _Avoid_: plugin, hook, interceptor
 
 **Short-circuit**:
-A Middleware answering the request itself: from `OnRequest`, so the Backend is never asked, or from `OnResponse`, replacing a Backend failure with a response of its own. Divisor sends that response unchanged, and no later Middleware runs.
+A Middleware answering the request itself: from `OnRequest`, so the Backend is never asked, or from `OnResponse`, replacing a Backend failure with a response of its own. Divisor sends that response unchanged, and no later Middleware runs: from `OnRequest`, the Middlewares after it (and no `OnResponse` at all); from `OnResponse`, the Middlewares before it in config order, since `OnResponse` runs in reverse order.
 _Avoid_: handled, override, fallback, intercept, abort
+
+**Request sequence number**:
+The position of a request among all requests divisor has routed to one Backend since the process started: the first is 1, every later one is exactly one higher, and no two requests to the same Backend share a number. It equals the Backend's total request count at the moment the request was counted, so a request a Middleware short-circuits still consumes a number and the Backend sees a gap. Two Backends each have their own sequence; it restarts at 1 with the process. Exposed as the `$incremental` custom-header variable.
+_Avoid_: incremental counter, request counter, request ID
 
 ### Integration testing
 

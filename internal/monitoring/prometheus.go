@@ -1,6 +1,8 @@
 package monitoring
 
 import (
+	"sync"
+
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -52,7 +54,15 @@ var (
 	}, []string{"address"})
 )
 
-func init_prometheus() {
+var registerPrometheusMetricsOnce sync.Once
+
+// registerPrometheusMetrics registers once per process: MustRegister panics
+// on a second registration, and Start may run more than once in tests.
+func registerPrometheusMetrics() {
+	registerPrometheusMetricsOnce.Do(registerAllPrometheusMetrics)
+}
+
+func registerAllPrometheusMetrics() {
 	prometheus.MustRegister(processMemoryPercent)
 	prometheus.MustRegister(totalMemoryPercent)
 	prometheus.MustRegister(processMemoryMB)

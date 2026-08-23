@@ -1,9 +1,11 @@
 package config
 
 import (
+	"bytes"
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"os"
@@ -18,18 +20,23 @@ import (
 )
 
 var (
-	ErrAtLeastOneBackend     = errors.New("At least one backend must be set")
-	ErrInvalidPort           = errors.New("Please choose valid port")
-	ErrInvalidWeight         = errors.New("When using the weighted-round-robin algorithm, a weight must be specified for each backend")
-	ErrHttp2WithoutTls       = errors.New("The HTTP/2 connection can be only established if the server is using TLS. Please provide cert and key file")
-	ErrInvalidTLSKeyPair     = errors.New("cert_file/key_file could not be loaded as a TLS key pair")
-	ErrBackendUrlEmpty       = errors.New("Backend url must not be empty")
-	ErrBackendUrlInvalid     = errors.New("Backend url is not valid")
-	ErrBackendUrlHttps       = errors.New("Backend url must not use https, divisor terminates TLS and always speaks plain HTTP to backends")
-	ErrBackendUrlScheme      = errors.New("Backend url has an unsupported scheme")
-	ErrBackendUrlUserinfo    = errors.New("Backend url must not contain userinfo")
-	ErrBackendUrlNotHostPort = errors.New("Backend url must be host:port only, divisor cannot forward to a path")
-	ErrBackendUrlNoHost      = errors.New("Backend url has no host")
+	ErrAtLeastOneBackend            = errors.New("At least one backend must be set")
+	ErrInvalidPort                  = errors.New("Please choose valid port")
+	ErrInvalidWeight                = errors.New("When using the weighted-round-robin algorithm, a weight must be specified for each backend")
+	ErrHttp2WithoutTls              = errors.New("The HTTP/2 connection can be only established if the server is using TLS. Please provide cert and key file")
+	ErrInvalidHttpVersion           = errors.New("server.http_version must be http1 or http2")
+	ErrConfigFileEmpty              = errors.New("Config file is empty")
+	ErrInvalidTLSKeyPair            = errors.New("cert_file/key_file could not be loaded as a TLS key pair")
+	ErrBackendUrlEmpty              = errors.New("Backend url must not be empty")
+	ErrBackendUrlInvalid            = errors.New("Backend url is not valid")
+	ErrBackendUrlHttps              = errors.New("Backend url must not use https, divisor terminates TLS and always speaks plain HTTP to backends")
+	ErrBackendUrlScheme             = errors.New("Backend url has an unsupported scheme")
+	ErrBackendUrlUserinfo           = errors.New("Backend url must not contain userinfo")
+	ErrBackendUrlNotHostPort        = errors.New("Backend url must be host:port only, divisor cannot forward to a path")
+	ErrBackendUrlNoHost             = errors.New("Backend url has no host")
+	ErrMiddlewareNameRequired       = errors.New("middleware name is required")
+	ErrMiddlewareCodeAndFileEmpty   = errors.New("middleware needs either code or file")
+	ErrMiddlewareCodeAndFileBothSet = errors.New("middleware cannot specify both code and file, choose one")
 )
 
 var ValidTypes = []string{"round-robin", "w-round-robin", "ip-hash", "random", "least-connection", "least-response-time"}
@@ -136,11 +143,17 @@ func ParseConfigFile(path string) (*Config, error) {
 		return nil, err
 	}
 
-	var config Config
-	err = yaml.Unmarshal(configFile, &config)
+	// KnownFields: a misspelled or removed key is a startup error, never a
+	// silently ignored setting.
+	decoder := yaml.NewDecoder(bytes.NewReader(configFile))
+	decoder.KnownFields(true)
 
-	if err != nil {
-		return nil, err
+	var config Config
+	if err := decoder.Decode(&config); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, ErrConfigFileEmpty
+		}
+		return nil, fmt.Errorf("parsing config file %s: %w", path, err)
 	}
 
 	return &config, nil
@@ -293,8 +306,13 @@ func normalizeBackendAddress(raw string) (string, error) {
 }
 
 func (s *Server) prepareServer() error {
-	if s.HttpVersion == "" || s.HttpVersion != Http2 {
+	// "http1" is the documented spelling; Http1 ("http1.1") is tolerated.
+	switch s.HttpVersion {
+	case "", "http1", Http1:
 		s.HttpVersion = Http1
+	case Http2:
+	default:
+		return fmt.Errorf("%w, got %q", ErrInvalidHttpVersion, s.HttpVersion)
 	}
 
 	if s.HttpVersion == Http2 && (s.CertFile == "" || s.KeyFile == "") {
@@ -337,18 +355,21 @@ func (s *Server) prepareServer() error {
 	return nil
 }
 
+// validateMiddlewares is the one place a Middleware entry is validated; the
+// executor trusts the config it is handed.
 func (c *Config) validateMiddlewares() error {
 	for i, mw := range c.Middlewares {
 		if mw.Name == "" {
-			return fmt.Errorf("middleware at index %d: name is required", i)
+			return fmt.Errorf("%w: middleware at index %d", ErrMiddlewareNameRequired, i)
 		}
-		if !mw.Disabled {
-			if mw.Code == "" && mw.File == "" {
-				return fmt.Errorf("middleware '%s': either code or file must be specified", mw.Name)
-			}
-			if mw.Code != "" && mw.File != "" {
-				return fmt.Errorf("middleware '%s': cannot specify both code and file", mw.Name)
-			}
+		if mw.Disabled {
+			continue
+		}
+		if mw.Code == "" && mw.File == "" {
+			return fmt.Errorf("%w: middleware %q", ErrMiddlewareCodeAndFileEmpty, mw.Name)
+		}
+		if mw.Code != "" && mw.File != "" {
+			return fmt.Errorf("%w: middleware %q", ErrMiddlewareCodeAndFileBothSet, mw.Name)
 		}
 	}
 	return nil

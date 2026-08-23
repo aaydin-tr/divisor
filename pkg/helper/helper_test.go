@@ -2,7 +2,6 @@ package helper_test
 
 import (
 	"bytes"
-	"errors"
 	"testing"
 
 	"github.com/aaydin-tr/divisor/pkg/helper"
@@ -82,31 +81,6 @@ func TestHashFunc(t *testing.T) {
 	}
 }
 
-func TestRemove(t *testing.T) {
-	testCases := []struct {
-		slice    []int
-		index    int
-		expected []int
-	}{
-		{[]int{1, 2, 3}, 1, []int{1, 3}},
-		{[]int{1, 2, 3, 4}, 0, []int{2, 3, 4}},
-		{[]int{1}, 0, []int{}},
-	}
-
-	for _, testCase := range testCases {
-		result := helper.Remove(testCase.slice, testCase.index)
-		if len(result) != len(testCase.expected) {
-			t.Errorf("For slice %v and index %d, expected length %d but got %d", testCase.slice, testCase.index, len(testCase.expected), len(result))
-		}
-		for i := range result {
-			if result[i] != testCase.expected[i] {
-				t.Errorf("For slice %v and index %d, expected %v but got %v", testCase.slice, testCase.index, testCase.expected, result)
-				break
-			}
-		}
-	}
-}
-
 func TestRemoveByValue(t *testing.T) {
 	testCases := []struct {
 		slice    []int
@@ -128,31 +102,6 @@ func TestRemoveByValue(t *testing.T) {
 				t.Errorf("For slice %v and value %d, expected %v but got %v", testCase.slice, testCase.value, testCase.expected, result)
 				break
 			}
-		}
-	}
-}
-
-func TestFindIndex(t *testing.T) {
-	testCases := []struct {
-		slice    []int
-		value    int
-		expected int
-		err      error
-	}{
-		{[]int{1, 2, 3}, 2, 1, nil},
-		{[]int{1, 2, 3, 4}, 4, 3, nil},
-		{[]int{1}, 2, 0, errors.New("not found in slice")},
-		{[]int{1, 2, 3, 4, 2}, 5, 0, errors.New("not found in slice")},
-	}
-
-	for _, testCase := range testCases {
-		result, err := helper.FindIndex(testCase.slice, testCase.value)
-		if result != testCase.expected {
-			t.Errorf("For slice %v and value %d, expected %d but got %d", testCase.slice, testCase.value, testCase.expected, result)
-		}
-
-		if err != nil && errors.Is(err, testCase.err) {
-			t.Errorf("For slice %v and value %d, expected error %v but got %v", testCase.slice, testCase.value, testCase.err, err)
 		}
 	}
 }

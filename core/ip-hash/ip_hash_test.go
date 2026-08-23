@@ -82,3 +82,21 @@ func TestDuplicateAddressTwinKeepsItsVirtualNodes(t *testing.T) {
 		assert.Same(t, before[i], ih.Pick(mocks.RequestFrom(clientIP(i))), "client %d must route as it did before the flap", i)
 	}
 }
+
+// With 100 virtual nodes per Backend the split is close to even; with the old
+// len(backends)² count (9 per Backend here) it was lumpy.
+func TestIPHashSpreadsClientsEvenly(t *testing.T) {
+	const backendCount, clients = 3, 10000
+	backends := mocks.NewBackends(backendCount)
+	ih := New(ipHashConfig(backendCount), backends)
+	mocks.JoinAll(ih, backends)
+
+	share := map[*pool.Backend]int{}
+	for i := 0; i < clients; i++ {
+		share[ih.Pick(mocks.RequestFrom(fmt.Sprintf("10.%d.%d.%d", (i>>16)&255, (i>>8)&255, i&255)))]++
+	}
+	ideal := clients / backendCount
+	for b, got := range share {
+		assert.InDelta(t, ideal, got, float64(ideal)*0.25, "Backend %s share %d is more than 25%% off the ideal %d", b.Addr, got, ideal)
+	}
+}

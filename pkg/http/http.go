@@ -36,5 +36,12 @@ func (h *HttpClient) IsHostAlive(url string) bool {
 	if err != nil {
 		return false
 	}
-	return resp.StatusCode() == fasthttp.StatusOK
+	return isProbeSuccess(resp.StatusCode())
+}
+
+// A Probe succeeds on any 2xx or 3xx answer (CONTEXT.md, Probe): a health
+// path that answers 204, or redirects, marks the Backend Alive; redirects
+// are not followed.
+func isProbeSuccess(statusCode int) bool {
+	return statusCode >= fasthttp.StatusOK && statusCode < fasthttp.StatusBadRequest
 }

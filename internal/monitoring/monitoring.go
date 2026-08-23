@@ -1,7 +1,10 @@
 package monitoring
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"net"
 	"os"
 	"runtime"
 	"sync"
@@ -18,6 +21,8 @@ import (
 	"github.com/valyala/fasthttp/reuseport"
 	"go.uber.org/zap"
 )
+
+const prometheusUpdateInterval = 5 * time.Second
 
 type Monitoring struct {
 	Backends            []types.ProxyStat `json:"backends"`
@@ -38,72 +43,133 @@ type MemStats struct {
 	ProcessMB      float64 `json:"process_mb"`
 }
 
-var once sync.Once
-var pid int
-
 // OpenConnectionsCounter is the one thing monitoring needs from the running
 // server, whichever stack serves it.
 type OpenConnectionsCounter interface {
 	OpenConnectionsCount() int32
 }
 
-func getServerStats(server OpenConnectionsCounter, proxiesStats []types.ProxyStat) Monitoring {
-	once.Do(func() {
-		pid = os.Getpid()
-	})
+// systemStats is the part of a snapshot read from the OS through gopsutil,
+// the only part that can fail.
+type systemStats struct {
+	Cpu    CPUStats
+	Memory MemStats
+}
 
-	monitoring := Monitoring{}
-	process, err := gopsutilProcess.NewProcess(int32(pid))
-	if err != nil {
-		zap.S().Errorf("Error while getting process, err: %v", err)
-		return Monitoring{}
+type systemStatsReader func() (systemStats, error)
+
+// statsCollector assembles Monitoring snapshots. Backend rows and the
+// connection count come from the process itself and are always current; the
+// system stats keep their last good values when a read fails, so one gopsutil
+// hiccup never publishes a zeroed snapshot.
+type statsCollector struct {
+	connections OpenConnectionsCounter
+	balancer    types.IBalancer
+	readSystem  systemStatsReader
+
+	mu             sync.Mutex
+	lastGoodSystem systemStats
+}
+
+func newStatsCollector(connections OpenConnectionsCounter, balancer types.IBalancer, readSystem systemStatsReader) *statsCollector {
+	return &statsCollector{connections: connections, balancer: balancer, readSystem: readSystem}
+}
+
+func (c *statsCollector) Snapshot() Monitoring {
+	snapshot := Monitoring{
+		Backends:            c.balancer.Stats(),
+		TotalGoroutine:      runtime.NumGoroutine(),
+		OpenConnectionCount: c.connections.OpenConnectionsCount(),
 	}
 
-	processCpuUsage, _ := process.CPUPercent()
-	monitoring.Cpu.ProcessPercent = processCpuUsage
+	system, err := c.readSystem()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err != nil {
+		zap.S().Errorf("System stats unavailable, reporting the last good values: %v", err)
+	} else {
+		c.lastGoodSystem = system
+	}
+	snapshot.Cpu = c.lastGoodSystem.Cpu
+	snapshot.Memory = c.lastGoodSystem.Memory
+	return snapshot
+}
+
+var processID = os.Getpid()
+
+func readSystemStatsFromOS() (systemStats, error) {
+	process, err := gopsutilProcess.NewProcess(int32(processID))
+	if err != nil {
+		return systemStats{}, fmt.Errorf("process %d: %w", processID, err)
+	}
+
+	var stats systemStats
+	if stats.Cpu.ProcessPercent, err = process.CPUPercent(); err != nil {
+		return systemStats{}, fmt.Errorf("process cpu percent: %w", err)
+	}
 
 	totalCpuUsage, err := cpu.Percent(0, false)
 	if err != nil {
-		zap.S().Errorf("Error while getting total cpu usage, err: %v", err)
-		return Monitoring{}
+		return systemStats{}, fmt.Errorf("total cpu percent: %w", err)
 	}
+	if len(totalCpuUsage) == 0 {
+		return systemStats{}, fmt.Errorf("total cpu percent: no cpu reported")
+	}
+	stats.Cpu.TotalPercent = totalCpuUsage[0]
 
-	monitoring.Cpu.TotalPercent = totalCpuUsage[0]
-	vm, err := mem.VirtualMemory()
+	virtualMemory, err := mem.VirtualMemory()
 	if err != nil {
-		zap.S().Errorf("Error while getting virtual memory stat, err: %v", err)
-		return Monitoring{}
+		return systemStats{}, fmt.Errorf("virtual memory: %w", err)
 	}
-
-	per, err := process.MemoryPercent()
+	processMemoryPercent, err := process.MemoryPercent()
 	if err != nil {
-		zap.S().Errorf("Error while getting process memory percent, err: %v", err)
-		return Monitoring{}
+		return systemStats{}, fmt.Errorf("process memory percent: %w", err)
 	}
 
-	monitoring.Memory.ProcessMB = float64(per * float32(ByteToMB(vm.Total)) / 100) //nolint:mnd
-	monitoring.Memory.ProcessPercent = per
-	monitoring.Memory.TotalPercent = vm.UsedPercent
-	monitoring.TotalGoroutine = runtime.NumGoroutine()
-
-	monitoring.OpenConnectionCount = server.OpenConnectionsCount()
-	monitoring.Backends = proxiesStats
-
-	return monitoring
+	stats.Memory.ProcessMB = float64(processMemoryPercent * float32(ByteToMB(virtualMemory.Total)) / 100) //nolint:mnd
+	stats.Memory.ProcessPercent = processMemoryPercent
+	stats.Memory.TotalPercent = virtualMemory.UsedPercent
+	return stats, nil
 }
 
-func StartMonitoringServer(server OpenConnectionsCounter, proxies types.IBalancer, addr string) {
-	const sleepDuration = 5 * time.Second
-	r := router.New()
-	init_prometheus()
-	go func() {
-		for {
-			stats := getServerStats(server, proxies.Stats())
-			updatePrometheusMetrics(&stats)
-			time.Sleep(sleepDuration)
-		}
-	}()
+// Server is the monitoring HTTP server (dashboard, /stats, /metrics) plus
+// the poller that feeds Prometheus. Start binds and serves it; Shutdown
+// stops the poller and the server, so neither touches the Pool afterwards.
+type Server struct {
+	httpServer  *fasthttp.Server
+	stopPolling chan struct{}
+	pollingDone chan struct{}
+	stopOnce    sync.Once
+}
 
+// Start binds addr synchronously, so a bind failure is reported to the
+// caller instead of being logged from a goroutine; nothing polls before the
+// bind succeeds.
+func Start(connections OpenConnectionsCounter, balancer types.IBalancer, addr string) (*Server, error) {
+	return start(connections, balancer, addr, readSystemStatsFromOS)
+}
+
+func start(connections OpenConnectionsCounter, balancer types.IBalancer, addr string, readSystem systemStatsReader) (*Server, error) {
+	listener, err := reuseport.Listen("tcp4", addr)
+	if err != nil {
+		return nil, fmt.Errorf("monitoring server listen on %s: %w", addr, err)
+	}
+
+	registerPrometheusMetrics()
+	collector := newStatsCollector(connections, balancer, readSystem)
+
+	s := &Server{
+		httpServer:  newMonitoringHTTPServer(collector),
+		stopPolling: make(chan struct{}),
+		pollingDone: make(chan struct{}),
+	}
+	go s.pollPrometheus(collector)
+	go s.serve(listener, addr)
+	return s, nil
+}
+
+func newMonitoringHTTPServer(collector *statsCollector) *fasthttp.Server {
+	r := router.New()
 	r.GET("/", func(ctx *fasthttp.RequestCtx) {
 		ctx.Response.Header.Set("Content-Type", "text/html")
 		ctx.Response.SetBodyString(index)
@@ -111,37 +177,58 @@ func StartMonitoringServer(server OpenConnectionsCounter, proxies types.IBalance
 
 	r.GET("/stats", func(ctx *fasthttp.RequestCtx) {
 		ctx.Response.Header.Set("Content-Type", "application/json")
-		m := getServerStats(server, proxies.Stats())
-		by, err := json.Marshal(m)
+		body, err := json.Marshal(collector.Snapshot())
 		if err != nil {
 			zap.S().Errorf("Error while parsing json, err: %v", err)
 			return
 		}
-
-		ctx.Response.SetBodyRaw(by)
+		ctx.Response.SetBodyRaw(body)
 	})
 
 	r.GET("/metrics", fasthttpadaptor.NewFastHTTPHandler(promhttp.Handler()))
 
-	monitoringServer := fasthttp.Server{
+	return &fasthttp.Server{
 		Handler:               r.Handler,
 		MaxIdleWorkerDuration: 15 * time.Second,
 		TCPKeepalivePeriod:    15 * time.Second,
 		TCPKeepalive:          true,
 		NoDefaultServerHeader: true,
 	}
+}
 
-	ln, err := reuseport.Listen("tcp4", addr)
-	if err != nil {
-		zap.S().Errorf("Error while starting monitoring server %s", err)
-		return
+func (s *Server) pollPrometheus(collector *statsCollector) {
+	defer close(s.pollingDone)
+	ticker := time.NewTicker(prometheusUpdateInterval)
+	defer ticker.Stop()
+	for {
+		snapshot := collector.Snapshot()
+		updatePrometheusMetrics(&snapshot)
+		select {
+		case <-s.stopPolling:
+			return
+		case <-ticker.C:
+		}
 	}
+}
 
+func (s *Server) serve(listener net.Listener, addr string) {
 	zap.S().Infof("Monitoring server is running on http://%s", addr)
-	if err := monitoringServer.Serve(ln); err != nil {
-		zap.S().Errorf("Error while starting monitoring server %s", err)
-		return
+	// fasthttp returns nil from Serve once Shutdown closes the listener.
+	if err := s.httpServer.Serve(listener); err != nil {
+		zap.S().Errorf("Monitoring server stopped serving: %s", err)
 	}
+}
+
+// Shutdown stops the poller, waits for a poll in flight, then shuts the
+// HTTP server down within ctx. Safe to call more than once.
+func (s *Server) Shutdown(ctx context.Context) error {
+	s.stopOnce.Do(func() { close(s.stopPolling) })
+	select {
+	case <-s.pollingDone:
+	case <-ctx.Done():
+		return fmt.Errorf("monitoring poller did not stop: %w", ctx.Err())
+	}
+	return s.httpServer.ShutdownWithContext(ctx)
 }
 
 func ByteToMB(b uint64) uint64 {
