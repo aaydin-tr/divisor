@@ -107,7 +107,7 @@ backends:
 | --- | --- | --- | --- | --- |
 | backends | List of backend servers | array | - | ⚠️ **Yes** (min: 1) |
 | backends.url | Backend URL (without protocol) | string | - | ⚠️ **Yes** |
-| backends.health_check_path | Health check endpoint | string | `/` | No |
+| backends.health_check_path | Health check endpoint; a `GET` answered with any 2xx or 3xx status (within 5s, redirects not followed) counts as healthy | string | `/` | No |
 | backends.weight | Backend weight (w-round-robin only) | int | - | ⚠️ **w-round-robin** |
 | backends.max_conn | Max connections per backend | int | `512` | No |
 | backends.max_conn_timeout | Max wait time for free connection | duration | `30s` | No |
