@@ -118,8 +118,12 @@ func (e *Executor) RunOnRequest(ctx *middleware.Context) error {
 	return nil
 }
 
+// RunOnResponse runs the hooks in reverse config order, so the Middleware
+// that saw the request first sees the response last, after every later one
+// has had its say (CONTEXT.md, Short-circuit).
 func (e *Executor) RunOnResponse(ctx *middleware.Context, err error) error {
-	for _, mw := range e.middlewares {
+	for i := len(e.middlewares) - 1; i >= 0; i-- {
+		mw := e.middlewares[i]
 		if resErr := runProtected(func() error { return mw.OnResponse(ctx, err) }); resErr != nil {
 			return resErr
 		}

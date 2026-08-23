@@ -312,7 +312,7 @@ The middleware execution flow allows you to intercept and control the complete r
     -   Headers and request context are prepared
 
 2.  **OnRequest Middleware Execution**
-    -   Executed **before** the request is sent to the backend
+    -   Executed **before** the request is sent to the backend, one middleware after another **in config order**
     -   Receives the middleware context with full access to request/response
     -   **If `OnRequest` returns `middleware.ErrShortCircuit`:**
         -   ⛔ The execution chain stops **immediately**
@@ -332,17 +332,17 @@ The middleware execution flow allows you to intercept and control the complete r
     -   **Important:** Even if the backend fails, execution continues to `OnResponse`
 
 4.  **OnResponse Middleware Execution**
-    -   **Always** executed after the proxy attempt (success or failure)
+    -   **Always** executed after the proxy attempt (success or failure), **in reverse config order** — the last middleware's `OnResponse` runs first, the first middleware's runs last and sees every later one's changes (an onion: first in, last out)
     -   Receives **two arguments:**
         1. The middleware context
         2. The backend error (if any) - will be `nil` on success
     -   You can inspect the backend error and decide how to handle it
     -   **If `OnResponse` returns `middleware.ErrShortCircuit`:**
         -   ✅ The response the middleware wrote is sent to the client unchanged — on a backend failure this replaces divisor's 502/504
-        -   ⚠️ No later middleware runs; post-response cleanup occurs
+        -   ⚠️ No later middleware runs (in `OnResponse` that means the ones *before* it in config order); post-response cleanup occurs
     -   **If `OnResponse` returns any other error:**
         -   ⚠️ The middleware failed: the response (backend's or otherwise) is discarded and divisor answers `500` with `{"message": "<error>"}`
-        -   ⚠️ No later middleware runs; post-response cleanup occurs
+        -   ⚠️ No later middleware runs (the ones before it in config order); post-response cleanup occurs
     -   **If `OnResponse` returns `nil`:**
         -   Execution continues normally
         -   If a backend error exists, divisor's standard `502 {"message":"bad gateway"}` (or `504 {"message":"gateway timeout"}` on `proxy_timeout`) is generated; headers the middleware added are kept
@@ -355,10 +355,16 @@ The middleware execution flow allows you to intercept and control the complete r
 6.  **Response Sent**
     -   Final response is sent to the client
 
+#### Rules Every Middleware Must Follow
+
+-   **One instance, all requests.** `New` runs once at startup per config entry; that single instance serves every request concurrently. Any mutable field on your struct (counters, caches, maps) is raced by concurrent requests — guard it with a `sync.Mutex`/atomics, or keep per-request state on `ctx` instead of the struct.
+-   **Never keep the context.** `ctx` wraps a pooled `*fasthttp.RequestCtx` that divisor recycles for another client's request the moment the handler returns. Do not store `ctx`, `ctx.Request`/`ctx.Response`, or any `[]byte` you read from them (`Peek`, `Body()`, …) beyond the hook, and never hand them to a goroutine you start — copy what you need (`string(b)`, `append([]byte(nil), b...)`) first. A retained context reads, or writes into, someone else's request.
+-   **Order is deterministic.** `OnRequest` hooks run in config order; `OnResponse` hooks run in reverse config order.
+
 #### Key Takeaways
 
 -   🎯 **OnRequest** acts as a gatekeeper - short-circuit to answer the client before the backend is asked
--   🔄 **OnResponse** always runs after the proxy attempt, giving you a chance to inspect backend errors
+-   🔄 **OnResponse** always runs after the proxy attempt (in reverse order), giving you a chance to inspect backend errors
 -   🛡️ **OnResponse** can short-circuit to replace a backend error with a response of its own
 -   ⚠️ Any error other than `middleware.ErrShortCircuit` means "the middleware failed" and becomes a `500` — it never silently keeps or forwards a response
 -   ⏱️ Both hooks have access to the full request/response context for inspection and modification

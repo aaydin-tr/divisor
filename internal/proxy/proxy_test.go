@@ -639,7 +639,7 @@ func TestMiddlewareExecutionOrder(t *testing.T) {
 		assert.Equal(t, []string{"mw1-request", "mw2-request", "mw3-request"}, executionOrder)
 	})
 
-	t.Run("should execute multiple middlewares in order (OnResponse)", func(t *testing.T) {
+	t.Run("should execute multiple middlewares in reverse order (OnResponse)", func(t *testing.T) {
 		var executionOrder []string
 		var mu sync.Mutex
 
@@ -676,7 +676,7 @@ func TestMiddlewareExecutionOrder(t *testing.T) {
 
 		mu.Lock()
 		defer mu.Unlock()
-		assert.Equal(t, []string{"mw1-response", "mw2-response", "mw3-response"}, executionOrder)
+		assert.Equal(t, []string{"mw3-response", "mw2-response", "mw1-response"}, executionOrder, "OnResponse unwinds: last registered runs first")
 	})
 
 	t.Run("should execute in correct flow order: OnRequest -> Backend -> OnResponse", func(t *testing.T) {
@@ -720,8 +720,8 @@ func TestMiddlewareExecutionOrder(t *testing.T) {
 
 		mu.Lock()
 		defer mu.Unlock()
-		// Verify the order: all OnRequest calls happen first, then backend (implicit), then all OnResponse calls
-		assert.Equal(t, []string{"mw1-request", "mw2-request", "mw1-response", "mw2-response"}, executionOrder)
+		// OnRequest in config order, backend (implicit), then OnResponse unwinding in reverse.
+		assert.Equal(t, []string{"mw1-request", "mw2-request", "mw2-response", "mw1-response"}, executionOrder)
 	})
 
 	t.Run("should allow middlewares to modify data for subsequent middlewares", func(t *testing.T) {
@@ -973,18 +973,20 @@ func TestMiddlewareShortCircuit(t *testing.T) {
 		assert.Equal(t, "fallback", string(ctx.Response.Body()))
 	})
 
-	t.Run("the first short-circuit stops later OnResponse middlewares", func(t *testing.T) {
+	t.Run("an OnResponse short-circuit stops the middlewares before it in config order", func(t *testing.T) {
+		// OnResponse runs in reverse config order: mw2 runs first and its
+		// short-circuit means mw1's OnResponse never sees the response.
 		mw1 := &mockMiddleware{
 			onResponseFunc: func(ctx *middleware.Context, err error) error {
-				ctx.Response.SetStatusCode(fasthttp.StatusBadGateway)
-				ctx.Response.SetBodyString("handled by mw1")
-				return middleware.ErrShortCircuit
+				t.Error("first middleware OnResponse must not run after a later one short-circuits")
+				return nil
 			},
 		}
 		mw2 := &mockMiddleware{
 			onResponseFunc: func(ctx *middleware.Context, err error) error {
-				t.Error("second middleware OnResponse must not run after a short-circuit")
-				return nil
+				ctx.Response.SetStatusCode(fasthttp.StatusBadGateway)
+				ctx.Response.SetBodyString("handled by mw2")
+				return middleware.ErrShortCircuit
 			},
 		}
 
@@ -992,9 +994,9 @@ func TestMiddlewareShortCircuit(t *testing.T) {
 		ctx := newTestRequestCtx()
 
 		p.ReverseProxyHandler(ctx) //nolint:errcheck
-		assert.Equal(t, 1, mw1.getResponseCalls())
-		assert.Equal(t, 0, mw2.getResponseCalls())
-		assert.Equal(t, "handled by mw1", string(ctx.Response.Body()))
+		assert.Equal(t, 0, mw1.getResponseCalls())
+		assert.Equal(t, 1, mw2.getResponseCalls())
+		assert.Equal(t, "handled by mw2", string(ctx.Response.Body()))
 	})
 
 	t.Run("OnRequest short-circuit sends the middleware's response and asks no Backend", func(t *testing.T) {
