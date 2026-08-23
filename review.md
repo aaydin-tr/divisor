@@ -5,7 +5,7 @@
 
 No spec/issue tracker exists for this repo, so this is a bug-focused review plus a code-smell pass — not a spec-conformance review. Findings marked *(judgement call)* are defensible-design questions, not hard bugs.
 
-**Totals:** 4 critical · 8 high · 9 medium · 21 low · 6 smells — fixed so far: C1–C4, H1–H8, M1–M9, L1–L22, S1–S5
+**Totals:** 4 critical · 8 high · 9 medium · 21 low · 6 smells — **everything fixed or settled** (C1–C4, H1–H8, M1–M9, L1–L22, S1–S6)
 
 ## Fix checklist
 
@@ -33,7 +33,7 @@ Tick items off as we fix them:
 - [x] [M8 — Connection-nominated headers not stripped (RFC 7230 §6.1)](#m8) ✅ fixed
 - [x] [M9 — `$incremental` header race produces duplicate values](#m9)
 - [x] [L1–L21 — Low-severity bugs & sharp edges](#low) ✅ all fixed or settled 2026-08-23 (L8 streaming: declared unsupported for 1.0)
-- [ ] [S1–S6 — Code smells](#smells)
+- [x] [S1–S6 — Code smells](#smells) ✅ all fixed or resolved 2026-08-23
 
 ---
 
@@ -360,8 +360,9 @@ Moved to [pkg/logger/logfile.go](pkg/logger/logfile.go); only `GetLogFile` stays
 ### S5. Repeated type switches on `server any` — ✅ addressed with M7
 `internal/server.Server` (`Shutdown`, `OpenConnectionsCount`) and monitoring's own `OpenConnectionsCounter`; both switches and `server any` are gone.
 
-### S6. net/http adapter re-derives the handler closure on every request
+### S6. net/http adapter re-derives the handler closure on every request — ✅ fixed (2026-08-23)
 [internal/proxy/nethttp_adapter.go:54](internal/proxy/nethttp_adapter.go#L54) — `a.Balancer.Serve()(&ctx)` constructs a new closure per request; every `Serve()` is a pure factory that main.go calls once and reuses. Cache `a.handler = balancer.Serve()` in the constructor.
+- **Status: FIXED** as suggested: `NewNetHttpAdapter` calls `balancer.Serve()` once and stores the handler; the exported `Balancer` field is gone (the private `handler` replaces it — every construction already went through the constructor), so the adapter can no longer be built in a way that re-derives per request. Matches the fasthttp path, where `internal/server` has always called `Serve()` once.
 
 ---
 

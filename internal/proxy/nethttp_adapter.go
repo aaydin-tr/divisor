@@ -16,12 +16,12 @@ import (
 )
 
 type NetHttpAdapter struct {
-	Balancer           types.IBalancer
+	handler            func(ctx *fasthttp.RequestCtx)
 	maxRequestBodySize int
 }
 
 func NewNetHttpAdapter(balancer types.IBalancer, maxRequestBodySize int) *NetHttpAdapter {
-	return &NetHttpAdapter{Balancer: balancer, maxRequestBodySize: maxRequestBodySize}
+	return &NetHttpAdapter{handler: balancer.Serve(), maxRequestBodySize: maxRequestBodySize}
 }
 
 func (a *NetHttpAdapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -57,7 +57,7 @@ func (a *NetHttpAdapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx.Init(&fasthttp.Request{}, nil, nil)
 	ConvertNetHTTPRequestToFastHTTPRequest(r, &ctx)
 
-	a.Balancer.Serve()(&ctx)
+	a.handler(&ctx)
 
 	ctx.Response.Header.All()(func(k []byte, v []byte) bool {
 		// Content-Length is skipped because fasthttp's Response.SetBody (what
