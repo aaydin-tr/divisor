@@ -148,7 +148,7 @@ Header names are always normalized to canonical form (`x-api-key` → `X-Api-Key
 | custom_headers | Headers injected into backend requests | map |
 | custom_headers.`<name>` | Header value (special variables supported) | string |
 
-**Special variables**: `$remote_addr` (client IP), `$time` (request timestamp), `$uuid` (request UUID), `$incremental` (per-backend counter)
+**Special variables**: `$remote_addr` (client IP), `$time` (request timestamp), `$uuid` (request UUID), `$incremental` (per-Backend request sequence number — unique and increasing per Backend for the life of the process; see CONTEXT.md)
 
 **Example**:
 ```yaml

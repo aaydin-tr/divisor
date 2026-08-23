@@ -54,6 +54,10 @@ _Avoid_: plugin, hook, interceptor
 A Middleware answering the request itself: from `OnRequest`, so the Backend is never asked, or from `OnResponse`, replacing a Backend failure with a response of its own. Divisor sends that response unchanged, and no later Middleware runs.
 _Avoid_: handled, override, fallback, intercept, abort
 
+**Request sequence number**:
+The position of a request among all requests divisor has routed to one Backend since the process started: the first is 1, every later one is exactly one higher, and no two requests to the same Backend share a number. It equals the Backend's total request count at the moment the request was counted, so a request a Middleware short-circuits still consumes a number and the Backend sees a gap. Two Backends each have their own sequence; it restarts at 1 with the process. Exposed as the `$incremental` custom-header variable.
+_Avoid_: incremental counter, request counter, request ID
+
 ### Integration testing
 
 **Integration suite**:

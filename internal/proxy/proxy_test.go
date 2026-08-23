@@ -1384,3 +1384,42 @@ func TestConnectionNominatedHeadersStripped(t *testing.T) {
 		assert.Empty(t, res.Header.Peek("X-Two"))
 	})
 }
+
+// The sequence number is the return value of the counter increment, not a
+// later re-read: under concurrency a re-read hands the same value to several
+// requests and skips others.
+func TestIncrementalHeaderUniquePerRequest(t *testing.T) {
+	handler := mockServer{}
+	bServer := httptest.NewServer(&handler)
+	defer bServer.Close()
+
+	b := config.Backend{Url: protocolRegex.ReplaceAllString(bServer.URL, "")}
+	p := NewProxyClient(&b, map[string]string{"X-Incremental": "$incremental"}, nil).(*ProxyClient)
+
+	const requestCount = 1000
+	sequenceNumbers := make([]uint64, requestCount)
+	var wg sync.WaitGroup
+	for i := 0; i < requestCount; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			ctx := fasthttp.RequestCtx{Request: *fasthttp.AcquireRequest(), Response: *fasthttp.AcquireResponse()}
+			_ = p.ReverseProxyHandler(&ctx)
+			sequenceNumber, err := strconv.ParseUint(string(ctx.Request.Header.Peek("X-Incremental")), 10, 64)
+			assert.NoError(t, err)
+			sequenceNumbers[i] = sequenceNumber
+		}(i)
+	}
+	wg.Wait()
+
+	seen := make(map[uint64]struct{}, requestCount)
+	for _, sequenceNumber := range sequenceNumbers {
+		assert.GreaterOrEqual(t, sequenceNumber, uint64(1))
+		assert.LessOrEqual(t, sequenceNumber, uint64(requestCount))
+		_, duplicate := seen[sequenceNumber]
+		assert.False(t, duplicate, "sequence number %d handed to two requests", sequenceNumber)
+		seen[sequenceNumber] = struct{}{}
+	}
+	assert.Len(t, seen, requestCount)
+	assert.Equal(t, uint64(requestCount), p.Stat().TotalReqCount)
+}

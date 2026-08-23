@@ -31,7 +31,7 @@ Tick items off as we fix them:
 - [x] [M6 — `https://` backends silently downgraded to plain HTTP](#m6) ✅ fixed with H6
 - [x] [M7 — Typed-nil `any` defeats server-startup failure check](#m7) ✅ fixed (with S5)
 - [x] [M8 — Connection-nominated headers not stripped (RFC 7230 §6.1)](#m8) ✅ fixed
-- [ ] [M9 — `$incremental` header race produces duplicate values](#m9)
+- [x] [M9 — `$incremental` header race produces duplicate values](#m9)
 - [ ] [L1–L20 — Low-severity bugs & sharp edges](#low)
 - [ ] [S1–S6 — Code smells](#smells)
 
@@ -248,6 +248,7 @@ Tick items off as we fix them:
 - **Bug:** `atomic.AddUint64` at handler entry discards the return value; the counter is re-read later with `atomic.LoadUint64` — a read-after-add race.
 - **Failure scenario:** request A: Add→1; request B: Add→2; both Load→2. Both backend requests carry the value 2 and 1 never appears — duplicated/skipped sequence numbers break request correlation.
 - **Fix:** capture `v := atomic.AddUint64(…)` at entry and use `v` in `setCustomHeaders`.
+- **Status: FIXED (2026-08-23).** `ReverseProxyHandler` captures the return of `atomic.AddUint64` as `requestSequenceNumber` and threads it through `preReq` → `setCustomHeaders`; the `Load` is gone, so the value is the one this request's increment produced. Contract written down: CONTEXT.md **Request sequence number** (per Backend, starts at 1, strictly increasing, unique per process lifetime, equals `TotalReqCount` at the moment of counting — so a short-circuited request still consumes a number and the Backend sees a gap); README line reworded to match. Covers the HTTP/2 adapter too, since both stacks share the handler. Regression test `TestIncrementalHeaderUniquePerRequest` in `internal/proxy` fires 1000 concurrent handlers and asserts the `X-Incremental` values are exactly `{1..1000}` with no duplicates (old code: ~300 duplicates per run).
 
 ---
 
@@ -350,5 +351,5 @@ Moved to [pkg/logger/logfile.go](pkg/logger/logfile.go); only `GetLogFile` stays
 
 1. ~~**S1 (extract shared balancer base)**~~ — done (the Pool); the next shared fix lands once.
 2. ~~**M5**~~ — done (ADR 0005, `middleware.ErrShortCircuit`; L3 folded in).
-3. **M9** — `$incremental` atomicity in `internal/proxy`. *(H4, H5, M1, M8 done.)*
+3. ~~**M9**~~ — done (`$incremental` now the captured increment; Request sequence number in CONTEXT.md). *(H4, H5, M1, M8 done.)*
 4. **The rest** — low-severity items, batched as convenient. *(H6–H8, M2, M4, M6, M7 done; L21 added.)*

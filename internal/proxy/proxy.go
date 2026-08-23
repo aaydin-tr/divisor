@@ -86,7 +86,7 @@ type ProxyClient struct {
 }
 
 func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
-	atomic.AddUint64(h.totalRequestCount, 1)
+	requestSequenceNumber := atomic.AddUint64(h.totalRequestCount, 1)
 	s := time.Now()
 
 	req := &ctx.Request
@@ -94,7 +94,7 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 	clientIP := helper.S2B(ctx.RemoteIP().String())
 	mwCtx := middleware.NewContext(ctx)
 
-	h.preReq(req, clientIP)
+	h.preReq(req, clientIP, requestSequenceNumber)
 
 	if h.middlewareExecutor != nil {
 		if err := h.middlewareExecutor.RunOnRequest(mwCtx); err != nil {
@@ -184,7 +184,7 @@ func (h *ProxyClient) storeRecentResTime(micros float64) {
 	}
 }
 
-func (h *ProxyClient) preReq(req *fasthttp.Request, clientIP []byte) {
+func (h *ProxyClient) preReq(req *fasthttp.Request, clientIP []byte, requestSequenceNumber uint64) {
 	// Nominated headers go first: a client nominating Host or X-Forwarded-For
 	// only deletes its own values, and divisor's are set below.
 	delConnectionNominated(&req.Header)
@@ -195,7 +195,7 @@ func (h *ProxyClient) preReq(req *fasthttp.Request, clientIP []byte) {
 	req.URI().SetSchemeBytes(httpB)
 	req.SetHostBytes(h.addrB)
 	req.Header.SetBytesKV(XForwardedFor, clientIP)
-	h.setCustomHeaders(req, clientIP)
+	h.setCustomHeaders(req, clientIP, requestSequenceNumber)
 }
 
 func (h *ProxyClient) postRes(res *fasthttp.Response) {
@@ -308,7 +308,7 @@ func (h *ProxyClient) serverError(res *fasthttp.Response, err error) {
 	res.SetBodyString(message)
 }
 
-func (h *ProxyClient) setCustomHeaders(req *fasthttp.Request, clientIP []byte) {
+func (h *ProxyClient) setCustomHeaders(req *fasthttp.Request, clientIP []byte, requestSequenceNumber uint64) {
 	for k, v := range h.customHeaders {
 		switch v {
 		case "$remote_addr":
@@ -316,7 +316,7 @@ func (h *ProxyClient) setCustomHeaders(req *fasthttp.Request, clientIP []byte) {
 		case "$time":
 			req.Header.Set(k, time.Now().Local().Format("2006-01-02T15:04:05.000Z"))
 		case "$incremental":
-			req.Header.Set(k, strconv.FormatUint(atomic.LoadUint64(h.totalRequestCount), 10))
+			req.Header.Set(k, strconv.FormatUint(requestSequenceNumber, 10))
 		case "$uuid":
 			req.Header.Set(k, uuid.New().String())
 		}
