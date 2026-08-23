@@ -75,7 +75,10 @@ func main() {
 		zap.S().Fatalf("Error while starting divisor server %s", err)
 	}
 
-	go monitoring.StartMonitoringServer(srv, proxies, config.GetMonitoringAddr())
+	monitoringServer, err := monitoring.Start(srv, proxies, config.GetMonitoringAddr())
+	if err != nil {
+		zap.S().Fatalf("Error while starting monitoring server %s", err)
+	}
 
 	select {
 	case <-shutdown:
@@ -85,7 +88,7 @@ func main() {
 		zap.S().Fatalf("Divisor server stopped serving: %s", err)
 	}
 
-	if err := performGracefulShutdown(srv, proxies); err != nil {
+	if err := performGracefulShutdown(srv, monitoringServer, proxies); err != nil {
 		zap.S().Errorf("Error during graceful shutdown: %s", err)
 		os.Exit(1)
 	}
@@ -93,7 +96,9 @@ func main() {
 	zap.S().Info("Divisor server shutdown completed successfully")
 }
 
-func performGracefulShutdown(srv server.Server, balancer types.IBalancer) error {
+// Order matters: the monitoring server polls balancer.Stats(), so it stops
+// before the balancer does.
+func performGracefulShutdown(srv server.Server, monitoringServer *monitoring.Server, balancer types.IBalancer) error {
 	const timeout = 30 * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -107,6 +112,13 @@ func performGracefulShutdown(srv server.Server, balancer types.IBalancer) error 
 			return
 		}
 		zap.S().Info("HTTP server shutdown completed")
+
+		zap.S().Info("Shutting down monitoring server...")
+		if err := monitoringServer.Shutdown(ctx); err != nil {
+			shutdownComplete <- err
+			return
+		}
+		zap.S().Info("Monitoring server shutdown completed")
 
 		// Shutdown the balancer (stop health checkers, close connections)
 		zap.S().Info("Shutting down load balancer...")
