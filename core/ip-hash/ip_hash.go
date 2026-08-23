@@ -18,6 +18,12 @@ type ipHash struct {
 	backends  []*pool.Backend
 }
 
+// virtualNodesPerBackend is how many ring positions each Backend owns. The
+// keyspace split between Backends approaches even as this grows and levels
+// off around 100 (Ketama uses 160); a count that grew with the pool size
+// gave one Backend a single position and two Backends four each.
+const virtualNodesPerBackend = 100
+
 // New places every Backend by its Index, so a ring Node's Id resolves to
 // its Backend whatever order the slice came in.
 func New(cfg *config.Config, backends []*pool.Backend) pool.Balancer {
@@ -28,7 +34,7 @@ func New(cfg *config.Config, backends []*pool.Backend) pool.Balancer {
 		backendsByIndex[b.Index] = b
 	}
 	return &ipHash{
-		ring:      consistent.NewConsistentHash(len(backends)*len(backends), cfg.HashFunc),
+		ring:      consistent.NewConsistentHash(virtualNodesPerBackend, cfg.HashFunc),
 		hashFunc:  cfg.HashFunc,
 		ringNodes: ringNodes,
 		backends:  backendsByIndex,
