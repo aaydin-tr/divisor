@@ -62,6 +62,18 @@ _Avoid_: handled, override, fallback, intercept, abort
 The position of a request among all requests divisor has routed to one Backend since the process started: the first is 1, every later one is exactly one higher, and no two requests to the same Backend share a number. It equals the Backend's total request count at the moment the request was counted, so a request a Middleware short-circuits still consumes a number and the Backend sees a gap. Two Backends each have their own sequence; it restarts at 1 with the process. Exposed as the `$incremental` custom-header variable.
 _Avoid_: incremental counter, request counter, request ID
 
+**Access log**:
+One JSON line per request divisor answers, written to stdout, describing who asked and how it was served: Client IP, method, path, status, the Backend that served it (or that a Middleware short-circuited), duration, bytes out, and the Request sequence number. Off by default. Application logs go to stderr; the access log is the only thing on stdout.
+_Avoid_: request log, traffic log
+
+**Streamed response**:
+A Backend response divisor forwards to the client as bytes arrive instead of buffering it whole — what SSE and long-polling need. `OnResponse` sees its status and headers, never its body; a client disconnect aborts the Backend stream.
+_Avoid_: SSE mode, passthrough, chunked mode
+
+**Reload**:
+Applying an edited config file to a running divisor without restart: only the Backend set and Probe settings may change; an edit touching any other key — or an invalid new config — is rejected, divisor keeps serving with the old config and logs why. Triggered by a change to the config file or by SIGHUP.
+_Avoid_: hot reload, live update, refresh
+
 ### Integration testing
 
 **Integration suite**:
