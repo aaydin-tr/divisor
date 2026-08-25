@@ -36,6 +36,11 @@ monitoring:
   port: 8001
   host: 127.0.0.1  # Only accessible from localhost for security
 
+# App logs are JSON on stderr by default; console format is for local runs
+logging:
+  format: json
+  level: info
+
 # Custom headers for tracing and debugging
 custom_headers:
   x-forwarded-for: $remote_addr

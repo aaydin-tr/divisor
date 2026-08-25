@@ -1,45 +1,66 @@
 package logger
 
 import (
+	"github.com/aaydin-tr/divisor/pkg/config"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
-func InitLogger(logFile string) {
-	config := zap.Config{
-		Level:       zap.NewAtomicLevelAt(zap.InfoLevel),
-		Development: false,
-		Encoding:    "console",
-		EncoderConfig: zapcore.EncoderConfig{
-			TimeKey:        "T",
-			LevelKey:       "L",
-			NameKey:        "N",
-			CallerKey:      "C",
-			FunctionKey:    zapcore.OmitKey,
-			MessageKey:     "M",
-			LineEnding:     zapcore.DefaultLineEnding,
-			EncodeLevel:    zapcore.CapitalLevelEncoder,
-			EncodeTime:     zapcore.ISO8601TimeEncoder,
-			EncodeDuration: zapcore.StringDurationEncoder,
-		},
-		OutputPaths:      []string{logFile, "stdout"},
-		ErrorOutputPaths: []string{logFile, "stdout"},
+// InitDefaultLogger installs the production default (JSON at info) so
+// failures before the config is parsed and validated are still reported as
+// structured lines.
+func InitDefaultLogger() {
+	InitLogger(config.Logging{Format: config.DefaultLoggingFormat, Level: config.DefaultLoggingLevel})
+}
+
+// InitLogger replaces the process-global logger (zap.S()) with one built from
+// the validated logging config. Application logs go to stderr only: stdout is
+// reserved for the Access log, so each stream stays homogeneous and can be
+// routed separately.
+func InitLogger(logging config.Logging) {
+	// PrepareConfig already rejected an unparseable level; this fallback is
+	// defensive only, like the encoding fallback below.
+	level, err := zapcore.ParseLevel(logging.Level)
+	if err != nil {
+		level = zapcore.InfoLevel
 	}
 
-	logger, err := config.Build()
+	zapConfig := zap.Config{
+		Level:            zap.NewAtomicLevelAt(level),
+		Encoding:         logging.Format,
+		EncoderConfig:    encoderConfigFor(logging.Format),
+		OutputPaths:      []string{"stderr"},
+		ErrorOutputPaths: []string{"stderr"},
+	}
+
+	logger, err := zapConfig.Build()
 	if err != nil {
-		// The file sink could not be opened (e.g. /var/log/divisor/ owned by
-		// another user); keep serving with stdout-only logging rather than
-		// handing zap a nil logger.
-		config.OutputPaths = []string{"stdout"}
-		config.ErrorOutputPaths = []string{"stdout"}
-		logger, fallbackErr := config.Build()
-		if fallbackErr != nil {
-			logger = zap.NewNop()
-		}
-		zap.ReplaceGlobals(logger)
-		zap.S().Warnf("Could not open log file %s, logging to stdout only: %v", logFile, err)
-		return
+		// Only an unvalidated format can fail the build; the default encoding
+		// with a stderr sink cannot.
+		zapConfig.Encoding = config.DefaultLoggingFormat
+		zapConfig.EncoderConfig = encoderConfigFor(config.DefaultLoggingFormat)
+		logger, _ = zapConfig.Build()
 	}
 	zap.ReplaceGlobals(logger)
+}
+
+func encoderConfigFor(format string) zapcore.EncoderConfig {
+	encoderConfig := zapcore.EncoderConfig{
+		TimeKey:        "time",
+		LevelKey:       "level",
+		NameKey:        "logger",
+		CallerKey:      "caller",
+		FunctionKey:    zapcore.OmitKey,
+		MessageKey:     "msg",
+		StacktraceKey:  "stacktrace",
+		LineEnding:     zapcore.DefaultLineEnding,
+		EncodeLevel:    zapcore.LowercaseLevelEncoder,
+		EncodeTime:     zapcore.ISO8601TimeEncoder,
+		EncodeDuration: zapcore.StringDurationEncoder,
+		EncodeCaller:   zapcore.ShortCallerEncoder,
+	}
+	if format == config.LoggingFormatConsole {
+		encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
+	}
+	return encoderConfig
 }

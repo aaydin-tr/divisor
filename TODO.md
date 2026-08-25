@@ -14,16 +14,17 @@ items that need one say so. Each open item below points to its spec
 
 Spec: `.scratch/logging/spec.md` — tickets in `.scratch/logging/issues/`.
 
-- [ ] Logging rework — stdout/stderr only, JSON default. Delete file logging
-  entirely (`pkg/logger/logfile.go`, `GetLogFile`, the platform log-dir
-  logic); the Dockerfile drops `/var/log/divisor`. Application logs go to
-  **stderr**; stdout is reserved for the Access log, so each stream is
-  homogeneous and can be routed/retained separately (Envoy's split). New
-  `logging:` config section: `logging.format: json | console` (default
-  **json** — production-first; console is the local first-run nicety) and
-  `logging.level` (default `info`; today Info is hardcoded in
-  `pkg/logger/logger.go`). Re-adding an opt-in file sink later is additive.
-  Ticket: `01-app-logs-json-stderr.md`.
+- [x] Logging rework — shipped: file logging deleted entirely
+  (`pkg/logger/logfile.go`, `GetLogFile`, the platform log-dir logic gone;
+  the Dockerfile no longer creates `/var/log/divisor`). Application logs go
+  to **stderr** only, JSON by default; stdout is reserved for the Access
+  log. New `logging:` config section: `logging.format: json | console`
+  (default **json**) and `logging.level` (default `info`), validated in
+  `PrepareConfig` with errors naming the invalid value; failures before the
+  config parses use a default json/info logger. Breaking change: no file
+  sink, default encoding console → JSON. Ticket: `01-app-logs-json-stderr.md`
+  (done). Integration: `TestApplicationLogsAreJSONOnStderrByDefault`,
+  `TestApplicationLogsConsoleFormat`.
 - [ ] Access log (see CONTEXT.md **Access log**) — one JSON line per request
   divisor answers, written to stdout. Off by default:
   `logging.access_log: true`. Fixed field set, no format language (additive

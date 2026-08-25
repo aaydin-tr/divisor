@@ -9,7 +9,7 @@ RUN CGO_ENABLED=0 go build -o /divisor .
 
 FROM alpine:latest
 
-RUN mkdir -p /var/log/divisor /etc/divisor
+RUN mkdir -p /etc/divisor
 
 COPY --from=builder /divisor /divisor
 

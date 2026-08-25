@@ -16,6 +16,7 @@ import (
 	"github.com/aaydin-tr/divisor/pkg/helper"
 	"github.com/aaydin-tr/divisor/pkg/http"
 	"github.com/valyala/fasthttp"
+	"go.uber.org/zap/zapcore"
 	"gopkg.in/yaml.v3"
 )
 
@@ -37,6 +38,8 @@ var (
 	ErrMiddlewareNameRequired       = errors.New("middleware name is required")
 	ErrMiddlewareCodeAndFileEmpty   = errors.New("middleware needs either code or file")
 	ErrMiddlewareCodeAndFileBothSet = errors.New("middleware cannot specify both code and file, choose one")
+	ErrInvalidLoggingFormat         = errors.New("logging.format must be json or console")
+	ErrInvalidLoggingLevel          = errors.New("logging.level must be a zap level (debug, info, warn, error, dpanic, panic, fatal)")
 )
 
 var ValidTypes = []string{"round-robin", "w-round-robin", "ip-hash", "random", "least-connection", "least-response-time"}
@@ -58,6 +61,11 @@ const (
 
 	Http1 = "http1.1"
 	Http2 = "http2"
+
+	LoggingFormatJSON    = "json"
+	LoggingFormatConsole = "console"
+	DefaultLoggingFormat = LoggingFormatJSON
+	DefaultLoggingLevel  = "info"
 
 	DefaultMaxIdleWorkerDuration = 10 * time.Second
 )
@@ -92,6 +100,13 @@ type Monitoring struct {
 	Port string `yaml:"port"`
 }
 
+// Logging is deliberately a section, not top-level keys: future logging
+// options (file sink, sampling) belong here (.scratch/logging/spec.md).
+type Logging struct {
+	Format string `yaml:"format"`
+	Level  string `yaml:"level"`
+}
+
 type Server struct {
 	HttpVersion           string        `yaml:"http_version"`
 	CertFile              string        `yaml:"cert_file"`
@@ -118,6 +133,7 @@ type Config struct {
 	Backends          []Backend     `yaml:"backends"`
 	Server            Server        `yaml:"server"`
 	Middlewares       []Middleware  `yaml:"middlewares"`
+	Logging           Logging       `yaml:"logging"`
 	HealthCheckerTime time.Duration `yaml:"health_checker_time"`
 }
 
@@ -200,6 +216,10 @@ func (c *Config) PrepareConfig() error {
 		if !helper.Contains(ValidCustomHeaders, value) {
 			return fmt.Errorf("Please choose valid custom header, e.g %v", ValidCustomHeaders)
 		}
+	}
+
+	if err := c.Logging.prepareLogging(); err != nil {
+		return err
 	}
 
 	if err := c.validateMiddlewares(); err != nil {
@@ -303,6 +323,24 @@ func normalizeBackendAddress(raw string) (string, error) {
 		return net.JoinHostPort(u.Hostname(), "80"), nil
 	}
 	return u.Host, nil
+}
+
+func (l *Logging) prepareLogging() error {
+	if l.Format == "" {
+		l.Format = DefaultLoggingFormat
+	}
+	if l.Format != LoggingFormatJSON && l.Format != LoggingFormatConsole {
+		return fmt.Errorf("%w, got %q", ErrInvalidLoggingFormat, l.Format)
+	}
+
+	if l.Level == "" {
+		l.Level = DefaultLoggingLevel
+	}
+	if _, err := zapcore.ParseLevel(l.Level); err != nil {
+		return fmt.Errorf("%w, got %q", ErrInvalidLoggingLevel, l.Level)
+	}
+
+	return nil
 }
 
 func (s *Server) prepareServer() error {

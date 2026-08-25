@@ -24,7 +24,7 @@ func main() {
 	configFile := flag.String("config", "./config.yaml", "config file, please use absolute path")
 	flag.Parse()
 
-	logger.InitLogger(logger.GetLogFile())
+	logger.InitDefaultLogger()
 
 	// Startup failures must exit non-zero so orchestrators (compose restart
 	// policies, k8s CrashLoopBackOff) notice; zap's Fatal exits 1 after
@@ -47,6 +47,7 @@ func main() {
 	if err != nil {
 		zap.S().Fatal(err)
 	}
+	logger.InitLogger(config.Logging)
 	zap.S().Info("Config file parsed successfully")
 
 	middlewareExecutor, err := middleware.NewExecutor(config.Middlewares)

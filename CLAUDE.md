@@ -101,6 +101,11 @@ Pool plus the balancer as the rest of the process sees them. `Serve` answers
 - Backend `url` is normalized to a dialable Backend address (`host:port`): optional `http://` and bare trailing slash stripped, missing port defaults to 80; path/query/userinfo and `https://` are rejected at startup (ADR 0004: backends are plaintext-only)
 - HTTP/2 requires TLS (cert_file + key_file must be provided)
 - Weighted round-robin with single backend auto-converts to regular round-robin
+- `logging:` section: `logging.format` (`json` | `console`, default `json`) and
+  `logging.level` (zap levels, default `info`). Application logs go to stderr
+  only (stdout is reserved for the Access log); there is no file logging.
+  `main.go` installs a default json/info logger before the config parses and
+  re-initializes it from the validated config after `PrepareConfig`
 
 ### Monitoring
 
