@@ -6,9 +6,13 @@ item carries its agreed design, so implementation starts from a decision, not
 a discussion. Items marked **[born-red]** have an integration test in
 `integration-test/` that already asserts the target behavior and stays red
 until it ships. ADRs are written at implementation time (the repo's pattern);
-items that need one say so.
+items that need one say so. Each open item below points to its spec
+(`.scratch/<feature>/spec.md`) and its ready-for-agent tickets
+(`.scratch/<feature>/issues/`); conventions in `docs/agents/issue-tracker.md`.
 
 ## Observability
+
+Spec: `.scratch/logging/spec.md` — tickets in `.scratch/logging/issues/`.
 
 - [ ] Logging rework — stdout/stderr only, JSON default. Delete file logging
   entirely (`pkg/logger/logfile.go`, `GetLogFile`, the platform log-dir
@@ -19,6 +23,7 @@ items that need one say so.
   **json** — production-first; console is the local first-run nicety) and
   `logging.level` (default `info`; today Info is hardcoded in
   `pkg/logger/logger.go`). Re-adding an opt-in file sink later is additive.
+  Ticket: `01-app-logs-json-stderr.md`.
 - [ ] Access log (see CONTEXT.md **Access log**) — one JSON line per request
   divisor answers, written to stdout. Off by default:
   `logging.access_log: true`. Fixed field set, no format language (additive
@@ -26,9 +31,13 @@ items that need one say so.
   (Backend address), `duration_ms`, `bytes_out`, `request_seq` (the Request
   sequence number, so correlating with a Backend's `$incremental` header is
   free), and `short_circuit: true` when a Middleware answered. Hot-path cost
-  is the design constraint — A/B-measure like H5 did.
+  is the design constraint — A/B-measure like H5 did. Ticket:
+  `02-access-log.md`.
 
 ## Distribution
+
+Spec: `.scratch/distribution/spec.md` — tickets in
+`.scratch/distribution/issues/`.
 
 - [ ] Official Docker release — goreleaser publishes the same image to Docker
   Hub (`aaydin-tr/divisor`, where images get discovered) and GHCR
@@ -39,12 +48,14 @@ items that need one say so.
   CA bundle, so a future https-to-backend feature needs no base change.
   Depends on the logging rework (no writable `/var/log/divisor` required)
   and the bind-default flip under Config surface (today's image is
-  unreachable with a default-`localhost` config).
+  unreachable with a default-`localhost` config). Ticket:
+  `02-docker-image.md`.
 - [ ] Helm chart — OCI chart pushed to GHCR
   (`helm install oci://ghcr.io/aaydin-tr/charts/divisor`), released by the
   existing tag-triggered goreleaser CI (reuses the GHCR login the Docker
-  release needs), versioned with the app tag.
+  release needs), versioned with the app tag. Ticket: `03-helm-chart.md`.
 - [ ] `--version` flag + version in the startup log — goreleaser ldflags.
+  Ticket: `01-version-flag.md`.
 
 ## Kubernetes
 
@@ -52,6 +63,9 @@ Target: divisor runs first-class in k8s — a Deployment fronting pods (via a
 headless Service or pod IPs), the L7 algorithms being the value-add over a
 plain Service. The zero-alive-at-boot fix under "1.0 behavior fixes" is part
 of this story: the LB must boot before its Backends.
+
+Spec: `.scratch/kubernetes/spec.md` — tickets in `.scratch/kubernetes/issues/`
+(the zero-alive-at-boot fix is ticket `01-zero-alive-at-boot.md` there).
 
 - [ ] Backend DNS re-resolution — moved from Config surface; mandatory here
   (pod IPs churn constantly). fasthttp's TCPDialer caches resolved IPs for
@@ -61,18 +75,20 @@ of this story: the LB must boot before its Backends.
   scenarios shared one docker network (an impostor container on a dead
   Backend's IP answered its traffic); the suite now isolates networks per
   Scenario, but the production exposure remains. Expose a configurable
-  `DNSCacheDuration`; the k8s example manifests set it short.
+  `DNSCacheDuration`; the k8s example manifests set it short. Ticket:
+  `03-dns-cache-duration.md`.
 - [ ] Readiness/liveness endpoints on the monitoring server — `/healthz`
   (liveness): 200 whenever the process runs. `/ready`: 200 once the
   listeners are bound, 503 during graceful shutdown. **Backend health never
   gates readiness** — zero Alive Backends is divisor *working* (answering
   503s, per zero-alive-at-boot); gating on it risks a bootstrap deadlock and
   hides divisor's own 503 signal. Unblocks the monitoring-coverage item
-  under Suite / CI.
+  under Suite / CI. Ticket: `02-probe-endpoints.md`.
 - [ ] Example manifests — Deployment + ConfigMap + Service in the repo, with
   probes wired to `/healthz`/`/ready` and `monitoring.host: 0.0.0.0`
   (kubelet probes hit the pod IP; the localhost default cannot serve them —
-  the default itself stays localhost for non-k8s safety).
+  the default itself stays localhost for non-k8s safety). Ticket:
+  `06-example-manifests.md`.
 - [ ] Reload (see CONTEXT.md **Reload**) — apply an edited config file
   without restart. Scope: **the Backend set and Probe settings only** (the
   Pool already knows Join/Leave); an edit touching any other key is rejected
@@ -82,8 +98,13 @@ of this story: the LB must boot before its Backends.
   SIGHUP as the manual/scripted trigger. Record as an ADR when implemented.
   Do it born-red: integration scenario edits the mounted config and asserts
   the added Backend receives traffic without a container restart.
+  Tickets: `04-reload-via-sighup.md`, `05-reload-file-watch.md`.
 
 ## Streaming
+
+Spec: `.scratch/streaming/spec.md` — tickets in `.scratch/streaming/issues/`
+(`04-streamed-access-log.md` there covers the Access-log interaction, which
+is specced but has no bullet below).
 
 Reopens review.md L8 (declared unsupported 2026-08-23; superseded). Response
 streaming ships in 1.0. Record the model as an ADR when implemented; it
@@ -97,11 +118,14 @@ cancellation note. Design, settled 2026-08-25:
   `Content-Type: text/event-stream` **or** no `Content-Length` (chunked);
   everything else buffers exactly as today, including `OnResponse` body
   rewrites. Both stacks: fasthttp via `StreamResponseBody`; the net/http
-  adapter grows a real flusher path.
+  adapter grows a real flusher path. Tickets: `01-fasthttp-streaming.md`,
+  `02-http2-streaming.md`.
 - [ ] Timeout model — for a Streamed response, `proxy_timeout` bounds
   time-to-first-response-byte; a new `server.stream_idle_timeout` (default
   5m, **no infinite setting**) kills a stream with no data flowing. Every
   connection keeps *a* bound — ADR 0003's spirit, amend its Consequences.
+  Tickets: behavior in `01-fasthttp-streaming.md`/`02-http2-streaming.md`;
+  the ADR amendment in `05-streaming-adr-and-contract-docs.md`.
 - [ ] Client cancellation for streamed responses, both stacks — a client
   disconnect aborts the Backend stream (fasthttp exposes the connection on
   the streaming path; net/http has `r.Context()`). Without it, every
@@ -109,18 +133,22 @@ cancellation note. Design, settled 2026-08-25:
   Backend keeps sending — this is a requirement of shipping streaming, not
   an option. Buffered requests keep the settled L6 position (no
   cancellation, bounded by `proxy_timeout`); scope ADR 0003's L6 note to
-  buffered requests when amending.
+  buffered requests when amending. Ticket: `03-client-disconnect-aborts.md`.
 - [ ] Middleware contract — `OnResponse` runs on a Streamed response's
   status and headers before the first body byte is forwarded; Short-circuit
   still works there (replace the stream with a crafted response); the body
   is never seen or rewritten. Document in the contract doc comment, README,
-  and CONTEXT.md.
+  and CONTEXT.md. Tickets: behavior in the `01`/`02` streaming tickets;
+  documentation in `05-streaming-adr-and-contract-docs.md`.
 - [ ] Request streaming: **deliberately post-1.0** — uploads stay buffered
   and capped by `max_request_body_size` (rejecting an oversized body up
   front needs the buffer); streamed uploads reopen that 413-enforcement
   design and are additive later.
 
 ## Config surface additions
+
+Spec: `.scratch/config-surface/spec.md` — tickets in
+`.scratch/config-surface/issues/`.
 
 New `server`/backend options to expose in `pkg/config` (today these are either
 hardcoded or silently left at library defaults):
@@ -145,22 +173,25 @@ hardcoded or silently left at library defaults):
   `localhost` → `0.0.0.0`: a load balancer's job is to accept outside
   traffic, and the localhost default makes the published Docker image
   silently unreachable. Monitoring keeps its `localhost` default (exposure
-  is opt-in). Breaking change, pre-1.0.
+  is opt-in). Breaking change, pre-1.0. Ticket: `01-bind-default-flip.md`.
 - [ ] `server.read_buffer_size` / `server.write_buffer_size` — fasthttp's 4KB
   default caps request header size; large cookies/JWTs hit "431/400 header too
-  large" with no way to raise it.
+  large" with no way to raise it. Ticket: `02-header-buffer-sizes.md`.
 - [ ] `server.max_conns_per_ip`, `server.max_requests_per_conn` — basic
-  self-protection knobs, currently unavailable.
+  self-protection knobs, currently unavailable. Ticket:
+  `03-connection-caps.md`.
 - [ ] `server.graceful_shutdown_timeout` — hardcoded to 30s in
-  `main.go` (`performGracefulShutdown`).
+  `main.go` (`performGracefulShutdown`). Ticket:
+  `04-graceful-shutdown-timeout.md`.
 - [ ] HTTP/2 server tuning (existing `TODO` at `main.go:158`) — pass a
   configured `http2.Server` (e.g. `max_concurrent_streams`, `idle_timeout`)
-  instead of the zero value.
+  instead of the zero value. Ticket: `05-http2-server-tuning.md`.
 - [ ] Health Probe tuning — probe timeout and expected-status are hardcoded
   (GET, only 200 counts as Alive, client defaults in `pkg/http`); consider
-  `health_checker_timeout` and per-backend expected status.
+  `health_checker_timeout` and per-backend expected status. Ticket:
+  `06-probe-tuning.md`.
 - [ ] TLS tuning — `tls_min_version` (and optionally cipher suites); currently
-  whatever crypto/tls defaults to.
+  whatever crypto/tls defaults to. Ticket: `07-tls-min-version.md`.
 
 (Backend DNS re-resolution moved to the Kubernetes section.)
 
@@ -209,6 +240,8 @@ hardcoded or silently left at library defaults):
     divisor serves 503 instead of exiting; per-backend liveness stays visible
     in `/stats`, and this raises the value of the readiness-endpoint item
     under Kubernetes.
+  Ticket: `.scratch/kubernetes/issues/01-zero-alive-at-boot.md` (specced
+  with the Kubernetes feature).
 - [x] X-Forwarded-For semantics — settled 2026-08-25: **append stays** (as
   shipped by L1), and 1.0 adds no trusted-proxy config (post-1.0, additive).
   `TestProxyMatrix/XForwardedFor` stays pinned to append.
@@ -221,13 +254,18 @@ hardcoded or silently left at library defaults):
 
 ## Docs
 
+Spec: `.scratch/docs/spec.md` — tickets in `.scratch/docs/issues/`.
+
 - [ ] Restructure — README slims to overview + quickstart; `docs/` gains:
   config reference (every key, its default, since-version), middleware
   guide, deployment guides (Docker, k8s + Helm, systemd), observability
   guide (access logs, Prometheus, a Loki pipeline example). Plain Markdown,
   browsable on GitHub — no site tooling in 1.0; a published site
   (mkdocs-material on GitHub Pages) is the immediate post-1.0 follow-up,
-  and the content transfers unchanged.
+  and the content transfers unchanged. Tickets:
+  `01-docs-tree-and-readme-slim.md` through `06-migration-notes.md`
+  (docs tree + README, middleware guide, config reference, deployment
+  guides, observability guide, migration notes).
 
 ## Suite / CI follow-ups
 
@@ -252,7 +290,8 @@ hardcoded or silently left at library defaults):
 - [ ] Monitoring server coverage (explicitly out of scope for the first suite);
   the readiness/liveness endpoints under Kubernetes are the prerequisite —
   they de-conflate divisor liveness from Backend health so `/metrics` can be
-  tested with zero Alive Backends.
+  tested with zero Alive Backends. Prerequisite ticket:
+  `.scratch/kubernetes/issues/02-probe-endpoints.md`.
 
 ## Suggested order
 

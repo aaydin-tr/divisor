@@ -25,3 +25,4 @@ dist/
 # Project binary
 divisor
 .serena/
+.scratch/
