@@ -14,25 +14,28 @@ items that need one say so. Each open item below points to its spec
 
 Spec: `.scratch/logging/spec.md` — tickets in `.scratch/logging/issues/`.
 
-- [ ] Logging rework — stdout/stderr only, JSON default. Delete file logging
-  entirely (`pkg/logger/logfile.go`, `GetLogFile`, the platform log-dir
-  logic); the Dockerfile drops `/var/log/divisor`. Application logs go to
-  **stderr**; stdout is reserved for the Access log, so each stream is
-  homogeneous and can be routed/retained separately (Envoy's split). New
-  `logging:` config section: `logging.format: json | console` (default
-  **json** — production-first; console is the local first-run nicety) and
-  `logging.level` (default `info`; today Info is hardcoded in
-  `pkg/logger/logger.go`). Re-adding an opt-in file sink later is additive.
-  Ticket: `01-app-logs-json-stderr.md`.
-- [ ] Access log (see CONTEXT.md **Access log**) — one JSON line per request
-  divisor answers, written to stdout. Off by default:
-  `logging.access_log: true`. Fixed field set, no format language (additive
-  later): `time`, `client_ip`, `method`, `path`, `status`, `backend`
-  (Backend address), `duration_ms`, `bytes_out`, `request_seq` (the Request
-  sequence number, so correlating with a Backend's `$incremental` header is
-  free), and `short_circuit: true` when a Middleware answered. Hot-path cost
-  is the design constraint — A/B-measure like H5 did. Ticket:
-  `02-access-log.md`.
+- [x] Logging rework — shipped: file logging deleted entirely
+  (`pkg/logger/logfile.go`, `GetLogFile`, the platform log-dir logic gone;
+  the Dockerfile no longer creates `/var/log/divisor`). Application logs go
+  to **stderr** only, JSON by default; stdout is reserved for the Access
+  log. New `logging:` config section: `logging.format: json | console`
+  (default **json**) and `logging.level` (default `info`), validated in
+  `PrepareConfig` with errors naming the invalid value; failures before the
+  config parses use a default json/info logger. Breaking change: no file
+  sink, default encoding console → JSON. Ticket: `01-app-logs-json-stderr.md`
+  (done). Integration: `TestApplicationLogsAreJSONOnStderrByDefault`,
+  `TestApplicationLogsConsoleFormat`.
+- [x] Access log (see CONTEXT.md **Access log**) — shipped: one JSON line per
+  request divisor answers on stdout (always JSON, whatever `logging.format`),
+  off by default behind `logging.access_log: true`. Fixed field set: `time`
+  (RFC 3339 ms UTC), `client_ip`, `method`, `path`, `status`, `backend` and
+  `request_seq` (both omitted on the zero-Alive 503 path), `duration_ms`,
+  `bytes_out`, `short_circuit: true` when a Middleware answered. Emitted at
+  request completion in `internal/proxy` (`ReverseProxyHandler` +
+  `NoAliveBackends`), gated by `logger.AccessLogEnabled()`. Hot-path cost
+  A/B-measured like H5 (results in the spec's Comments): 3.3 ns/request when
+  off, ~1 µs emit when on. Ticket: `02-access-log.md` (done). Integration:
+  `TestAccessLogOneJSONLinePerRequestOnStdout`.
 
 ## Distribution
 
@@ -287,6 +290,17 @@ Spec: `.scratch/docs/spec.md` — tickets in `.scratch/docs/issues/`.
   `.github/workflows/integration.yml`; the `specRed` helper stays dormant —
   re-add the job when the next spec-red test lands (zero-alive-Backends-at-boot
   plans to be one).
+- [ ] Dependency upgrade pass — `go get -u ./...` + `go mod tidy` in both
+  modules (the root module and `integration-test/`, which pins its own
+  dependency set — keep shared pins like fasthttp in sync between them),
+  then the full suite (`go test -race ./...` plus the integration suite).
+  Natural companion to the toolchain bump below — land them in one pass or
+  back to back.
+- [ ] Go toolchain update to 1.27 (latest) — currently pinned to 1.25.3 in
+  `go.mod`, `integration-test/go.mod`, all five workflow files under
+  `.github/workflows/` (`go-version:`), and the Dockerfile builder stage
+  (`golang:1.25-alpine`). Bump everywhere in one pass and run the full suite
+  (`go test -race ./...` plus the integration suite).
 - [ ] Monitoring server coverage (explicitly out of scope for the first suite);
   the readiness/liveness endpoints under Kubernetes are the prerequisite —
   they de-conflate divisor liveness from Backend health so `/metrics` can be

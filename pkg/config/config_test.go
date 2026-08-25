@@ -406,3 +406,66 @@ func TestPrepareServerParsesTLSKeyPair(t *testing.T) {
 		assert.ErrorIs(t, server.prepareServer(), ErrInvalidTLSKeyPair)
 	})
 }
+
+func TestPrepareLogging(t *testing.T) {
+	t.Parallel()
+
+	t.Run("defaults to json at info with the access log off", func(t *testing.T) {
+		logging := Logging{}
+		assert.NoError(t, logging.prepareLogging())
+		assert.Equal(t, LoggingFormatJSON, logging.Format)
+		assert.Equal(t, DefaultLoggingLevel, logging.Level)
+		assert.False(t, logging.AccessLog)
+	})
+
+	t.Run("access_log parses under strict decoding", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		yaml := "port: \"8000\"\nbackends:\n  - url: localhost:8080\nlogging:\n  access_log: true\n"
+		assert.NoError(t, os.WriteFile(path, []byte(yaml), 0o600))
+		config, err := ParseConfigFile(path)
+		assert.NoError(t, err)
+		assert.NoError(t, config.PrepareConfig())
+		assert.True(t, config.Logging.AccessLog)
+	})
+
+	t.Run("valid values pass unchanged", func(t *testing.T) {
+		for _, format := range []string{LoggingFormatJSON, LoggingFormatConsole} {
+			for _, level := range []string{"debug", "info", "warn", "error", "fatal"} {
+				logging := Logging{Format: format, Level: level}
+				assert.NoError(t, logging.prepareLogging())
+				assert.Equal(t, format, logging.Format)
+				assert.Equal(t, level, logging.Level)
+			}
+		}
+	})
+
+	t.Run("an invalid format fails naming the value", func(t *testing.T) {
+		logging := Logging{Format: "logfmt"}
+		err := logging.prepareLogging()
+		assert.ErrorIs(t, err, ErrInvalidLoggingFormat)
+		assert.Contains(t, err.Error(), `"logfmt"`)
+	})
+
+	t.Run("an invalid level fails naming the value", func(t *testing.T) {
+		logging := Logging{Level: "verbose"}
+		err := logging.prepareLogging()
+		assert.ErrorIs(t, err, ErrInvalidLoggingLevel)
+		assert.Contains(t, err.Error(), `"verbose"`)
+	})
+
+	t.Run("PrepareConfig validates the logging section", func(t *testing.T) {
+		config := Config{
+			Backends: []Backend{{Url: "localhost:8080"}},
+			Port:     "8000",
+			Logging:  Logging{Format: "logfmt"},
+		}
+		assert.ErrorIs(t, config.PrepareConfig(), ErrInvalidLoggingFormat)
+	})
+
+	t.Run("PrepareConfig defaults the logging section", func(t *testing.T) {
+		config := Config{Backends: []Backend{{Url: "localhost:8080"}}, Port: "8000"}
+		assert.NoError(t, config.PrepareConfig())
+		assert.Equal(t, LoggingFormatJSON, config.Logging.Format)
+		assert.Equal(t, DefaultLoggingLevel, config.Logging.Level)
+	})
+}

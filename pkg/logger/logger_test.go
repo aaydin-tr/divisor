@@ -1,67 +1,111 @@
 package logger
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
+	"strings"
 	"testing"
 
+	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
-func TestInitLoggerWritesFile(t *testing.T) {
-	logFile := filepath.Join(t.TempDir(), "divisor.log")
+// captureStreams redirects os.Stderr and os.Stdout to files around fn, so a
+// test asserts on what the process would actually emit on each stream. zap
+// resolves its "stderr" sink when the logger is built, so InitLogger must be
+// called inside fn.
+func captureStreams(t *testing.T, fn func()) (stderr, stdout string) {
+	t.Helper()
 
-	InitLogger(logFile)
-	zap.S().Info("hello")
+	dir := t.TempDir()
+	stderrFile, err := os.Create(filepath.Join(dir, "stderr"))
+	require.NoError(t, err)
+	stdoutFile, err := os.Create(filepath.Join(dir, "stdout"))
+	require.NoError(t, err)
+
+	originalStderr, originalStdout := os.Stderr, os.Stdout
+	os.Stderr, os.Stdout = stderrFile, stdoutFile
+	defer func() {
+		os.Stderr, os.Stdout = originalStderr, originalStdout
+		stderrFile.Close()
+		stdoutFile.Close()
+	}()
+
+	fn()
 	zap.L().Sync() //nolint:errcheck
 
-	content, err := os.ReadFile(logFile)
-	assert.Nil(t, err)
-	assert.Contains(t, string(content), "hello")
+	stderrContent, err := os.ReadFile(stderrFile.Name())
+	require.NoError(t, err)
+	stdoutContent, err := os.ReadFile(stdoutFile.Name())
+	require.NoError(t, err)
+	return string(stderrContent), string(stdoutContent)
 }
 
-func TestInitLoggerFallsBackToStdoutOnUnopenableSink(t *testing.T) {
-	logFile := filepath.Join(t.TempDir(), "no-such-dir", "divisor.log")
-
-	assert.NotPanics(t, func() {
-		InitLogger(logFile)
-		zap.S().Info("still alive")
+func TestInitLoggerEmitsJSONOnStderrOnly(t *testing.T) {
+	stderr, stdout := captureStreams(t, func() {
+		InitLogger(config.Logging{Format: config.LoggingFormatJSON, Level: "info"})
+		zap.S().Info("hello json")
 	})
-	assert.NotNil(t, zap.L())
+
+	assert.Empty(t, stdout)
+	line := strings.TrimSpace(stderr)
+	var entry map[string]any
+	require.NoError(t, json.Unmarshal([]byte(line), &entry), "app log line is not JSON: %q", line)
+	assert.Equal(t, "hello json", entry["msg"])
+	assert.Equal(t, "info", entry["level"])
+	assert.NotEmpty(t, entry["time"])
+	assert.NotContains(t, entry, "caller")
 }
 
-func TestLogFolderFor(t *testing.T) {
-	assert.Equal(t, "/var/log/divisor/", logFolderFor("linux", ""))
-	assert.Equal(t, "/var/log/divisor/", logFolderFor("darwin", "ignored"))
-	assert.Equal(t, "C:\\Users\\u\\AppData\\Local\\divisor\\", logFolderFor("windows", "C:\\Users\\u\\AppData\\Local"))
-	assert.Equal(t, "", logFolderFor("windows", ""))
+func TestInitLoggerConsoleFormatIsHumanReadableOnStderr(t *testing.T) {
+	stderr, stdout := captureStreams(t, func() {
+		InitLogger(config.Logging{Format: config.LoggingFormatConsole, Level: "info"})
+		zap.S().Info("hello console")
+	})
+
+	assert.Empty(t, stdout)
+	line := strings.TrimSpace(stderr)
+	assert.Contains(t, line, "hello console")
+	assert.Contains(t, line, "INFO")
+	assert.NotContains(t, line, "logger_test.go", "caller is not part of app logs")
+	var entry map[string]any
+	assert.Error(t, json.Unmarshal([]byte(line), &entry), "console output should not be JSON")
 }
 
-func TestCreateLogDirIfNotExist(t *testing.T) {
-	t.Run("existing dir", func(t *testing.T) {
-		assert.Nil(t, createLogDirIfNotExist(t.TempDir()))
+func TestInitLoggerHonorsConfiguredLevel(t *testing.T) {
+	t.Run("warn suppresses info", func(t *testing.T) {
+		stderr, _ := captureStreams(t, func() {
+			InitLogger(config.Logging{Format: config.LoggingFormatJSON, Level: "warn"})
+			zap.S().Info("too quiet")
+			zap.S().Warn("loud enough")
+		})
+		assert.NotContains(t, stderr, "too quiet")
+		assert.Contains(t, stderr, "loud enough")
 	})
 
-	t.Run("creates missing dir", func(t *testing.T) {
-		dir := filepath.Join(t.TempDir(), "logs")
-		assert.Nil(t, createLogDirIfNotExist(dir))
-		info, err := os.Stat(dir)
-		assert.Nil(t, err)
-		assert.True(t, info.IsDir())
+	t.Run("debug enables debug output", func(t *testing.T) {
+		stderr, _ := captureStreams(t, func() {
+			InitLogger(config.Logging{Format: config.LoggingFormatJSON, Level: "debug"})
+			zap.S().Debug("debug detail")
+		})
+		assert.Contains(t, stderr, "debug detail")
+	})
+}
+
+func TestInitDefaultLoggerIsJSONAtInfoOnStderr(t *testing.T) {
+	stderr, stdout := captureStreams(t, func() {
+		InitDefaultLogger()
+		zap.S().Debug("hidden")
+		zap.S().Info("early failure")
 	})
 
-	t.Run("surfaces stat errors other than not-exist", func(t *testing.T) {
-		if runtime.GOOS == "windows" || os.Geteuid() == 0 {
-			t.Skip("needs Unix permission semantics as a non-root user")
-		}
-		parent := t.TempDir()
-		locked := filepath.Join(parent, "locked")
-		assert.Nil(t, os.Mkdir(locked, 0o755))
-		assert.Nil(t, os.Chmod(parent, 0o000))
-		t.Cleanup(func() { os.Chmod(parent, 0o755) }) //nolint:errcheck
-
-		assert.Error(t, createLogDirIfNotExist(filepath.Join(locked, "sub")))
-	})
+	assert.Empty(t, stdout)
+	assert.NotContains(t, stderr, "hidden")
+	line := strings.TrimSpace(stderr)
+	var entry map[string]any
+	require.NoError(t, json.Unmarshal([]byte(line), &entry), "default logger line is not JSON: %q", line)
+	assert.Equal(t, "early failure", entry["msg"])
 }
