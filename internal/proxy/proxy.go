@@ -72,9 +72,9 @@ const microsPerMilli = float64(1000)
 const timeHeaderLayout = "2006-01-02T15:04:05.000Z07:00"
 
 const (
-	badGatewayMessage         = `{"message":"bad gateway"}`
-	gatewayTimeoutMessage     = `{"message":"gateway timeout"}`
-	serviceUnavailableMessage = `{"message":"service unavailable"}`
+	badGatewayMessage      = `{"message":"bad gateway"}`
+	gatewayTimeoutMessage  = `{"message":"gateway timeout"}`
+	noAliveBackendsMessage = `{"message":"no backends available"}`
 )
 
 type ProxyClient struct {
@@ -317,7 +317,7 @@ func NoAliveBackends(ctx *fasthttp.RequestCtx) {
 	ctx.Response.SetStatusCode(fasthttp.StatusServiceUnavailable)
 	ctx.Response.SetConnectionClose()
 	ctx.Response.Header.Set("Content-Type", "application/json")
-	ctx.Response.SetBodyString(serviceUnavailableMessage)
+	ctx.Response.SetBodyString(noAliveBackendsMessage)
 
 	// No Backend was involved, so backend/request_seq are omitted and the
 	// duration is zero: divisor did no upstream work on this path.
@@ -327,7 +327,7 @@ func NoAliveBackends(ctx *fasthttp.RequestCtx) {
 			Method:   helper.B2S(ctx.Method()),
 			Path:     helper.B2S(ctx.Path()),
 			Status:   fasthttp.StatusServiceUnavailable,
-			BytesOut: len(serviceUnavailableMessage),
+			BytesOut: len(noAliveBackendsMessage),
 		})
 	}
 }
