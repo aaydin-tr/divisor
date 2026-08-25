@@ -287,6 +287,11 @@ Spec: `.scratch/docs/spec.md` — tickets in `.scratch/docs/issues/`.
   `.github/workflows/integration.yml`; the `specRed` helper stays dormant —
   re-add the job when the next spec-red test lands (zero-alive-Backends-at-boot
   plans to be one).
+- [ ] Go toolchain update to 1.27 (latest) — currently pinned to 1.25.3 in
+  `go.mod`, `integration-test/go.mod`, all five workflow files under
+  `.github/workflows/` (`go-version:`), and the Dockerfile builder stage
+  (`golang:1.25-alpine`). Bump everywhere in one pass and run the full suite
+  (`go test -race ./...` plus the integration suite).
 - [ ] Monitoring server coverage (explicitly out of scope for the first suite);
   the readiness/liveness endpoints under Kubernetes are the prerequisite —
   they de-conflate divisor liveness from Backend health so `/metrics` can be
