@@ -25,15 +25,17 @@ Spec: `.scratch/logging/spec.md` — tickets in `.scratch/logging/issues/`.
   sink, default encoding console → JSON. Ticket: `01-app-logs-json-stderr.md`
   (done). Integration: `TestApplicationLogsAreJSONOnStderrByDefault`,
   `TestApplicationLogsConsoleFormat`.
-- [ ] Access log (see CONTEXT.md **Access log**) — one JSON line per request
-  divisor answers, written to stdout. Off by default:
-  `logging.access_log: true`. Fixed field set, no format language (additive
-  later): `time`, `client_ip`, `method`, `path`, `status`, `backend`
-  (Backend address), `duration_ms`, `bytes_out`, `request_seq` (the Request
-  sequence number, so correlating with a Backend's `$incremental` header is
-  free), and `short_circuit: true` when a Middleware answered. Hot-path cost
-  is the design constraint — A/B-measure like H5 did. Ticket:
-  `02-access-log.md`.
+- [x] Access log (see CONTEXT.md **Access log**) — shipped: one JSON line per
+  request divisor answers on stdout (always JSON, whatever `logging.format`),
+  off by default behind `logging.access_log: true`. Fixed field set: `time`
+  (RFC 3339 ms UTC), `client_ip`, `method`, `path`, `status`, `backend` and
+  `request_seq` (both omitted on the zero-Alive 503 path), `duration_ms`,
+  `bytes_out`, `short_circuit: true` when a Middleware answered. Emitted at
+  request completion in `internal/proxy` (`ReverseProxyHandler` +
+  `NoAliveBackends`), gated by `logger.AccessLogEnabled()`. Hot-path cost
+  A/B-measured like H5 (results in the spec's Comments): 3.3 ns/request when
+  off, ~1 µs emit when on. Ticket: `02-access-log.md` (done). Integration:
+  `TestAccessLogOneJSONLinePerRequestOnStdout`.
 
 ## Distribution
 

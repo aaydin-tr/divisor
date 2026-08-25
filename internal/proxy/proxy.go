@@ -14,6 +14,7 @@ import (
 	"github.com/aaydin-tr/divisor/middleware"
 	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/aaydin-tr/divisor/pkg/helper"
+	"github.com/aaydin-tr/divisor/pkg/logger"
 	middlewarePkg "github.com/aaydin-tr/divisor/pkg/middleware"
 	"github.com/google/uuid"
 	"github.com/valyala/fasthttp"
@@ -71,8 +72,9 @@ const microsPerMilli = float64(1000)
 const timeHeaderLayout = "2006-01-02T15:04:05.000Z07:00"
 
 const (
-	badGatewayMessage     = `{"message":"bad gateway"}`
-	gatewayTimeoutMessage = `{"message":"gateway timeout"}`
+	badGatewayMessage         = `{"message":"bad gateway"}`
+	gatewayTimeoutMessage     = `{"message":"gateway timeout"}`
+	serviceUnavailableMessage = `{"message":"service unavailable"}`
 )
 
 type ProxyClient struct {
@@ -97,12 +99,30 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 	clientIP := helper.S2B(ctx.RemoteIP().String())
 	mwCtx := middleware.NewContext(ctx)
 
+	shortCircuited := false
+	if logger.AccessLogEnabled() {
+		defer func() {
+			logger.LogAccess(logger.AccessLogEntry{
+				ClientIP:        helper.B2S(clientIP),
+				Method:          helper.B2S(ctx.Method()),
+				Path:            helper.B2S(ctx.Path()),
+				Status:          res.StatusCode(),
+				Backend:         h.Addr,
+				Duration:        time.Since(s),
+				BytesOut:        len(res.Body()),
+				RequestSequence: requestSequenceNumber,
+				ShortCircuit:    shortCircuited,
+			})
+		}()
+	}
+
 	h.preReq(req, clientIP, requestSequenceNumber)
 
 	if h.middlewareExecutor != nil {
 		if err := h.middlewareExecutor.RunOnRequest(mwCtx); err != nil {
 			h.postRes(res)
 			if isShortCircuit(err) {
+				shortCircuited = true
 				return nil
 			}
 			middlewareError(res, err)
@@ -129,6 +149,7 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 		if err := h.middlewareExecutor.RunOnResponse(mwCtx, serverErr); err != nil {
 			h.postRes(res)
 			if isShortCircuit(err) {
+				shortCircuited = true
 				return serverErr
 			}
 			middlewareError(res, err)
@@ -296,7 +317,19 @@ func NoAliveBackends(ctx *fasthttp.RequestCtx) {
 	ctx.Response.SetStatusCode(fasthttp.StatusServiceUnavailable)
 	ctx.Response.SetConnectionClose()
 	ctx.Response.Header.Set("Content-Type", "application/json")
-	ctx.Response.SetBodyString(`{"message":"no backends available"}`)
+	ctx.Response.SetBodyString(serviceUnavailableMessage)
+
+	// No Backend was involved, so backend/request_seq are omitted and the
+	// duration is zero: divisor did no upstream work on this path.
+	if logger.AccessLogEnabled() {
+		logger.LogAccess(logger.AccessLogEntry{
+			ClientIP: ctx.RemoteIP().String(),
+			Method:   helper.B2S(ctx.Method()),
+			Path:     helper.B2S(ctx.Path()),
+			Status:   fasthttp.StatusServiceUnavailable,
+			BytesOut: len(serviceUnavailableMessage),
+		})
+	}
 }
 
 const bodyTooLargeMessage = `{"message":"request body too large"}`

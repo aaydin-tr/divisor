@@ -103,8 +103,9 @@ type Monitoring struct {
 // Logging is deliberately a section, not top-level keys: future logging
 // options (file sink, sampling) belong here (.scratch/logging/spec.md).
 type Logging struct {
-	Format string `yaml:"format"`
-	Level  string `yaml:"level"`
+	Format    string `yaml:"format"`
+	Level     string `yaml:"level"`
+	AccessLog bool   `yaml:"access_log"`
 }
 
 type Server struct {

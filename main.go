@@ -48,6 +48,7 @@ func main() {
 		zap.S().Fatal(err)
 	}
 	logger.InitLogger(config.Logging)
+	logger.InitAccessLogger(config.Logging.AccessLog)
 	zap.S().Info("Config file parsed successfully")
 
 	middlewareExecutor, err := middleware.NewExecutor(config.Middlewares)

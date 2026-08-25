@@ -17,6 +17,7 @@ monitoring:
 logging:
   format: json # Application log encoding on stderr; json or console. Default: json
   level: info # Minimum application log level; debug, info, warn, error, dpanic, panic or fatal. Default: info
+  access_log: false # One JSON line per answered request on stdout (always JSON). Default: false
 custom_headers: # Custom headers will be set on request sent to backend; e.g $remote_addr, $time, $incremental, $uuid, Header name can be whatever you want as long as it's a string
   x-client-ip: $remote_addr # Client remote addr
   x-req-time: $time # Request time

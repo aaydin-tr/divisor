@@ -3,8 +3,11 @@ package integration
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ory/dockertest/v3"
 	dc "github.com/ory/dockertest/v3/docker"
@@ -66,6 +69,72 @@ func TestApplicationLogsAreJSONOnStderrByDefault(t *testing.T) {
 		if entry["level"] == nil || entry["msg"] == nil {
 			t.Errorf("app log line is missing level/msg fields: %q", line)
 		}
+	}
+}
+
+// With logging.access_log on, stdout carries exactly one JSON line per
+// answered request with the fixed field set, and nothing else: app logs stay
+// on stderr, so each stream remains homogeneous.
+func TestAccessLogOneJSONLinePerRequestOnStdout(t *testing.T) {
+	t.Parallel()
+	s := startScenario(t, ScenarioSpec{
+		Name:      "accesslog",
+		Backends:  []BackendSpec{{ID: "b1"}},
+		AccessLog: true,
+	})
+
+	// startScenario's readiness probing already answered requests, so count
+	// the pre-existing lines and assert on the delta.
+	stdoutBefore, _ := divisorStreams(t, s.Divisor)
+	linesBefore := len(nonBlankLines(stdoutBefore))
+
+	const requestCount = 5
+	for i := 0; i < requestCount; i++ {
+		res, err := s.Request(http.MethodGet, fmt.Sprintf("/access-log-test?n=%d", i), nil, nil)
+		if err != nil {
+			t.Fatalf("request %d failed: %v", i, err)
+		}
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("request %d got status %d", i, res.StatusCode)
+		}
+	}
+
+	var newLines []string
+	eventually(t, 10*time.Second, "access log lines arrive on stdout", func() error {
+		stdout, _ := divisorStreams(t, s.Divisor)
+		newLines = nonBlankLines(stdout)[linesBefore:]
+		if len(newLines) != requestCount {
+			return fmt.Errorf("got %d new stdout lines, want %d", len(newLines), requestCount)
+		}
+		return nil
+	})
+
+	backendAddr := s.Backend("b1").Name + ":" + containerPort
+	var previousSequence float64
+	for i, line := range newLines {
+		var entry map[string]any
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatalf("access log line is not JSON: %q", line)
+		}
+		for _, field := range []string{"time", "client_ip", "method", "path", "status", "backend", "duration_ms", "bytes_out", "request_seq"} {
+			if _, ok := entry[field]; !ok {
+				t.Fatalf("access log line is missing %q: %q", field, line)
+			}
+		}
+		if _, ok := entry["msg"]; ok {
+			t.Errorf("access log line carries an app-log msg field: %q", line)
+		}
+		if entry["method"] != "GET" || entry["status"] != float64(200) || entry["backend"] != backendAddr {
+			t.Errorf("unexpected access log values in %q", line)
+		}
+		if entry["path"] != "/access-log-test" {
+			t.Errorf("path should carry no query string, got %v", entry["path"])
+		}
+		sequence, ok := entry["request_seq"].(float64)
+		if !ok || (i > 0 && sequence != previousSequence+1) {
+			t.Errorf("request_seq should increase by one per request on a single backend, line %d: %q", i, line)
+		}
+		previousSequence = sequence
 	}
 }
 

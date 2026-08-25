@@ -410,11 +410,22 @@ func TestPrepareServerParsesTLSKeyPair(t *testing.T) {
 func TestPrepareLogging(t *testing.T) {
 	t.Parallel()
 
-	t.Run("defaults to json at info", func(t *testing.T) {
+	t.Run("defaults to json at info with the access log off", func(t *testing.T) {
 		logging := Logging{}
 		assert.NoError(t, logging.prepareLogging())
 		assert.Equal(t, LoggingFormatJSON, logging.Format)
 		assert.Equal(t, DefaultLoggingLevel, logging.Level)
+		assert.False(t, logging.AccessLog)
+	})
+
+	t.Run("access_log parses under strict decoding", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		yaml := "port: \"8000\"\nbackends:\n  - url: localhost:8080\nlogging:\n  access_log: true\n"
+		assert.NoError(t, os.WriteFile(path, []byte(yaml), 0o600))
+		config, err := ParseConfigFile(path)
+		assert.NoError(t, err)
+		assert.NoError(t, config.PrepareConfig())
+		assert.True(t, config.Logging.AccessLog)
 	})
 
 	t.Run("valid values pass unchanged", func(t *testing.T) {

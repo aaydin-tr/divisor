@@ -77,9 +77,10 @@ type ScenarioSpec struct {
 	WriteTimeout      time.Duration
 	ProxyTimeout       time.Duration
 	MaxRequestBodySize int
-	// LoggingFormat renders a `logging: {format: ...}` section; empty means
-	// the section is omitted so the scenario runs on divisor's defaults.
+	// LoggingFormat and AccessLog render a `logging:` section; both zero
+	// means the section is omitted so the scenario runs on divisor's defaults.
 	LoggingFormat string
+	AccessLog     bool
 }
 
 type Echo struct {
@@ -378,8 +379,15 @@ func renderConfig(t *testing.T, s *Scenario) (string, string) {
 	if len(s.Spec.CustomHeaders) > 0 {
 		cfg["custom_headers"] = s.Spec.CustomHeaders
 	}
-	if s.Spec.LoggingFormat != "" {
-		cfg["logging"] = map[string]any{"format": s.Spec.LoggingFormat}
+	if s.Spec.LoggingFormat != "" || s.Spec.AccessLog {
+		loggingSection := map[string]any{}
+		if s.Spec.LoggingFormat != "" {
+			loggingSection["format"] = s.Spec.LoggingFormat
+		}
+		if s.Spec.AccessLog {
+			loggingSection["access_log"] = true
+		}
+		cfg["logging"] = loggingSection
 	}
 
 	mwFile := ""

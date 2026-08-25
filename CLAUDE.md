@@ -101,11 +101,16 @@ Pool plus the balancer as the rest of the process sees them. `Serve` answers
 - Backend `url` is normalized to a dialable Backend address (`host:port`): optional `http://` and bare trailing slash stripped, missing port defaults to 80; path/query/userinfo and `https://` are rejected at startup (ADR 0004: backends are plaintext-only)
 - HTTP/2 requires TLS (cert_file + key_file must be provided)
 - Weighted round-robin with single backend auto-converts to regular round-robin
-- `logging:` section: `logging.format` (`json` | `console`, default `json`) and
-  `logging.level` (zap levels, default `info`). Application logs go to stderr
-  only (stdout is reserved for the Access log); there is no file logging.
-  `main.go` installs a default json/info logger before the config parses and
-  re-initializes it from the validated config after `PrepareConfig`
+- `logging:` section: `logging.format` (`json` | `console`, default `json`),
+  `logging.level` (zap levels, default `info`) and `logging.access_log`
+  (default `false`). Application logs go to stderr only; the Access log (one
+  JSON line per answered request, always JSON) is the only thing on stdout.
+  There is no file logging. `main.go` installs a default json/info logger
+  before the config parses and re-initializes it (plus the access logger)
+  from the validated config after `PrepareConfig`. The access logger lives in
+  `pkg/logger/access.go`; `internal/proxy` emits at request completion
+  (`ReverseProxyHandler` and the `NoAliveBackends` 503 path), gated by
+  `logger.AccessLogEnabled()`
 
 ### Monitoring
 
