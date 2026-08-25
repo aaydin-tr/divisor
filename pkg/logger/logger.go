@@ -28,6 +28,7 @@ func InitLogger(logging config.Logging) {
 	zapConfig := zap.Config{
 		Level:            zap.NewAtomicLevelAt(level),
 		Encoding:         logging.Format,
+		DisableCaller:    true,
 		EncoderConfig:    encoderConfigFor(logging.Format),
 		OutputPaths:      []string{"stderr"},
 		ErrorOutputPaths: []string{"stderr"},
@@ -49,7 +50,7 @@ func encoderConfigFor(format string) zapcore.EncoderConfig {
 		TimeKey:        "time",
 		LevelKey:       "level",
 		NameKey:        "logger",
-		CallerKey:      "caller",
+		CallerKey:      zapcore.OmitKey,
 		FunctionKey:    zapcore.OmitKey,
 		MessageKey:     "msg",
 		StacktraceKey:  "stacktrace",
@@ -57,7 +58,6 @@ func encoderConfigFor(format string) zapcore.EncoderConfig {
 		EncodeLevel:    zapcore.LowercaseLevelEncoder,
 		EncodeTime:     zapcore.ISO8601TimeEncoder,
 		EncodeDuration: zapcore.StringDurationEncoder,
-		EncodeCaller:   zapcore.ShortCallerEncoder,
 	}
 	if format == config.LoggingFormatConsole {
 		encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder

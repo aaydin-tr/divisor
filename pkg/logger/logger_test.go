@@ -57,6 +57,7 @@ func TestInitLoggerEmitsJSONOnStderrOnly(t *testing.T) {
 	assert.Equal(t, "hello json", entry["msg"])
 	assert.Equal(t, "info", entry["level"])
 	assert.NotEmpty(t, entry["time"])
+	assert.NotContains(t, entry, "caller")
 }
 
 func TestInitLoggerConsoleFormatIsHumanReadableOnStderr(t *testing.T) {
@@ -69,6 +70,7 @@ func TestInitLoggerConsoleFormatIsHumanReadableOnStderr(t *testing.T) {
 	line := strings.TrimSpace(stderr)
 	assert.Contains(t, line, "hello console")
 	assert.Contains(t, line, "INFO")
+	assert.NotContains(t, line, "logger_test.go", "caller is not part of app logs")
 	var entry map[string]any
 	assert.Error(t, json.Unmarshal([]byte(line), &entry), "console output should not be JSON")
 }
