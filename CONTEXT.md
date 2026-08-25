@@ -63,7 +63,7 @@ The position of a request among all requests divisor has routed to one Backend s
 _Avoid_: incremental counter, request counter, request ID
 
 **Access log**:
-One JSON line per request divisor answers, written to stdout, describing who asked and how it was served: Client IP, method, path, status, the Backend that served it (or that a Middleware short-circuited), duration, bytes out, and the Request sequence number. Off by default. Application logs go to stderr; the access log is the only thing on stdout.
+One JSON line per request divisor answers, written to stdout, describing who asked and how it was served: Client IP, method and path as the client sent them (a Middleware rewrite is not logged), status, the Backend that served it (or that a Middleware short-circuited), duration, bytes out, and the Request sequence number. Off by default. Application logs go to stderr; the access log is the only thing on stdout.
 _Avoid_: request log, traffic log
 
 **Streamed response**:

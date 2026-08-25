@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aaydin-tr/divisor/middleware"
@@ -116,6 +117,45 @@ func TestAccessLogOnMiddlewareShortCircuit(t *testing.T) {
 		assert.Equal(t, true, fields["short_circuit"])
 		assert.Equal(t, int64(fasthttp.StatusOK), fields["status"])
 	})
+}
+
+func TestAccessLogRecordsMethodAndPathAsClientSentThem(t *testing.T) {
+	rewriting := &mockMiddleware{
+		onRequestFunc: func(mwCtx *middleware.Context) error {
+			mwCtx.Request.Header.SetMethod("POST")
+			mwCtx.Request.URI().SetPath("/rewritten")
+			mwCtx.Response.SetStatusCode(fasthttp.StatusOK)
+			return middleware.ErrShortCircuit
+		},
+	}
+	p := createTestProxyWithMiddlewares(config.Backend{Url: "localhost:1"}, nil, rewriting)
+
+	observed := observeAccessLog(t)
+	ctx := accessLogRequestCtx("GET", "/as-sent")
+	require.NoError(t, p.ReverseProxyHandler(ctx))
+
+	fields := singleAccessLogEntry(t, observed)
+	assert.Equal(t, "GET", fields["method"], "method is the one the client sent, not the Middleware rewrite")
+	assert.Equal(t, "/as-sent", fields["path"], "path is the one the client sent, not the Middleware rewrite")
+}
+
+func TestAccessLogDoesNotBufferAStreamedBody(t *testing.T) {
+	streaming := &mockMiddleware{
+		onRequestFunc: func(mwCtx *middleware.Context) error {
+			mwCtx.Response.SetStatusCode(fasthttp.StatusOK)
+			mwCtx.Response.SetBodyStream(strings.NewReader("streamed"), -1)
+			return middleware.ErrShortCircuit
+		},
+	}
+	p := createTestProxyWithMiddlewares(config.Backend{Url: "localhost:1"}, nil, streaming)
+
+	observed := observeAccessLog(t)
+	ctx := accessLogRequestCtx("GET", "/stream")
+	require.NoError(t, p.ReverseProxyHandler(ctx))
+
+	fields := singleAccessLogEntry(t, observed)
+	assert.Equal(t, int64(0), fields["bytes_out"], "a streamed body's size is unknown at emission")
+	assert.True(t, ctx.Response.IsBodyStream(), "emitting the Access log must not consume the body stream")
 }
 
 func TestAccessLogOnZeroAliveBackends(t *testing.T) {

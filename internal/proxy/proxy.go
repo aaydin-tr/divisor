@@ -101,15 +101,17 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 
 	shortCircuited := false
 	if logger.AccessLogEnabled() {
+		clientSentMethod := string(ctx.Method())
+		clientSentPath := string(ctx.Path())
 		defer func() {
 			logger.LogAccess(&logger.AccessLogEntry{
 				ClientIP:        helper.B2S(clientIP),
-				Method:          helper.B2S(ctx.Method()),
-				Path:            helper.B2S(ctx.Path()),
+				Method:          clientSentMethod,
+				Path:            clientSentPath,
 				Status:          res.StatusCode(),
 				Backend:         h.Addr,
 				Duration:        time.Since(s),
-				BytesOut:        len(res.Body()),
+				BytesOut:        responseBytesOut(res),
 				RequestSequence: requestSequenceNumber,
 				ShortCircuit:    shortCircuited,
 			})
@@ -162,6 +164,13 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 		h.serverError(res, serverErr)
 	}
 	return serverErr
+}
+
+func responseBytesOut(res *fasthttp.Response) int {
+	if res.IsBodyStream() {
+		return 0
+	}
+	return len(res.Body())
 }
 
 // isShortCircuit reports whether a Middleware answered the request itself
