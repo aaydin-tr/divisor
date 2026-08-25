@@ -80,13 +80,17 @@ Spec: `.scratch/kubernetes/spec.md` — tickets in `.scratch/kubernetes/issues/`
   Scenario, but the production exposure remains. Expose a configurable
   `DNSCacheDuration`; the k8s example manifests set it short. Ticket:
   `03-dns-cache-duration.md`.
-- [ ] Readiness/liveness endpoints on the monitoring server — `/healthz`
-  (liveness): 200 whenever the process runs. `/ready`: 200 once the
-  listeners are bound, 503 during graceful shutdown. **Backend health never
-  gates readiness** — zero Alive Backends is divisor *working* (answering
-  503s, per zero-alive-at-boot); gating on it risks a bootstrap deadlock and
-  hides divisor's own 503 signal. Unblocks the monitoring-coverage item
-  under Suite / CI. Ticket: `02-probe-endpoints.md`.
+- [x] Readiness/liveness endpoints on the monitoring server — shipped:
+  `/healthz` (liveness) answers 200 whenever the process runs; `/ready`
+  answers 200 once the listeners are bound and 503 from the moment graceful
+  shutdown begins (`monitoring.Server.MarkNotReady`, called first in
+  `performGracefulShutdown`, before the drain). **Backend health never gates
+  either** — zero Alive Backends is divisor *working* (answering 503s, per
+  zero-alive-at-boot). Unblocks the monitoring-coverage item under
+  Suite / CI. Ticket: `02-probe-endpoints.md` (done). Integration:
+  `TestProbeEndpointsDuringServeAndShutdown`,
+  `TestAllBackendsDownAtBootServes503ThenRejoins` (probes with zero Alive
+  Backends).
 - [ ] Example manifests — Deployment + ConfigMap + Service in the repo, with
   probes wired to `/healthz`/`/ready` and `monitoring.host: 0.0.0.0`
   (kubelet probes hit the pod IP; the localhost default cannot serve them —
@@ -215,36 +219,18 @@ hardcoded or silently left at library defaults):
   rotation (all five algorithms); requests hitting an empty rotation get
   **503 Service Unavailable** (`proxy.NoAliveBackends`) until a Probe lets a
   backend Rejoin. **[born-red:** `TestAllBackendsDownStaysUp` **— now green]**
-- [ ] Zero Alive Backends at boot → start anyway, serve 503, let Backends
-  Rejoin (remove the "No available servers" bail-out). Today every balancer
-  constructor returns nil when no Backend is Alive at startup and `main.go`
-  logs "No available servers" and exits (`main.go:67-70`) — with exit code 0.
-  That guard protects nothing else: `PrepareConfig` already rejects an empty
-  backend list (`ErrAtLeastOneBackend`) and an invalid `type`, so the only
-  reachable case is "all configured Backends failed their first Probe" —
-  exactly the outage the shipped all-Backends-Down item survives at runtime.
-  Asymmetry to fix: all Backends Down 1s after boot → stay up + 503 + Rejoin;
-  1s before boot → refuse to start. Orchestrated deploys (compose/k8s) often
-  start the LB before the Backends; nginx/HAProxy/Envoy all boot regardless of
-  upstream health. The machinery already exists: the Pool registers Down
-  Backends at startup and the empty-rotation 503 path
-  (`proxy.NoAliveBackends`) is shipped and tested.
-  Implementation notes:
-  - One decision in one place now: drop the `pool.AliveBackendCount() == 0 → nil`
-    check in `core.NewBalancer` (every balancer's `Pick` already returns nil
-    on an empty rotation, and the ring handles empty).
-  - Keep `main.go`'s nil check as a defensive backstop — already exits
-    non-zero since the Dockerfile/entrypoint exit-code item below shipped.
-  - Unit test to flip: `TestNewBalancerIsNilWhenNothingIsAliveAtStartup` in
-    `core` becomes "serves 503 until a Probe succeeds".
-  - Do it born-red: integration scenario with every Backend `StartDown: true`
-    → divisor boots, serves 503, then one Probe succeeds → traffic flows.
-  - Trade-off accepted: a typo'd backend URL no longer fails fast at boot —
-    divisor serves 503 instead of exiting; per-backend liveness stays visible
-    in `/stats`, and this raises the value of the readiness-endpoint item
-    under Kubernetes.
-  Ticket: `.scratch/kubernetes/issues/01-zero-alive-at-boot.md` (specced
-  with the Kubernetes feature).
+- [x] Zero Alive Backends at boot → start anyway, serve 503, let Backends
+  Rejoin — fixed: `core.NewBalancer` dropped its
+  `pool.AliveBackendCount() == 0 → nil` check (it now logs a warning and
+  serves 503 until a Probe lets a Backend Rejoin); `main.go`'s nil check
+  stays as a defensive backstop for the unknown-type case (exits non-zero).
+  Unit test flipped: `TestNewBalancerServes503UntilAProbeSucceedsWhenNothingIsAliveAtStartup`
+  covers all six algorithms (ip-hash ring included). Trade-off accepted: a
+  typo'd backend URL no longer fails fast at boot — liveness stays visible
+  in `/stats` and logs, which is why the readiness endpoints shipped
+  alongside. Landed together with its integration test, so it never needed
+  spec-red gating. Ticket: `.scratch/kubernetes/issues/01-zero-alive-at-boot.md`
+  (done). Integration: `TestAllBackendsDownAtBootServes503ThenRejoins`.
 - [x] X-Forwarded-For semantics — settled 2026-08-25: **append stays** (as
   shipped by L1), and 1.0 adds no trusted-proxy config (post-1.0, additive).
   `TestProxyMatrix/XForwardedFor` stays pinned to append.
@@ -288,8 +274,9 @@ Spec: `.scratch/docs/spec.md` — tickets in `.scratch/docs/issues/`.
   advisory job's `-run` pattern. The set is currently **empty** (both original
   spec-red tests shipped), so the advisory job is removed from
   `.github/workflows/integration.yml`; the `specRed` helper stays dormant —
-  re-add the job when the next spec-red test lands (zero-alive-Backends-at-boot
-  plans to be one).
+  re-add the job when the next spec-red test lands
+  (zero-alive-Backends-at-boot was planned as one, but landed together with
+  its fix, born green).
 - [ ] Dependency upgrade pass — `go get -u ./...` + `go mod tidy` in both
   modules (the root module and `integration-test/`, which pins its own
   dependency set — keep shared pins like fasthttp in sync between them),
@@ -301,11 +288,12 @@ Spec: `.scratch/docs/spec.md` — tickets in `.scratch/docs/issues/`.
   `.github/workflows/` (`go-version:`), and the Dockerfile builder stage
   (`golang:1.25-alpine`). Bump everywhere in one pass and run the full suite
   (`go test -race ./...` plus the integration suite).
-- [ ] Monitoring server coverage (explicitly out of scope for the first suite);
-  the readiness/liveness endpoints under Kubernetes are the prerequisite —
-  they de-conflate divisor liveness from Backend health so `/metrics` can be
-  tested with zero Alive Backends. Prerequisite ticket:
-  `.scratch/kubernetes/issues/02-probe-endpoints.md`.
+- [ ] Monitoring server coverage (explicitly out of scope for the first
+  suite) — **now unblocked**: the readiness/liveness endpoints shipped
+  (ticket `.scratch/kubernetes/issues/02-probe-endpoints.md`), de-conflating
+  divisor liveness from Backend health, so `/metrics` can be tested with
+  zero Alive Backends. The harness's `ExposeMonitoring` scenario knob
+  already publishes the monitoring port.
 
 ## Suggested order
 

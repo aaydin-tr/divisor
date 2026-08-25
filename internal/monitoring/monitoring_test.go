@@ -112,6 +112,64 @@ func TestStartServesStatsAndShutdownStopsPolling(t *testing.T) {
 	assert.Error(t, err, "the monitoring listener is closed after Shutdown")
 }
 
+func probeStatus(t *testing.T, addr, path string) int {
+	t.Helper()
+	res, err := http.Get(fmt.Sprintf("http://%s%s", addr, path))
+	require.NoError(t, err)
+	res.Body.Close()
+	return res.StatusCode
+}
+
+func TestProbeEndpointTransitionsAcrossLifecycle(t *testing.T) {
+	addr := freeAddr(t)
+	s, err := start(fixedConnections(0), &countingBalancer{}, addr, func() (systemStats, error) { return systemStats{}, nil })
+	require.NoError(t, err)
+
+	assert.Equal(t, http.StatusOK, probeStatus(t, addr, "/healthz"), "liveness answers 200 while serving")
+	assert.Equal(t, http.StatusOK, probeStatus(t, addr, "/ready"), "readiness answers 200 once the listener is bound")
+
+	s.MarkNotReady()
+	assert.Equal(t, http.StatusServiceUnavailable, probeStatus(t, addr, "/ready"), "readiness flips to 503 the moment graceful shutdown begins")
+	assert.Equal(t, http.StatusOK, probeStatus(t, addr, "/healthz"), "liveness stays 200 while the process drains")
+	assert.Equal(t, http.StatusOK, probeStatus(t, addr, "/stats"), "the monitoring server still serves during the drain")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, s.Shutdown(ctx))
+	_, err = http.Get(fmt.Sprintf("http://%s/healthz", addr))
+	assert.Error(t, err, "the monitoring listener is closed after Shutdown")
+}
+
+// flippableBalancer reports one Backend whose liveness the test flips.
+type flippableBalancer struct{ backendAlive atomic.Bool }
+
+func (b *flippableBalancer) Serve() func(ctx *fasthttp.RequestCtx) {
+	return func(*fasthttp.RequestCtx) {}
+}
+func (b *flippableBalancer) Shutdown() error { return nil }
+func (b *flippableBalancer) Stats() []types.ProxyStat {
+	return []types.ProxyStat{{Addr: "backend-a:80", IsHostAlive: b.backendAlive.Load()}}
+}
+
+func TestBackendLivenessGatesNeitherProbeEndpoint(t *testing.T) {
+	balancer := &flippableBalancer{}
+	balancer.backendAlive.Store(true)
+	addr := freeAddr(t)
+	s, err := start(fixedConnections(0), balancer, addr, func() (systemStats, error) { return systemStats{}, nil })
+	require.NoError(t, err)
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		s.Shutdown(ctx) //nolint:errcheck
+	}()
+
+	for _, backendAlive := range []bool{true, false, true} {
+		balancer.backendAlive.Store(backendAlive)
+		assert.Equal(t, http.StatusOK, probeStatus(t, addr, "/healthz"), "backendAlive=%t must not gate liveness", backendAlive)
+		assert.Equal(t, http.StatusOK, probeStatus(t, addr, "/ready"), "backendAlive=%t must not gate readiness: zero Alive Backends is divisor working", backendAlive)
+	}
+}
+
 func TestStartReportsBindFailure(t *testing.T) {
 	s, err := start(fixedConnections(0), &countingBalancer{}, "256.0.0.1:1", func() (systemStats, error) { return systemStats{}, nil })
 	require.Error(t, err)

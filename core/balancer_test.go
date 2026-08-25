@@ -31,7 +31,6 @@ func balancerConfig(balancerType string, probe types.IsHostAlive, addrs ...strin
 func backendsOf(b types.IBalancer) []*pool.Backend { return b.(*loadBalancer).pool.Backends() }
 
 func alwaysAlive(string) bool { return true }
-func alwaysDown(string) bool  { return false }
 
 func TestNewBalancerBuildsEveryType(t *testing.T) {
 	for _, balancerType := range config.ValidTypes {
@@ -54,9 +53,30 @@ func TestNewBalancerBuildsEveryType(t *testing.T) {
 	}
 }
 
-func TestNewBalancerIsNilWhenNothingIsAliveAtStartup(t *testing.T) {
-	cfg := balancerConfig("round-robin", alwaysDown, "localhost:8080")
-	assert.Nil(t, NewBalancer(cfg, nil, mocks.CreateNewMockProxy))
+func TestNewBalancerServes503UntilAProbeSucceedsWhenNothingIsAliveAtStartup(t *testing.T) {
+	for _, balancerType := range config.ValidTypes {
+		t.Run(balancerType, func(t *testing.T) {
+			var probeSucceeds atomic.Bool
+			probe := func(string) bool { return probeSucceeds.Load() }
+			cfg := balancerConfig(balancerType, probe, "localhost:8080")
+			b := NewBalancer(cfg, nil, mocks.CreateNewMockProxy)
+			if !assert.NotNil(t, b, "divisor boots even when every Backend fails its first Probe round") {
+				return
+			}
+			defer b.Shutdown() //nolint:errcheck
+
+			ctx := mocks.RequestFrom("10.0.0.1")
+			b.Serve()(ctx)
+			assert.Equal(t, fasthttp.StatusServiceUnavailable, ctx.Response.StatusCode())
+			assert.False(t, b.Stats()[0].IsHostAlive)
+
+			probeSucceeds.Store(true)
+			b.(*loadBalancer).pool.ProbeAllBackends()
+			ctx = mocks.RequestFrom("10.0.0.1")
+			b.Serve()(ctx)
+			assert.Equal(t, fasthttp.StatusOK, ctx.Response.StatusCode(), "a Backend that Rejoins after a zero-Alive boot serves traffic")
+		})
+	}
 }
 
 func TestNewBalancerIsNilForUnknownType(t *testing.T) {

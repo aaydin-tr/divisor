@@ -8,6 +8,7 @@ import (
 	"os"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aaydin-tr/divisor/core/types"
@@ -132,14 +133,18 @@ func readSystemStatsFromOS() (systemStats, error) {
 	return stats, nil
 }
 
-// Server is the monitoring HTTP server (dashboard, /stats, /metrics) plus
-// the poller that feeds Prometheus. Start binds and serves it; Shutdown
-// stops the poller and the server, so neither touches the Pool afterwards.
+// Server is the monitoring HTTP server (dashboard, /stats, /metrics, probe
+// endpoints) plus the poller that feeds Prometheus. Start binds and serves
+// it; Shutdown stops the poller and the server, so neither touches the Pool
+// afterwards.
 type Server struct {
 	httpServer  *fasthttp.Server
 	stopPolling chan struct{}
 	pollingDone chan struct{}
 	stopOnce    sync.Once
+	// ready gates /ready only. Backend health never does: zero Alive
+	// Backends is divisor working, and gating on it risks a bootstrap deadlock.
+	ready atomic.Bool
 }
 
 // Start binds addr synchronously, so a bind failure is reported to the
@@ -159,20 +164,37 @@ func start(connections OpenConnectionsCounter, balancer types.IBalancer, addr st
 	collector := newStatsCollector(connections, balancer, readSystem)
 
 	s := &Server{
-		httpServer:  newMonitoringHTTPServer(collector),
 		stopPolling: make(chan struct{}),
 		pollingDone: make(chan struct{}),
 	}
+	s.httpServer = newMonitoringHTTPServer(collector, &s.ready)
+	s.ready.Store(true)
 	go s.pollPrometheus(collector)
 	go s.serve(listener, addr)
 	return s, nil
 }
 
-func newMonitoringHTTPServer(collector *statsCollector) *fasthttp.Server {
+// MarkNotReady flips /ready to 503; the entrypoint calls it the moment
+// graceful shutdown begins, so orchestrators stop routing new traffic.
+func (s *Server) MarkNotReady() { s.ready.Store(false) }
+
+func newMonitoringHTTPServer(collector *statsCollector, ready *atomic.Bool) *fasthttp.Server {
 	r := router.New()
 	r.GET("/", func(ctx *fasthttp.RequestCtx) {
 		ctx.Response.Header.Set("Content-Type", "text/html")
 		ctx.Response.SetBodyString(index)
+	})
+
+	r.GET("/healthz", func(ctx *fasthttp.RequestCtx) {
+		ctx.SetStatusCode(fasthttp.StatusOK)
+	})
+
+	r.GET("/ready", func(ctx *fasthttp.RequestCtx) {
+		if ready.Load() {
+			ctx.SetStatusCode(fasthttp.StatusOK)
+		} else {
+			ctx.SetStatusCode(fasthttp.StatusServiceUnavailable)
+		}
 	})
 
 	r.GET("/stats", func(ctx *fasthttp.RequestCtx) {
@@ -222,6 +244,8 @@ func (s *Server) serve(listener net.Listener, addr string) {
 // Shutdown stops the poller, waits for a poll in flight, then shuts the
 // HTTP server down within ctx. Safe to call more than once.
 func (s *Server) Shutdown(ctx context.Context) error {
+	// Defensive: Shutdown alone must never leave /ready answering 200.
+	s.MarkNotReady()
 	s.stopOnce.Do(func() { close(s.stopPolling) })
 	select {
 	case <-s.pollingDone:
