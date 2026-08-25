@@ -78,11 +78,13 @@ go install github.com/aaydin-tr/divisor@latest
 
 `core.NewBalancer(cfg, middlewareExecutor, proxyFunc)` is the only wiring:
 it turns `cfg.Backends` into Backends, picks the balancer by `cfg.Type`,
-builds the Pool with `cfg.HealthCheckerFunc`, returns nil if no Backend is
-Alive after the first Probe round (or the type is unknown), otherwise starts
-the loop and returns a `types.IBalancer` (`Serve`/`Stats`/`Shutdown`) — the
-Pool plus the balancer as the rest of the process sees them. `Serve` answers
-503 (`proxy.NoAliveBackends`) when `Pick` returns nil.
+builds the Pool with `cfg.HealthCheckerFunc`, returns nil only if the type is
+unknown, starts the loop and returns a `types.IBalancer`
+(`Serve`/`Stats`/`Shutdown`) — the Pool plus the balancer as the rest of the
+process sees them. Zero Alive Backends at boot is a served state (a warning
+is logged, requests get 503, Backends Rejoin via Probes), so divisor can
+start before its Backends. `Serve` answers 503 (`proxy.NoAliveBackends`)
+when `Pick` returns nil.
 
 ### Proxy Layer
 
@@ -118,6 +120,12 @@ Pool plus the balancer as the rest of the process sees them. `Serve` answers
 - Separate HTTP server for metrics (default: localhost:8001)
 - Provides real-time stats: CPU, RAM, goroutines, open connections
 - Prometheus metrics endpoint at `/metrics`
+- Probe endpoints for orchestrators: `/healthz` (liveness) answers 200
+  whenever the process runs; `/ready` answers 200 once the listeners are
+  bound and 503 from the moment graceful shutdown begins
+  (`Server.MarkNotReady`, called first in `performGracefulShutdown`).
+  Backend health never gates either — zero Alive Backends is divisor
+  working, answering 503s
 - Per-backend stats: average response time, request count, last use time
 - A failed gopsutil read keeps the last good CPU/memory values (logged); Backend rows never depend on it
 
@@ -134,6 +142,8 @@ Pool plus the balancer as the rest of the process sees them. `Serve` answers
 ### Graceful Shutdown
 
 Implemented in `performGracefulShutdown()`:
+- Flips the monitoring server's `/ready` to 503 first, so orchestrators stop
+  routing new traffic during the drain
 - Stops accepting new connections
 - Waits for in-flight requests to complete
 - Stops the monitoring server (poller first, then its listener) so nothing reads Pool stats after the next step

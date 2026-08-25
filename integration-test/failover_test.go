@@ -119,6 +119,48 @@ func TestBackendDownAtStartupCanRejoin(t *testing.T) {
 	})
 }
 
+func TestAllBackendsDownAtBootServes503ThenRejoins(t *testing.T) {
+	t.Parallel()
+	// SPEC (1.0): divisor boots even when every Backend fails its first
+	// Probe round (orchestrated deploys start the LB before its Backends),
+	// answers 503, and lets Backends Rejoin. /ready stays 200 the whole
+	// time: Backend health never gates readiness.
+	s := startScenario(t, ScenarioSpec{
+		Name:              "foboot",
+		Type:              "round-robin",
+		HealthCheckerTime: time.Second,
+		ExposeMonitoring:  true,
+		Backends: []BackendSpec{
+			{ID: "a", StartDown: true},
+			{ID: "b", StartDown: true},
+		},
+	})
+
+	for i := 0; i < 5; i++ {
+		res, err := s.Request(http.MethodGet, fmt.Sprintf("/boot?n=%d", i), nil, nil)
+		if err != nil {
+			t.Fatalf("divisor not answering after a zero-Alive boot: %v", err)
+		}
+		if res.StatusCode != http.StatusServiceUnavailable {
+			t.Errorf("request %d after a zero-Alive boot got %d, want 503", i, res.StatusCode)
+		}
+	}
+
+	requireProbesAnswer200(t, s, "with zero Alive Backends (Backend health never gates the probe endpoints)")
+
+	s.Backend("a").SetHealth(t, true)
+	eventually(t, 15*time.Second, "a Backend Rejoined after the zero-Alive boot", func() error {
+		res, err := s.Request(http.MethodGet, "/afterboot", nil, nil)
+		if err != nil {
+			return err
+		}
+		if res.StatusCode != http.StatusOK || res.Echo == nil {
+			return fmt.Errorf("status %d", res.StatusCode)
+		}
+		return nil
+	})
+}
+
 func TestUnreachableBackendGets502(t *testing.T) {
 	t.Parallel()
 	// SPEC (1.0, grilling Q13): while a dead backend is still in rotation

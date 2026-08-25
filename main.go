@@ -105,6 +105,10 @@ func performGracefulShutdown(srv server.Server, monitoringServer *monitoring.Ser
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
+	// /ready flips to 503 before the drain starts, so orchestrator readiness
+	// probes stop routing new traffic while in-flight requests complete.
+	monitoringServer.MarkNotReady()
+
 	shutdownComplete := make(chan error, 1)
 
 	go func() {

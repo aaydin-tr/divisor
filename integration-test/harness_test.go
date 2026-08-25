@@ -20,8 +20,9 @@ const (
 	echoImage     = "divisor-echo-it"
 	imageTag      = "latest"
 	networkName   = "divisor-it"
-	namePrefix    = "div-it-"
-	containerPort = "8080"
+	namePrefix     = "div-it-"
+	containerPort  = "8080"
+	monitoringPort = "8001"
 
 	certPath = "/etc/divisor/cert.pem"
 	keyPath  = "/etc/divisor/key.pem"
@@ -81,6 +82,9 @@ type ScenarioSpec struct {
 	// means the section is omitted so the scenario runs on divisor's defaults.
 	LoggingFormat string
 	AccessLog     bool
+	// ExposeMonitoring binds the monitoring server on 0.0.0.0 and publishes
+	// its port, so tests can probe /healthz and /ready the way a kubelet does.
+	ExposeMonitoring bool
 }
 
 type Echo struct {
@@ -135,8 +139,11 @@ type Scenario struct {
 	DivisorName string // container name == DNS name on the scenario network
 	Backends    []*Echo
 	BaseURL     string
-	Certs       *certBundle
-	Network     *dockertest.Network
+	// MonitoringAddr is the host-mapped monitoring address; set only when
+	// the spec asks for ExposeMonitoring.
+	MonitoringAddr string
+	Certs          *certBundle
+	Network        *dockertest.Network
 
 	useTLS bool
 	client *http.Client
@@ -194,6 +201,10 @@ func startScenario(t *testing.T, spec ScenarioSpec) *Scenario {
 	if err := removeContainerExact(name); err != nil {
 		t.Fatalf("removing stale container %s: %v", name, err)
 	}
+	exposedPorts := []string{containerPort + "/tcp"}
+	if spec.ExposeMonitoring {
+		exposedPorts = append(exposedPorts, monitoringPort+"/tcp")
+	}
 	res, err := pool.RunWithOptions(&dockertest.RunOptions{
 		Name:         name,
 		Repository:   divisorImage,
@@ -201,7 +212,7 @@ func startScenario(t *testing.T, spec ScenarioSpec) *Scenario {
 		Env:          env,
 		Entrypoint:   []string{"/bin/sh", "-c"},
 		Cmd:          []string{startScript},
-		ExposedPorts: []string{containerPort + "/tcp"},
+		ExposedPorts: exposedPorts,
 		Networks:     []*dockertest.Network{s.Network},
 	}, publishPorts)
 	if err != nil {
@@ -225,12 +236,33 @@ func startScenario(t *testing.T, spec ScenarioSpec) *Scenario {
 		scheme = "https"
 	}
 	s.BaseURL = scheme + "://" + hostPort
+	if spec.ExposeMonitoring {
+		s.MonitoringAddr = res.GetHostPort(monitoringPort + "/tcp")
+		if s.MonitoringAddr == "" {
+			t.Fatalf("divisor container has no mapped monitoring port")
+		}
+	}
 	s.client = s.NewClient(30 * time.Second)
 
+	// A Scenario whose every Backend starts Down is ready once divisor
+	// answers 503 (zero Alive Backends is divisor working); otherwise ready
+	// means a Backend echoed.
+	allBackendsStartDown := true
+	for _, b := range spec.Backends {
+		if !b.StartDown {
+			allBackendsStartDown = false
+		}
+	}
 	if err := pool.Retry(func() error {
 		result, err := s.Request(http.MethodGet, "/?ready=1", nil, nil)
 		if err != nil {
 			return err
+		}
+		if allBackendsStartDown {
+			if result.StatusCode != http.StatusServiceUnavailable {
+				return fmt.Errorf("divisor not answering 503 yet: status %d", result.StatusCode)
+			}
+			return nil
 		}
 		if result.StatusCode != http.StatusOK || result.Header.Get("X-Backend-Id") == "" {
 			return fmt.Errorf("divisor not proxying yet: status %d", result.StatusCode)
@@ -346,6 +378,11 @@ func renderConfig(t *testing.T, s *Scenario) (string, string) {
 		backends = append(backends, b)
 	}
 
+	monitoringHost := "127.0.0.1"
+	if s.Spec.ExposeMonitoring {
+		monitoringHost = "0.0.0.0"
+	}
+
 	server := map[string]any{}
 	if s.Spec.HTTP2 {
 		server["http_version"] = "http2"
@@ -374,7 +411,7 @@ func renderConfig(t *testing.T, s *Scenario) (string, string) {
 		"health_checker_time": s.Spec.HealthCheckerTime.String(),
 		"backends":            backends,
 		"server":              server,
-		"monitoring":          map[string]any{"host": "127.0.0.1", "port": "8001"},
+		"monitoring":          map[string]any{"host": monitoringHost, "port": monitoringPort},
 	}
 	if len(s.Spec.CustomHeaders) > 0 {
 		cfg["custom_headers"] = s.Spec.CustomHeaders

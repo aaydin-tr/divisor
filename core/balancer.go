@@ -33,7 +33,9 @@ type loadBalancer struct {
 }
 
 // NewBalancer wires the config into Backends, a Balancer and a Pool. It
-// returns nil when the type is unknown or no Backend is Alive at startup.
+// returns nil only when the type is unknown; zero Alive Backends at startup
+// is a served state (503 until a Probe lets one Rejoin), so orchestrated
+// deploys can start divisor before its Backends.
 func NewBalancer(cfg *config.Config, middlewareExecutor *middleware.Executor, proxyFunc proxy.ProxyFunc) types.IBalancer {
 	newBalancer, ok := balancers[cfg.Type]
 	if !ok {
@@ -56,7 +58,7 @@ func NewBalancer(cfg *config.Config, middlewareExecutor *middleware.Executor, pr
 	balancer := newBalancer(cfg, backends)
 	p := pool.NewPool(backends, cfg.HealthCheckerFunc, cfg.HealthCheckerTime, balancer)
 	if p.AliveBackendCount() == 0 {
-		return nil
+		zap.S().Warn("No Backend is Alive at startup; serving 503 until a Probe succeeds")
 	}
 	p.StartHealthChecker()
 
