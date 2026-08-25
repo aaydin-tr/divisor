@@ -21,8 +21,8 @@ func disableAccessLoggerOnCleanup(t *testing.T) {
 	t.Cleanup(func() { InitAccessLogger(false) })
 }
 
-func fullAccessLogEntry() AccessLogEntry {
-	return AccessLogEntry{
+func fullAccessLogEntry() *AccessLogEntry {
+	return &AccessLogEntry{
 		ClientIP:        "10.0.0.1",
 		Method:          "GET",
 		Path:            "/api/users",
@@ -80,7 +80,7 @@ func TestAccessLogOmitsBackendFieldsWhenNoBackendInvolved(t *testing.T) {
 	disableAccessLoggerOnCleanup(t)
 	_, stdout := captureStreams(t, func() {
 		InitAccessLogger(true)
-		LogAccess(AccessLogEntry{ClientIP: "10.0.0.1", Method: "GET", Path: "/", Status: 503})
+		LogAccess(&AccessLogEntry{ClientIP: "10.0.0.1", Method: "GET", Path: "/", Status: 503})
 	})
 
 	var entry map[string]any

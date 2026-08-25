@@ -10,14 +10,24 @@ import (
 )
 
 // The Access log is a machine stream: always JSON on stdout, regardless of
-// logging.format (.scratch/logging/spec.md).
+// logging.format (.scratch/logging/spec.md). A nil pointer is the zero state
+// before any Init and means off; loadAccessLogger normalizes it.
 var accessLogger atomic.Pointer[zap.Logger]
 
-func init() {
-	accessLogger.Store(zap.NewNop())
+var noopAccessLogger = zap.NewNop()
+
+func loadAccessLogger() *zap.Logger {
+	if logger := accessLogger.Load(); logger != nil {
+		return logger
+	}
+	return noopAccessLogger
 }
 
 const accessLogTimeLayout = "2006-01-02T15:04:05.000Z07:00"
+
+// One slot per possible field: client_ip, method, path, status, backend,
+// request_seq, duration_ms, bytes_out, short_circuit.
+const accessLogFieldCapacity = 9
 
 // AccessLogEntry is one answered request. A zero Backend means no Backend was
 // involved (the zero-Alive 503 path): backend and request_seq are omitted.
@@ -38,7 +48,7 @@ type AccessLogEntry struct {
 // AccessLogEnabled's check.
 func InitAccessLogger(enabled bool) {
 	if !enabled {
-		accessLogger.Store(zap.NewNop())
+		accessLogger.Store(noopAccessLogger)
 		return
 	}
 
@@ -65,11 +75,11 @@ func ReplaceAccessLogger(logger *zap.Logger) func() {
 }
 
 func AccessLogEnabled() bool {
-	return accessLogger.Load().Core().Enabled(zapcore.InfoLevel)
+	return loadAccessLogger().Core().Enabled(zapcore.InfoLevel)
 }
 
-func LogAccess(entry AccessLogEntry) {
-	fields := make([]zap.Field, 0, 9)
+func LogAccess(entry *AccessLogEntry) {
+	fields := make([]zap.Field, 0, accessLogFieldCapacity)
 	fields = append(fields,
 		zap.String("client_ip", entry.ClientIP),
 		zap.String("method", entry.Method),
@@ -89,5 +99,5 @@ func LogAccess(entry AccessLogEntry) {
 	if entry.ShortCircuit {
 		fields = append(fields, zap.Bool("short_circuit", true))
 	}
-	accessLogger.Load().Info("", fields...)
+	loadAccessLogger().Info("", fields...)
 }

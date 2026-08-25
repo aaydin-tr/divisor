@@ -102,7 +102,7 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 	shortCircuited := false
 	if logger.AccessLogEnabled() {
 		defer func() {
-			logger.LogAccess(logger.AccessLogEntry{
+			logger.LogAccess(&logger.AccessLogEntry{
 				ClientIP:        helper.B2S(clientIP),
 				Method:          helper.B2S(ctx.Method()),
 				Path:            helper.B2S(ctx.Path()),
@@ -322,7 +322,7 @@ func NoAliveBackends(ctx *fasthttp.RequestCtx) {
 	// No Backend was involved, so backend/request_seq are omitted and the
 	// duration is zero: divisor did no upstream work on this path.
 	if logger.AccessLogEnabled() {
-		logger.LogAccess(logger.AccessLogEntry{
+		logger.LogAccess(&logger.AccessLogEntry{
 			ClientIP: ctx.RemoteIP().String(),
 			Method:   helper.B2S(ctx.Method()),
 			Path:     helper.B2S(ctx.Path()),
