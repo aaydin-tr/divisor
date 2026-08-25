@@ -309,3 +309,61 @@ Spec: `.scratch/docs/spec.md` — tickets in `.scratch/docs/issues/`.
    before the release tag.
 6. **Config-surface knobs and Docs** — batched as convenient; docs finish
    last, when the surface has stopped moving.
+
+## Working order (effort-optimized, respects the suggested order — 2026-08-26)
+
+Item-level ordering of everything still open: easiest first within each tier,
+tiers sequenced so no item lands before its prerequisites, and the big rocks
+keep their suggested-order positions (reload → streaming → distribution
+flexible → docs last).
+
+### Tier 1 — trivial config knobs (each an afternoon or less)
+
+1. Default bind flip (`01-bind-default-flip.md`) — one default change;
+   **unblocks the Docker image**, so it goes first.
+2. `--version` flag (`01-version-flag.md`) — goreleaser ldflags; distribution's
+   easiest piece, land it now.
+3. `server.graceful_shutdown_timeout` (`04-graceful-shutdown-timeout.md`) —
+   lift the hardcoded 30s into config.
+4. `server.read_buffer_size` / `server.write_buffer_size`
+   (`02-header-buffer-sizes.md`) — pass-through knobs.
+5. `server.max_conns_per_ip` / `server.max_requests_per_conn`
+   (`03-connection-caps.md`) — same shape.
+6. TLS min version (`07-tls-min-version.md`) — one key onto `crypto/tls`.
+7. Backend DNS re-resolution (`03-dns-cache-duration.md`) — expose fasthttp's
+   `DNSCacheDuration`; **unblocks the example manifests** (they set it short).
+
+### Tier 2 — mechanical but wide
+
+8. Go toolchain bump to 1.27 + dependency upgrade pass — one combined pass
+   (both go.mod files, five workflows, Dockerfile), full suite after; doing it
+   here means everything below ships on the new toolchain.
+9. HTTP/2 server tuning (`05-http2-server-tuning.md`) — plumbing plus a little
+   research on defaults.
+10. Health Probe tuning (`06-probe-tuning.md`) — timeout is easy; per-backend
+    expected status adds config-validation and Pool surface.
+11. Monitoring server coverage in the integration suite — already unblocked;
+    new scenarios on the existing `ExposeMonitoring` knob.
+
+### Tier 3 — the engineering rocks (suggested-order positions 3 and 4)
+
+12. Reload (`04-reload-via-sighup.md`, then `05-reload-file-watch.md`) — the
+    last k8s engineering piece; born-red integration test + ADR.
+13. Streaming (`01-fasthttp-streaming.md`, `02-http2-streaming.md`,
+    `03-client-disconnect-aborts.md`, `05-streaming-adr-and-contract-docs.md`)
+    — the long pole. If the tag date pressures, start it in parallel with
+    reload; it must not be what gates the release.
+
+### Tier 4 — distribution (near-free, prerequisites now met)
+
+14. Official Docker release (`02-docker-image.md`) — bind flip landed in
+    tier 1, logging already shipped.
+15. Helm chart (`03-helm-chart.md`) — reuses the Docker release's GHCR login.
+16. Example k8s manifests (`06-example-manifests.md`) — verify against the
+    real published image; DNS knob from tier 1 available to set short.
+
+### Tier 5 — docs, last by design
+
+17. Docs restructure (`01-docs-tree-and-readme-slim.md` …
+    `06-migration-notes.md`) — big in writing effort, zero technical risk;
+    lands once the config surface has stopped moving.
