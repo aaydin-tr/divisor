@@ -290,6 +290,12 @@ Spec: `.scratch/docs/spec.md` — tickets in `.scratch/docs/issues/`.
   `.github/workflows/integration.yml`; the `specRed` helper stays dormant —
   re-add the job when the next spec-red test lands (zero-alive-Backends-at-boot
   plans to be one).
+- [ ] Dependency upgrade pass — `go get -u ./...` + `go mod tidy` in both
+  modules (the root module and `integration-test/`, which pins its own
+  dependency set — keep shared pins like fasthttp in sync between them),
+  then the full suite (`go test -race ./...` plus the integration suite).
+  Natural companion to the toolchain bump below — land them in one pass or
+  back to back.
 - [ ] Go toolchain update to 1.27 (latest) — currently pinned to 1.25.3 in
   `go.mod`, `integration-test/go.mod`, all five workflow files under
   `.github/workflows/` (`go-version:`), and the Dockerfile builder stage
