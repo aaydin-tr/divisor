@@ -111,7 +111,7 @@ func tlsConfig(cfg *config.Config) *tls.Config {
 	if minVersion == 0 {
 		return nil
 	}
-	return &tls.Config{MinVersion: minVersion}
+	return &tls.Config{MinVersion: minVersion} //nolint:gosec
 }
 
 func serveInBackground(cfg *config.Config, serve func() error) <-chan error {

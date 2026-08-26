@@ -402,6 +402,14 @@ func (s *Server) prepareServer() error {
 		return ErrHttp2WithoutTls
 	}
 
+	if err := s.prepareTLS(); err != nil {
+		return err
+	}
+
+	return s.applyServerDefaults()
+}
+
+func (s *Server) prepareTLS() error {
 	if err := helper.IsFileExist(s.CertFile); err != nil && s.CertFile != "" {
 		return err
 	}
@@ -418,6 +426,16 @@ func (s *Server) prepareServer() error {
 		}
 	}
 
+	if s.TLSMinVersion != "" && s.TLSMinVersionValue() == 0 {
+		return fmt.Errorf("%w, got %q", ErrInvalidTLSMinVersion, s.TLSMinVersion)
+	}
+
+	return nil
+}
+
+// applyServerDefaults fills every unset or non-positive server knob with its
+// default; the duration knobs reject negatives instead of defaulting.
+func (s *Server) applyServerDefaults() error {
 	if s.MaxIdleWorkerDuration == 0 {
 		s.MaxIdleWorkerDuration = DefaultMaxIdleWorkerDuration
 	}
@@ -454,10 +472,6 @@ func (s *Server) prepareServer() error {
 	}
 	if s.MaxRequestsPerConn <= 0 {
 		s.MaxRequestsPerConn = DefaultMaxRequestsPerConn
-	}
-
-	if s.TLSMinVersion != "" && s.TLSMinVersionValue() == 0 {
-		return fmt.Errorf("%w, got %q", ErrInvalidTLSMinVersion, s.TLSMinVersion)
 	}
 
 	if s.DNSCacheDuration < 0 {
