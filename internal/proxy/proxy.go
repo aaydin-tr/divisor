@@ -443,6 +443,15 @@ func (h *ProxyClient) Close() error {
 	return nil
 }
 
+// newBackendDialer mirrors fasthttp's default dialer except that
+// server.dns_cache_duration bounds how long a resolved Backend IP is reused.
+func newBackendDialer(dnsCacheDuration time.Duration) *fasthttp.TCPDialer {
+	return &fasthttp.TCPDialer{
+		Concurrency:      1000,
+		DNSCacheDuration: dnsCacheDuration,
+	}
+}
+
 func NewProxyClient(backend *config.Backend, customHeaders map[string]string, middlewareExecutor *middlewarePkg.Executor) IProxyClient {
 	if backend == nil {
 		return nil
@@ -458,7 +467,7 @@ func NewProxyClient(backend *config.Backend, customHeaders map[string]string, mi
 		// Without a pinned dialer, fasthttp uses proxy_timeout as the
 		// per-dial bound, hanging on unreachable Backends instead of
 		// failing 502 within DefaultDialTimeout (3s).
-		Dial: fasthttp.Dial,
+		Dial: newBackendDialer(backend.DNSCacheDuration).Dial,
 	}
 
 	return &ProxyClient{

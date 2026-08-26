@@ -51,11 +51,11 @@ func TestPrepareConfig(t *testing.T) {
 		assert.EqualError(t, err, "At least one backend must be set")
 	})
 
-	t.Run("default localhost", func(t *testing.T) {
+	t.Run("default host accepts outside traffic", func(t *testing.T) {
 		basic, _ := ParseConfigFile("../../examples/basic.config.yaml")
 		err := basic.PrepareConfig()
 		assert.Nil(t, err)
-		assert.Equal(t, "localhost", basic.Host)
+		assert.Equal(t, "0.0.0.0", basic.Host)
 	})
 
 	t.Run("port is required", func(t *testing.T) {

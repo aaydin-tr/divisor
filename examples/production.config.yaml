@@ -68,3 +68,10 @@ server:
   # Bound each upstream attempt (504 on expiry) and cap request bodies (413).
   proxy_timeout: 30s
   max_request_body_size: 4194304  # 4MB
+
+  # Refuse TLS below 1.2 and give slow-draining backends a full minute on shutdown.
+  tls_min_version: "1.2"
+  graceful_shutdown_timeout: 60s
+
+  # Basic self-protection: cap connections per client IP.
+  max_conns_per_ip: 1000

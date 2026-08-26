@@ -21,25 +21,28 @@ import (
 )
 
 var (
-	ErrAtLeastOneBackend            = errors.New("At least one backend must be set")
-	ErrInvalidPort                  = errors.New("Please choose valid port")
-	ErrInvalidWeight                = errors.New("When using the weighted-round-robin algorithm, a weight must be specified for each backend")
-	ErrHttp2WithoutTls              = errors.New("The HTTP/2 connection can be only established if the server is using TLS. Please provide cert and key file")
-	ErrInvalidHttpVersion           = errors.New("server.http_version must be http1 or http2")
-	ErrConfigFileEmpty              = errors.New("Config file is empty")
-	ErrInvalidTLSKeyPair            = errors.New("cert_file/key_file could not be loaded as a TLS key pair")
-	ErrBackendUrlEmpty              = errors.New("Backend url must not be empty")
-	ErrBackendUrlInvalid            = errors.New("Backend url is not valid")
-	ErrBackendUrlHttps              = errors.New("Backend url must not use https, divisor terminates TLS and always speaks plain HTTP to backends")
-	ErrBackendUrlScheme             = errors.New("Backend url has an unsupported scheme")
-	ErrBackendUrlUserinfo           = errors.New("Backend url must not contain userinfo")
-	ErrBackendUrlNotHostPort        = errors.New("Backend url must be host:port only, divisor cannot forward to a path")
-	ErrBackendUrlNoHost             = errors.New("Backend url has no host")
-	ErrMiddlewareNameRequired       = errors.New("middleware name is required")
-	ErrMiddlewareCodeAndFileEmpty   = errors.New("middleware needs either code or file")
-	ErrMiddlewareCodeAndFileBothSet = errors.New("middleware cannot specify both code and file, choose one")
-	ErrInvalidLoggingFormat         = errors.New("logging.format must be json or console")
-	ErrInvalidLoggingLevel          = errors.New("logging.level must be a zap level (debug, info, warn, error, dpanic, panic, fatal)")
+	ErrAtLeastOneBackend              = errors.New("At least one backend must be set")
+	ErrInvalidPort                    = errors.New("Please choose valid port")
+	ErrInvalidWeight                  = errors.New("When using the weighted-round-robin algorithm, a weight must be specified for each backend")
+	ErrHttp2WithoutTls                = errors.New("The HTTP/2 connection can be only established if the server is using TLS. Please provide cert and key file")
+	ErrInvalidHttpVersion             = errors.New("server.http_version must be http1 or http2")
+	ErrConfigFileEmpty                = errors.New("Config file is empty")
+	ErrInvalidTLSKeyPair              = errors.New("cert_file/key_file could not be loaded as a TLS key pair")
+	ErrBackendUrlEmpty                = errors.New("Backend url must not be empty")
+	ErrBackendUrlInvalid              = errors.New("Backend url is not valid")
+	ErrBackendUrlHttps                = errors.New("Backend url must not use https, divisor terminates TLS and always speaks plain HTTP to backends")
+	ErrBackendUrlScheme               = errors.New("Backend url has an unsupported scheme")
+	ErrBackendUrlUserinfo             = errors.New("Backend url must not contain userinfo")
+	ErrBackendUrlNotHostPort          = errors.New("Backend url must be host:port only, divisor cannot forward to a path")
+	ErrBackendUrlNoHost               = errors.New("Backend url has no host")
+	ErrMiddlewareNameRequired         = errors.New("middleware name is required")
+	ErrMiddlewareCodeAndFileEmpty     = errors.New("middleware needs either code or file")
+	ErrMiddlewareCodeAndFileBothSet   = errors.New("middleware cannot specify both code and file, choose one")
+	ErrInvalidLoggingFormat           = errors.New("logging.format must be json or console")
+	ErrInvalidLoggingLevel            = errors.New("logging.level must be a zap level (debug, info, warn, error, dpanic, panic, fatal)")
+	ErrInvalidGracefulShutdownTimeout = errors.New("server.graceful_shutdown_timeout must not be negative")
+	ErrInvalidTLSMinVersion           = errors.New("server.tls_min_version must be 1.2 or 1.3")
+	ErrInvalidDNSCacheDuration        = errors.New("server.dns_cache_duration must not be negative")
 )
 
 var ValidTypes = []string{"round-robin", "w-round-robin", "ip-hash", "random", "least-connection", "least-response-time"}
@@ -58,6 +61,23 @@ const (
 	DefaultProxyTimeout = time.Second * 60
 
 	DefaultMaxRequestBodySize = fasthttp.DefaultMaxRequestBodySize
+
+	DefaultGracefulShutdownTimeout = time.Second * 30
+
+	// fasthttp's per-connection buffer defaults (it keeps them unexported).
+	DefaultReadBufferSize  = 4096
+	DefaultWriteBufferSize = 4096
+
+	// Unlimited, fasthttp's own default for both caps.
+	DefaultMaxConnsPerIP      = 0
+	DefaultMaxRequestsPerConn = 0
+
+	// Bounds how long the proxy dialer and the Probe client reuse a resolved
+	// Backend IP; deployments with churning Backend IPs (k8s) set it short.
+	DefaultDNSCacheDuration = time.Minute
+
+	TLSMinVersion12 = "1.2"
+	TLSMinVersion13 = "1.3"
 
 	Http1 = "http1.1"
 	Http2 = "http2"
@@ -87,8 +107,8 @@ type Backend struct {
 	MaxConnDuration           time.Duration `yaml:"max_conn_duration"`
 	MaxIdleConnDuration       time.Duration `yaml:"max_idle_conn_duration"`
 	MaxIdemponentCallAttempts int           `yaml:"max_idemponent_call_attempts"`
-	// Copied from the global server.proxy_timeout by PrepareConfig.
-	ProxyTimeout time.Duration `yaml:"-"`
+	ProxyTimeout              time.Duration `yaml:"-"`
+	DNSCacheDuration          time.Duration `yaml:"-"`
 }
 
 func (b *Backend) GetHealthCheckURL() string {
@@ -112,6 +132,7 @@ type Server struct {
 	HttpVersion           string        `yaml:"http_version"`
 	CertFile              string        `yaml:"cert_file"`
 	KeyFile               string        `yaml:"key_file"`
+	TLSMinVersion         string        `yaml:"tls_min_version"`
 	MaxIdleWorkerDuration time.Duration `yaml:"max_idle_worker_duration"`
 	TCPKeepalivePeriod    time.Duration `yaml:"tcp_keepalive_period"`
 	Concurrency           int           `yaml:"concurrency"`
@@ -120,7 +141,29 @@ type Server struct {
 	IdleTimeout           time.Duration `yaml:"idle_timeout"`
 	ProxyTimeout          time.Duration `yaml:"proxy_timeout"`
 	MaxRequestBodySize    int           `yaml:"max_request_body_size"`
-	DisableKeepalive      bool          `yaml:"disable_keepalive"`
+	// HTTP/1.1-path knobs: the fasthttp server's per-connection buffers,
+	// which bound request header size (the HTTP/2 stack manages its own
+	// framing). Unset or non-positive means the default.
+	ReadBufferSize  int `yaml:"read_buffer_size"`
+	WriteBufferSize int `yaml:"write_buffer_size"`
+	// Unset or non-positive means unlimited (the library default).
+	MaxConnsPerIP           int           `yaml:"max_conns_per_ip"`
+	MaxRequestsPerConn      int           `yaml:"max_requests_per_conn"`
+	GracefulShutdownTimeout time.Duration `yaml:"graceful_shutdown_timeout"`
+	DNSCacheDuration        time.Duration `yaml:"dns_cache_duration"`
+	DisableKeepalive        bool          `yaml:"disable_keepalive"`
+}
+
+// TLSMinVersionValue maps the validated tls_min_version onto crypto/tls
+// constants; zero keeps the runtime default.
+func (s *Server) TLSMinVersionValue() uint16 {
+	switch s.TLSMinVersion {
+	case TLSMinVersion12:
+		return tls.VersionTLS12
+	case TLSMinVersion13:
+		return tls.VersionTLS13
+	}
+	return 0
 }
 
 type Config struct {
@@ -182,7 +225,7 @@ func (c *Config) PrepareConfig() error {
 	}
 
 	if c.Host == "" {
-		c.Host = "localhost"
+		c.Host = "0.0.0.0"
 	}
 
 	if c.Port == "" {
@@ -227,15 +270,15 @@ func (c *Config) PrepareConfig() error {
 		return err
 	}
 
-	// Default funcs
-	// TODO make more flexible
-	c.HashFunc = helper.HashFunc
-	c.HealthCheckerFunc = http.NewHttpClient().IsHostAlive
-
 	err := c.Server.prepareServer()
 	if err != nil {
 		return err
 	}
+
+	// Default funcs
+	// TODO make more flexible
+	c.HashFunc = helper.HashFunc
+	c.HealthCheckerFunc = http.NewHttpClient(c.Server.DNSCacheDuration).IsHostAlive
 
 	return c.prepareBackends()
 }
@@ -279,6 +322,7 @@ func (c *Config) prepareBackends() error {
 		}
 
 		b.ProxyTimeout = c.Server.ProxyTimeout
+		b.DNSCacheDuration = c.Server.DNSCacheDuration
 	}
 
 	return nil
@@ -358,6 +402,14 @@ func (s *Server) prepareServer() error {
 		return ErrHttp2WithoutTls
 	}
 
+	if err := s.prepareTLS(); err != nil {
+		return err
+	}
+
+	return s.applyServerDefaults()
+}
+
+func (s *Server) prepareTLS() error {
 	if err := helper.IsFileExist(s.CertFile); err != nil && s.CertFile != "" {
 		return err
 	}
@@ -374,6 +426,16 @@ func (s *Server) prepareServer() error {
 		}
 	}
 
+	if s.TLSMinVersion != "" && s.TLSMinVersionValue() == 0 {
+		return fmt.Errorf("%w, got %q", ErrInvalidTLSMinVersion, s.TLSMinVersion)
+	}
+
+	return nil
+}
+
+// applyServerDefaults fills every unset or non-positive server knob with its
+// default; the duration knobs reject negatives instead of defaulting.
+func (s *Server) applyServerDefaults() error {
 	if s.MaxIdleWorkerDuration == 0 {
 		s.MaxIdleWorkerDuration = DefaultMaxIdleWorkerDuration
 	}
@@ -389,6 +451,34 @@ func (s *Server) prepareServer() error {
 
 	if s.MaxRequestBodySize <= 0 {
 		s.MaxRequestBodySize = DefaultMaxRequestBodySize
+	}
+
+	if s.GracefulShutdownTimeout < 0 {
+		return fmt.Errorf("%w, got %v", ErrInvalidGracefulShutdownTimeout, s.GracefulShutdownTimeout)
+	}
+	if s.GracefulShutdownTimeout == 0 {
+		s.GracefulShutdownTimeout = DefaultGracefulShutdownTimeout
+	}
+
+	if s.ReadBufferSize <= 0 {
+		s.ReadBufferSize = DefaultReadBufferSize
+	}
+	if s.WriteBufferSize <= 0 {
+		s.WriteBufferSize = DefaultWriteBufferSize
+	}
+
+	if s.MaxConnsPerIP <= 0 {
+		s.MaxConnsPerIP = DefaultMaxConnsPerIP
+	}
+	if s.MaxRequestsPerConn <= 0 {
+		s.MaxRequestsPerConn = DefaultMaxRequestsPerConn
+	}
+
+	if s.DNSCacheDuration < 0 {
+		return fmt.Errorf("%w, got %v", ErrInvalidDNSCacheDuration, s.DNSCacheDuration)
+	}
+	if s.DNSCacheDuration == 0 {
+		s.DNSCacheDuration = DefaultDNSCacheDuration
 	}
 
 	return nil

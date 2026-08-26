@@ -95,7 +95,7 @@ backends:
 | Name | Description | Type | Default | Required |
 | --- | --- | --- | --- | --- |
 | port | Server port | string | - | ⚠️ **Yes** |
-| host | Server host | string | `localhost` | No |
+| host | Server host | string | `0.0.0.0` | No |
 | type | Load balancing algorithm | string | `round-robin` | No |
 | health_checker_time | Health check interval for backends | duration | `30s` | No |
 
@@ -137,6 +137,13 @@ backends:
 | server.idle_timeout | Keep-alive idle timeout | duration | unlimited |
 | server.proxy_timeout | Bound on each upstream attempt; expiry returns 504. `0` means the default, not unlimited | duration | `60s` |
 | server.max_request_body_size | Max request body size in bytes; larger bodies get 413 and never reach a backend. `0` means the default | int | `4194304` (4MB) |
+| server.read_buffer_size | Per-connection read buffer in bytes; bounds request header size (raise for large cookies/JWTs). HTTP/1.1 path only. Unset or `<= 0` means the default | int | `4096` |
+| server.write_buffer_size | Per-connection write buffer in bytes. HTTP/1.1 path only. Unset or `<= 0` means the default | int | `4096` |
+| server.max_conns_per_ip | Max concurrent connections per client IP. Unset or `<= 0` means unlimited | int | unlimited |
+| server.max_requests_per_conn | Max requests served per keep-alive connection. Unset or `<= 0` means unlimited | int | unlimited |
+| server.graceful_shutdown_timeout | Budget for draining in-flight requests on shutdown | duration | `30s` |
+| server.tls_min_version | Minimum accepted TLS version: `"1.2"` or `"1.3"` (any other value is a startup error); empty keeps the runtime default. Only takes effect when `cert_file`/`key_file` are set | string | - |
+| server.dns_cache_duration | How long resolved backend IPs are cached before re-resolving (proxy dialer and health probes); set to a few seconds when backend IPs churn, e.g. Kubernetes pods | duration | `60s` |
 | server.disable_keepalive | Force connection close after response | bool | `false` |
 
 Header names are always normalized to canonical form (`x-api-key` → `X-Api-Key`) on both the request and the response, as RFC 9110 §5.1 makes them case-insensitive; middleware lookups such as `ctx.Request.Header.Peek("X-Api-Key")` therefore match whatever case the client sent.

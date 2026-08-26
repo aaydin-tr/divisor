@@ -1444,3 +1444,11 @@ func TestIncrementalHeaderUniquePerRequest(t *testing.T) {
 	assert.Len(t, seen, requestCount)
 	assert.Equal(t, uint64(requestCount), p.Stat().TotalReqCount)
 }
+
+// The proxy dialer must honor server.dns_cache_duration (copied onto every
+// Backend by PrepareConfig): it bounds how long a replaced Backend's stale IP
+// keeps being dialed.
+func TestBackendDialerUsesConfiguredDNSCacheDuration(t *testing.T) {
+	dialer := newBackendDialer(2 * time.Second)
+	assert.Equal(t, 2*time.Second, dialer.DNSCacheDuration)
+}
