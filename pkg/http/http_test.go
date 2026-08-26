@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/valyala/fasthttp"
@@ -24,9 +25,14 @@ func (s *statusServer) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 }
 
 func TestNewHttpClient(t *testing.T) {
-	client := NewHttpClient()
+	client := NewHttpClient(time.Minute)
 	assert.IsType(t, client, &HttpClient{})
 	assert.IsType(t, client.client, &fasthttp.Client{})
+}
+
+func TestProbeDialerUsesConfiguredDNSCacheDuration(t *testing.T) {
+	dialer := newProbeDialer(2 * time.Second)
+	assert.Equal(t, 2*time.Second, dialer.DNSCacheDuration)
 }
 
 func TestIsHostAlive(t *testing.T) {

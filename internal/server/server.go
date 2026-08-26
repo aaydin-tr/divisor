@@ -4,6 +4,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -51,6 +52,11 @@ func startFasthttp(cfg *config.Config, balancer types.IBalancer, ln net.Listener
 		IdleTimeout:           cfg.Server.IdleTimeout,
 		DisableKeepalive:      cfg.Server.DisableKeepalive,
 		MaxRequestBodySize:    cfg.Server.MaxRequestBodySize,
+		ReadBufferSize:        cfg.Server.ReadBufferSize,
+		WriteBufferSize:       cfg.Server.WriteBufferSize,
+		MaxConnsPerIP:         cfg.Server.MaxConnsPerIP,
+		MaxRequestsPerConn:    cfg.Server.MaxRequestsPerConn,
+		TLSConfig:             tlsConfig(cfg),
 		ErrorHandler:          proxy.ErrorHandler,
 		Name:                  "divisor",
 	}
@@ -79,6 +85,7 @@ func startNetHttp(cfg *config.Config, balancer types.IBalancer, ln net.Listener)
 		ReadTimeout:  cfg.Server.ReadTimeout,
 		WriteTimeout: cfg.Server.WriteTimeout,
 		IdleTimeout:  cfg.Server.IdleTimeout,
+		TLSConfig:    tlsConfig(cfg),
 	}
 	srv.SetKeepAlivesEnabled(!cfg.Server.DisableKeepalive)
 
@@ -94,6 +101,17 @@ func startNetHttp(cfg *config.Config, balancer types.IBalancer, ln net.Listener)
 		return err
 	}
 	return netHttpServer{srv}, serveInBackground(cfg, serve), nil
+}
+
+// tlsConfig carries server.tls_min_version onto whichever stack serves TLS;
+// both ServeTLS paths load the certificate pair into this config themselves.
+// Nil when unset, so the runtime default stays untouched.
+func tlsConfig(cfg *config.Config) *tls.Config {
+	minVersion := cfg.Server.TLSMinVersionValue()
+	if minVersion == 0 {
+		return nil
+	}
+	return &tls.Config{MinVersion: minVersion}
 }
 
 func serveInBackground(cfg *config.Config, serve func() error) <-chan error {

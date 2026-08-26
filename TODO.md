@@ -57,8 +57,13 @@ Spec: `.scratch/distribution/spec.md` — tickets in
   (`helm install oci://ghcr.io/aaydin-tr/charts/divisor`), released by the
   existing tag-triggered goreleaser CI (reuses the GHCR login the Docker
   release needs), versioned with the app tag. Ticket: `03-helm-chart.md`.
-- [ ] `--version` flag + version in the startup log — goreleaser ldflags.
-  Ticket: `01-version-flag.md`.
+- [x] `--version` flag + version in the startup log — shipped: `divisor
+  --version` prints `divisor version X.Y.Z, build <short-commit>` and exits 0
+  (`dev` placeholders on non-release builds); the startup log's first line
+  names the same build, before anything can fail. Goreleaser injects the
+  values via ldflags (`main.version`/`main.commit`). Build date dropped by
+  decision 2026-08-27 (no peer CLI prints one). Ticket: `01-version-flag.md`
+  (done). Integration: `TestVersionFlagPrintsAndExitsZero`.
 
 ## Kubernetes
 
@@ -70,16 +75,13 @@ of this story: the LB must boot before its Backends.
 Spec: `.scratch/kubernetes/spec.md` — tickets in `.scratch/kubernetes/issues/`
 (the zero-alive-at-boot fix is ticket `01-zero-alive-at-boot.md` there).
 
-- [ ] Backend DNS re-resolution — moved from Config surface; mandatory here
-  (pod IPs churn constantly). fasthttp's TCPDialer caches resolved IPs for
-  60s (`DNSCacheDuration` default), so a Backend that dies and is replaced —
-  or an unrelated service reusing the freed IP — keeps being dialed at the
-  stale IP for up to a minute. Surfaced by the integration suite while
-  scenarios shared one docker network (an impostor container on a dead
-  Backend's IP answered its traffic); the suite now isolates networks per
-  Scenario, but the production exposure remains. Expose a configurable
-  `DNSCacheDuration`; the k8s example manifests set it short. Ticket:
-  `03-dns-cache-duration.md`.
+- [x] Backend DNS re-resolution — shipped: `server.dns_cache_duration`
+  (default 60s, the library default; negative rejected naming the key)
+  reaches both the proxy dialer (copied onto every Backend by
+  `PrepareConfig`, like `proxy_timeout`) and the Probe client (which
+  previously pinned resolved IPs for a full hour), so routing and liveness
+  agree on addresses. The k8s example manifests should set it to a few
+  seconds. Ticket: `03-dns-cache-duration.md` (done).
 - [x] Readiness/liveness endpoints on the monitoring server — shipped:
   `/healthz` (liveness) answers 200 whenever the process runs; `/ready`
   answers 200 once the listeners are bound and 503 from the moment graceful
@@ -176,20 +178,27 @@ hardcoded or silently left at library defaults):
   A per-backend `backends[].proxy_timeout` override is deferred (additive,
   non-breaking). **[spec-red:** `TestPausedBackendBoundedFailure` **— now
   green]**
-- [ ] Default bind addresses — the client server's `host` default flips
-  `localhost` → `0.0.0.0`: a load balancer's job is to accept outside
-  traffic, and the localhost default makes the published Docker image
-  silently unreachable. Monitoring keeps its `localhost` default (exposure
-  is opt-in). Breaking change, pre-1.0. Ticket: `01-bind-default-flip.md`.
-- [ ] `server.read_buffer_size` / `server.write_buffer_size` — fasthttp's 4KB
-  default caps request header size; large cookies/JWTs hit "431/400 header too
-  large" with no way to raise it. Ticket: `02-header-buffer-sizes.md`.
-- [ ] `server.max_conns_per_ip`, `server.max_requests_per_conn` — basic
-  self-protection knobs, currently unavailable. Ticket:
-  `03-connection-caps.md`.
-- [ ] `server.graceful_shutdown_timeout` — hardcoded to 30s in
-  `main.go` (`performGracefulShutdown`). Ticket:
-  `04-graceful-shutdown-timeout.md`.
+- [x] Default bind addresses — shipped: the client server's `host` default is
+  now `0.0.0.0` (a load balancer accepts outside traffic; the old localhost
+  default made the Docker image silently unreachable). Monitoring keeps its
+  `localhost` default (exposure stays opt-in). Breaking change, flagged in
+  the migration-notes ticket. Ticket: `01-bind-default-flip.md` (done).
+  Integration: `TestDefaultBindIsReachableFromOutsideContainer` (the
+  harness's `OmitHost` knob runs divisor on its own default).
+- [x] `server.read_buffer_size` / `server.write_buffer_size` — shipped:
+  HTTP/1.1-path knobs on the fasthttp server (unset or non-positive means
+  the 4096 default, per the config module's `<= 0 → default` convention).
+  Ticket: `02-header-buffer-sizes.md` (done). Integration:
+  `TestOversizedHeadersNeedRaisedReadBufferSize` (431 at the 4KB default,
+  200 once raised).
+- [x] `server.max_conns_per_ip`, `server.max_requests_per_conn` — shipped:
+  unset or non-positive means unlimited (library default, same `<= 0 →
+  default` convention); wired to the fasthttp server, seam-tested. Ticket:
+  `03-connection-caps.md` (done).
+- [x] `server.graceful_shutdown_timeout` — shipped: replaces the hardcoded
+  30s in `performGracefulShutdown` (default stays 30s; zero means the
+  default, negative rejected naming the key). Ticket:
+  `04-graceful-shutdown-timeout.md` (done).
 - [ ] HTTP/2 server tuning (existing `TODO` at `main.go:158`) — pass a
   configured `http2.Server` (e.g. `max_concurrent_streams`, `idle_timeout`)
   instead of the zero value. Ticket: `05-http2-server-tuning.md`.
@@ -197,8 +206,11 @@ hardcoded or silently left at library defaults):
   (GET, only 200 counts as Alive, client defaults in `pkg/http`); consider
   `health_checker_timeout` and per-backend expected status. Ticket:
   `06-probe-tuning.md`.
-- [ ] TLS tuning — `tls_min_version` (and optionally cipher suites); currently
-  whatever crypto/tls defaults to. Ticket: `07-tls-min-version.md`.
+- [x] TLS tuning — shipped: `server.tls_min_version` accepts `"1.2"` and
+  `"1.3"` (anything else fails startup naming the key; unset keeps the
+  runtime default), mapped onto the TLS config of both stacks. Cipher suites
+  deliberately not exposed in 1.0. Ticket: `07-tls-min-version.md` (done).
+  Integration: `TestTLSMinVersion13RefusesTLS12`.
 
 (Backend DNS re-resolution moved to the Kubernetes section.)
 
@@ -317,7 +329,7 @@ tiers sequenced so no item lands before its prerequisites, and the big rocks
 keep their suggested-order positions (reload → streaming → distribution
 flexible → docs last).
 
-### Tier 1 — trivial config knobs (each an afternoon or less)
+### Tier 1 — trivial config knobs (each an afternoon or less) — **all seven shipped 2026-08-26**
 
 1. Default bind flip (`01-bind-default-flip.md`) — one default change;
    **unblocks the Docker image**, so it goes first.

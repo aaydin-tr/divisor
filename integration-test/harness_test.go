@@ -78,6 +78,14 @@ type ScenarioSpec struct {
 	WriteTimeout      time.Duration
 	ProxyTimeout       time.Duration
 	MaxRequestBodySize int
+	// ReadBufferSize renders server.read_buffer_size, which bounds request
+	// header size on the HTTP/1.1 path.
+	ReadBufferSize int
+	// TLSMinVersion renders server.tls_min_version ("1.2" or "1.3").
+	TLSMinVersion string
+	// OmitHost drops the config's `host` key so the scenario runs on
+	// divisor's default bind address.
+	OmitHost bool
 	// LoggingFormat and AccessLog render a `logging:` section; both zero
 	// means the section is omitted so the scenario runs on divisor's defaults.
 	LoggingFormat string
@@ -403,15 +411,25 @@ func renderConfig(t *testing.T, s *Scenario) (string, string) {
 	if s.Spec.MaxRequestBodySize > 0 {
 		server["max_request_body_size"] = s.Spec.MaxRequestBodySize
 	}
+	if s.Spec.ReadBufferSize > 0 {
+		server["read_buffer_size"] = s.Spec.ReadBufferSize
+	}
+	if s.Spec.TLSMinVersion != "" {
+		server["tls_min_version"] = s.Spec.TLSMinVersion
+	}
 
 	cfg := map[string]any{
-		"host":                "0.0.0.0",
 		"port":                containerPort,
 		"type":                s.Spec.Type,
 		"health_checker_time": s.Spec.HealthCheckerTime.String(),
 		"backends":            backends,
 		"server":              server,
 		"monitoring":          map[string]any{"host": monitoringHost, "port": monitoringPort},
+	}
+	// Explicit 0.0.0.0 matches divisor's own default; OmitHost scenarios prove
+	// the default itself keeps the container reachable.
+	if !s.Spec.OmitHost {
+		cfg["host"] = "0.0.0.0"
 	}
 	if len(s.Spec.CustomHeaders) > 0 {
 		cfg["custom_headers"] = s.Spec.CustomHeaders

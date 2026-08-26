@@ -137,7 +137,7 @@ when `Pick` returns nil.
 4. The Probe loop starts inside `NewBalancer` (`Pool.StartHealthChecker()`)
 5. Start the client-facing server via `internal/server.Start()` (fasthttp for HTTP/1.1, net/http for HTTP/2); it returns a stack-agnostic `Server` plus a channel that reports a Serve failure
 6. Start the monitoring server via `monitoring.Start()` (binds synchronously; a bind failure is fatal; the Prometheus poller starts only after the bind)
-7. Select on SIGINT/SIGTERM (graceful shutdown, 30s timeout) vs a Serve failure (fatal, non-zero exit)
+7. Select on SIGINT/SIGTERM (graceful shutdown, `server.graceful_shutdown_timeout`, default 30s) vs a Serve failure (fatal, non-zero exit)
 
 ### Graceful Shutdown
 
@@ -149,7 +149,7 @@ Implemented in `performGracefulShutdown()`:
 - Stops the monitoring server (poller first, then its listener) so nothing reads Pool stats after the next step
 - Stops the Probe loop and waits for a round in flight (capped by `types.HealthCheckerStopTimeout`)
 - Closes idle connections via `balancer.Shutdown()` → `Pool.Shutdown()`
-- 30-second timeout enforced
+- Timeout from `server.graceful_shutdown_timeout` enforced (default 30s)
 
 ## Code style
 

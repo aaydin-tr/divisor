@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"net"
 	"testing"
@@ -51,6 +52,67 @@ func TestStartReturnsNonNilServerForBothStacks(t *testing.T) {
 			assert.NoError(t, srv.Shutdown(context.Background()))
 		})
 	}
+}
+
+// The configured knobs must reach the constructed fasthttp server: a value
+// validated in config but never wired would silently run on library defaults.
+func TestConfiguredKnobsReachTheFasthttpServer(t *testing.T) {
+	cfg := newConfig(t, config.Http1)
+	cfg.Server.ReadBufferSize = 16384
+	cfg.Server.WriteBufferSize = 8192
+	cfg.Server.MaxConnsPerIP = 100
+	cfg.Server.MaxRequestsPerConn = 1000
+
+	ln := localListener(t)
+	srv, _, err := Start(cfg, &mocks.MockBalancer{}, ln)
+	assert.NoError(t, err)
+	defer srv.Shutdown(context.Background())
+
+	inner := srv.(fasthttpServer).Server
+	assert.Equal(t, 16384, inner.ReadBufferSize)
+	assert.Equal(t, 8192, inner.WriteBufferSize)
+	assert.Equal(t, 100, inner.MaxConnsPerIP)
+	assert.Equal(t, 1000, inner.MaxRequestsPerConn)
+}
+
+func TestTLSMinVersionReachesBothStacks(t *testing.T) {
+	t.Run("fasthttp", func(t *testing.T) {
+		cfg := newConfig(t, config.Http1)
+		cfg.Server.TLSMinVersion = config.TLSMinVersion13
+
+		ln := localListener(t)
+		srv, _, err := Start(cfg, &mocks.MockBalancer{}, ln)
+		assert.NoError(t, err)
+		defer srv.Shutdown(context.Background())
+
+		inner := srv.(fasthttpServer).Server
+		assert.NotNil(t, inner.TLSConfig)
+		assert.Equal(t, uint16(tls.VersionTLS13), inner.TLSConfig.MinVersion)
+	})
+
+	t.Run("net/http", func(t *testing.T) {
+		cfg := newConfig(t, config.Http2)
+		cfg.Server.TLSMinVersion = config.TLSMinVersion13
+
+		ln := localListener(t)
+		srv, _, err := Start(cfg, &mocks.MockBalancer{}, ln)
+		assert.NoError(t, err)
+		defer srv.Shutdown(context.Background())
+
+		inner := srv.(netHttpServer).Server
+		assert.NotNil(t, inner.TLSConfig)
+		assert.Equal(t, uint16(tls.VersionTLS13), inner.TLSConfig.MinVersion)
+	})
+}
+
+func TestUnsetTLSMinVersionLeavesTheRuntimeDefault(t *testing.T) {
+	cfg := newConfig(t, config.Http1)
+	ln := localListener(t)
+	srv, _, err := Start(cfg, &mocks.MockBalancer{}, ln)
+	assert.NoError(t, err)
+	defer srv.Shutdown(context.Background())
+
+	assert.Nil(t, srv.(fasthttpServer).Server.TLSConfig)
 }
 
 func TestServeFailureIsReported(t *testing.T) {

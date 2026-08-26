@@ -10,17 +10,21 @@ type HttpClient struct {
 	client *fasthttp.Client
 }
 
-func NewHttpClient() *HttpClient {
+func NewHttpClient(dnsCacheDuration time.Duration) *HttpClient {
 	return &HttpClient{client: &fasthttp.Client{
 		ReadTimeout:         5 * time.Second,
 		WriteTimeout:        5 * time.Second,
 		MaxIdleConnDuration: 5 * time.Second,
 		MaxConnWaitTimeout:  30 * time.Second,
-		Dial: (&fasthttp.TCPDialer{
-			Concurrency:      4096,
-			DNSCacheDuration: time.Hour,
-		}).Dial,
+		Dial:                newProbeDialer(dnsCacheDuration).Dial,
 	}}
+}
+
+func newProbeDialer(dnsCacheDuration time.Duration) *fasthttp.TCPDialer {
+	return &fasthttp.TCPDialer{
+		Concurrency:      4096,
+		DNSCacheDuration: dnsCacheDuration,
+	}
 }
 
 func (h *HttpClient) IsHostAlive(url string) bool {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -20,11 +21,24 @@ import (
 	"go.uber.org/zap"
 )
 
+// Injected by goreleaser ldflags on release builds; "dev" otherwise.
+var (
+	version = "dev"
+	commit  = "dev"
+)
+
 func main() {
 	configFile := flag.String("config", "./config.yaml", "config file, please use absolute path")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
+	if *showVersion {
+		fmt.Printf("divisor version %s, build %s\n", version, commit)
+		return
+	}
+
 	logger.InitDefaultLogger()
+	zap.S().Infof("divisor version %s, build %s", version, commit)
 
 	// Startup failures must exit non-zero so orchestrators (compose restart
 	// policies, k8s CrashLoopBackOff) notice; zap's Fatal exits 1 after
@@ -90,7 +104,7 @@ func main() {
 		zap.S().Fatalf("Divisor server stopped serving: %s", err)
 	}
 
-	if err := performGracefulShutdown(srv, monitoringServer, proxies); err != nil {
+	if err := performGracefulShutdown(srv, monitoringServer, proxies, config.Server.GracefulShutdownTimeout); err != nil {
 		zap.S().Errorf("Error during graceful shutdown: %s", err)
 		os.Exit(1)
 	}
@@ -100,8 +114,7 @@ func main() {
 
 // Order matters: the monitoring server polls balancer.Stats(), so it stops
 // before the balancer does.
-func performGracefulShutdown(srv server.Server, monitoringServer *monitoring.Server, balancer types.IBalancer) error {
-	const timeout = 30 * time.Second
+func performGracefulShutdown(srv server.Server, monitoringServer *monitoring.Server, balancer types.IBalancer, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
