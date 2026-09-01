@@ -6,7 +6,7 @@ require (
 	github.com/fasthttp/router v1.5.4
 	github.com/google/uuid v1.6.0
 	github.com/prometheus/client_golang v1.23.2
-	github.com/shirou/gopsutil/v4 v4.25.11
+	github.com/shirou/gopsutil/v4 v4.25.12
 	github.com/stretchr/testify v1.11.1
 	github.com/traefik/yaegi v0.16.1
 	github.com/valyala/fasthttp v1.68.0
