@@ -5,7 +5,11 @@ on:
       secrets:
         CLAUDE_CODE_OAUTH_TOKEN:
           required: true
-          
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}-review
+  cancel-in-progress: false
+
 jobs:
   auto-review:
     permissions:
@@ -16,10 +20,14 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - name: Checkout repository
+      - name: Checkout PR head
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          ref: refs/pull/${{ github.event.pull_request.number }}/head
+          fetch-depth: 0
+
+      - name: Point origin/HEAD at the default branch
+        run: git remote set-head origin -a
 
       - name: Check changed files
         id: changes
@@ -29,16 +37,40 @@ jobs:
             run_review:
               - "**/*.go"
 
+      - name: Install Claude Code
+        id: claude-code
+        if: steps.changes.outputs.run_review == 'true'
+        run: |
+          set -o pipefail
+          curl -fsSL https://claude.ai/install.sh | bash -s -- 2.1.280
+          echo "path=$HOME/.local/bin/claude" >> "$GITHUB_OUTPUT"
+
       - name: Auto review PR
         if: steps.changes.outputs.run_review == 'true'
-        uses: anthropics/claude-code-action@v1.0.57
+        uses: anthropics/claude-code-action@v1.0.231
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          prompt: "/review-pr REPO: ${{ github.repository }} PR_NUMBER: ${{ github.event.pull_request.number }}"
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          path_to_claude_code_executable: ${{ steps.claude-code.outputs.path }}
           track_progress: true
+          show_full_output: false
+          plugin_marketplaces: https://github.com/anthropics/claude-plugins-official.git
+          plugins: mattpocock-skills@claude-plugins-official
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Run the `mattpocock-skills:code-review` skill by invoking it with the Skill tool, with `origin/main` as the fixed point. Follow it with one change: skip its spec lookup and replace its Spec axis with a Correctness axis, so the two parallel sub-agents are Standards (exactly as the skill defines it) and Correctness (brief below), and the aggregated report has `## Standards` and `## Correctness` sections. Post the aggregated report as your final comment, and leave inline comments only for findings that point at a specific line.
+
+            Correctness sub-agent brief: find what this diff breaks, under three headings. Bugs: wrong logic, unhandled errors and edge cases, nil dereferences, leaked resources, data races (CI runs tests with -race; balancers' Pick runs on request goroutines while the Pool changes liveness). Security: anything a client or backend could abuse, such as header or request smuggling, unbounded bodies, missing timeouts, secrets or internal details leaking into responses or logs, weakened TLS. Conflicts: behaviour elsewhere in the app that the change breaks; find every caller and user of each changed function, type, config key and header and check them, and check the change against CONTEXT.md and docs/adr/. Give each finding as file:line, the concrete input or sequence that fails, and the impact; drop anything you cannot tie to a concrete failure. Under 400 words.
+
+            Scope rule: report only problems introduced or touched by this PR's diff. TODO.md (repo root) lists problems the team already knows about and has deliberately not fixed yet; read it so you can recognise those, and never report an item from it as a finding. If the diff touches code covered by such an entry, at most note in one line that it is already tracked there. Pass this rule on to both sub-agents.
+
+            This run is non-interactive: nobody can answer a question. Wherever the skill says to ask the user, do not stop; pick the sensible default (the fixed point is origin/main) and say what you chose in the report.
+
+            Run both sub-agents in the FOREGROUND: pass run_in_background false on every Agent call and wait for each result in the same turn. Background tasks and ScheduleWakeup do not work here — there is no session left to notify, so a backgrounded sub-agent is killed unfinished and the review is lost. "Parallel" means issuing both Agent calls in one message, not backgrounding them. Do not end your turn until both sub-agent results are in hand and the aggregated report has been posted.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: |
             --model claude-sonnet-5-5
-            --allowed-tools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),mcp__github_inline_comment__create_inline_comment,mcp__sequential-thinking__sequentialthinking,mcp__github__create_pending_pull_request_review,mcp__github__add_pull_request_review_comment_to_pending_review,mcp__github__submit_pending_pull_request_review,mcp__github__get_pull_request_diff,mcp__github_ci__get_ci_status,mcp__github_comment__update_claude_comment"
-            --disallowed-tools "Read(./docs/**),Read(docs/**),Glob(docs/**),Grep(docs/**),Bash(cat docs/*),Bash(ls docs*),Bash(find docs*),Bash(rg * docs*),Bash(grep * docs*)"
+            --effort high
+            --allowed-tools "Skill,Agent,Task,Read,Glob,Grep,LS,Bash(git diff:*),Bash(git log:*),Bash(git rev-parse:*),Bash(git show:*),Bash(gh api:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),mcp__github_inline_comment__create_inline_comment,mcp__sequential-thinking__sequentialthinking,mcp__github__create_pending_pull_request_review,mcp__github__add_comment_to_pending_review,mcp__github__submit_pending_pull_request_review,mcp__github__get_pull_request_diff,mcp__github_comment__update_claude_comment"
             --mcp-config '{ "mcpServers": { "sequential-thinking": { "command": "npx", "args": [ "-y", "@modelcontextprotocol/server-sequential-thinking" ] } } }'
