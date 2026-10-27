@@ -4,8 +4,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/aaydin-tr/divisor/middleware"
 	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,4 +37,28 @@ func TestRequestTrailersReachBackendAsTrailers(t *testing.T) {
 	assert.Equal(t, "hello", seenBody)
 	assert.Equal(t, "abc123", seenTrailer, "a client trailer stays a trailer at the Backend")
 	assert.Empty(t, seenAsHeader, "a trailer must not be promoted to a header")
+}
+
+// A Middleware calling Body() leaves the body buffered; fasthttp still writes
+// a buffered body with registered trailers chunked, so they reach the Backend.
+func TestMiddlewareReadingBodyKeepsTrailers(t *testing.T) {
+	const chunkedWithTrailer = "POST /upload HTTP/1.1\r\nHost: divisor.example\r\n" +
+		"Transfer-Encoding: chunked\r\nTrailer: X-Checksum\r\n\r\n" +
+		"5\r\nhello\r\n0\r\nX-Checksum: abc123\r\n\r\n"
+	for _, frontend := range frontends {
+		t.Run(frontend.name, func(t *testing.T) {
+			var seenByMiddleware string
+			p, backendWire := newWireRecordingProxyClient(&mockMiddleware{onRequestFunc: func(ctx *middleware.Context) error {
+				seenByMiddleware = string(ctx.Request.Body())
+				return nil
+			}})
+			frontend.proxy(t, p, chunkedWithTrailer)
+
+			wire := <-backendWire
+			assert.Equal(t, "hello", seenByMiddleware)
+			assert.Contains(t, wire, "\r\nTransfer-Encoding: chunked\r\n")
+			assert.Equal(t, "hello", decodedBody(t, wire))
+			assert.True(t, strings.HasSuffix(wire, "\r\n0\r\nX-Checksum: abc123\r\n\r\n"), "trailer after the last chunk: %q", wire)
+		})
+	}
 }

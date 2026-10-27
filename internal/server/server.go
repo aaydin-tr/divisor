@@ -1,12 +1,11 @@
 // Package server runs the client-facing listener on whichever stack the
-// config selects: fasthttp for HTTP/1.1, net/http + x/net/http2 for HTTP/2.
+// config selects: fasthttp for HTTP/1.1, net/http's built-in HTTP/2 for HTTP/2.
 package server
 
 import (
 	"context"
 	"crypto/tls"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 
@@ -15,7 +14,6 @@ import (
 	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/valyala/fasthttp"
 	"go.uber.org/zap"
-	"golang.org/x/net/http2"
 )
 
 // Server is a running client-facing listener, stack-agnostic.
@@ -79,6 +77,10 @@ func (s netHttpServer) Shutdown(ctx context.Context) error { return s.Server.Shu
 func (s netHttpServer) OpenConnectionsCount() int32 { return 0 }
 
 func startNetHttp(cfg *config.Config, balancer types.IBalancer, ln net.Listener) (Server, <-chan error, error) {
+	var protocols http.Protocols
+	protocols.SetHTTP1(true)
+	protocols.SetHTTP2(true)
+
 	srv := &http.Server{
 		Addr:         cfg.GetAddr(),
 		Handler:      proxy.NewNetHttpAdapter(balancer, cfg.Server.MaxRequestBodySize),
@@ -86,12 +88,9 @@ func startNetHttp(cfg *config.Config, balancer types.IBalancer, ln net.Listener)
 		WriteTimeout: cfg.Server.WriteTimeout,
 		IdleTimeout:  cfg.Server.IdleTimeout,
 		TLSConfig:    tlsConfig(cfg),
+		Protocols:    &protocols,
 	}
 	srv.SetKeepAlivesEnabled(!cfg.Server.DisableKeepalive)
-
-	if err := http2.ConfigureServer(srv, &http2.Server{}); err != nil {
-		return nil, nil, fmt.Errorf("configuring HTTP/2 server: %w", err)
-	}
 
 	serve := func() error {
 		err := srv.ServeTLS(ln, cfg.Server.CertFile, cfg.Server.KeyFile)

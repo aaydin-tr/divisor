@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// The HTTP/2 path is a different server stack (net/http + x/net/http2
+// The HTTP/2 path is a different server stack (net/http's built-in HTTP/2
 // behind internal/proxy/nethttp_adapter), so these tests target the adapter
 // seam rather than re-running the whole HTTP/1.1 matrix.
 func TestHTTP2(t *testing.T) {

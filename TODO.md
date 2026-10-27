@@ -199,9 +199,10 @@ hardcoded or silently left at library defaults):
   30s in `performGracefulShutdown` (default stays 30s; zero means the
   default, negative rejected naming the key). Ticket:
   `04-graceful-shutdown-timeout.md` (done).
-- [ ] HTTP/2 server tuning (existing `TODO` at `main.go:158`) — pass a
-  configured `http2.Server` (e.g. `max_concurrent_streams`, `idle_timeout`)
-  instead of the zero value. Ticket: `05-http2-server-tuning.md`.
+- [ ] HTTP/2 server tuning (existing `TODO` at `main.go:158`) — set a
+  configured `http.HTTP2Config` on `http.Server.HTTP2` (e.g.
+  `max_concurrent_streams`) instead of the defaults. Ticket:
+  `05-http2-server-tuning.md`.
 - [ ] Health Probe tuning — probe timeout and expected-status are hardcoded
   (GET, only 200 counts as Alive, client defaults in `pkg/http`); consider
   `health_checker_timeout` and per-backend expected status. Ticket:
@@ -295,10 +296,13 @@ Spec: `.scratch/docs/spec.md` — tickets in `.scratch/docs/issues/`.
   then the full suite (`go test -race ./...` plus the integration suite).
   Natural companion to the toolchain bump below — land them in one pass or
   back to back.
-- [ ] Go toolchain update to 1.27 (latest) — currently pinned to 1.25.3 in
-  `go.mod`, `integration-test/go.mod`, all five workflow files under
-  `.github/workflows/` (`go-version:`), and the Dockerfile builder stage
-  (`golang:1.25-alpine`). Bump everywhere in one pass and run the full suite
+- [ ] Go toolchain update to 1.27 (latest) — currently on 1.26 (fasthttp
+  ≥ v1.75.0 requires it): `go 1.26.0` in `go.mod` and
+  `integration-test/go.mod` and `run.go` in `.golangci.yml`, `1.26.10` in all
+  five workflow files under `.github/workflows/` (`go-version:`), and the
+  Dockerfile builder stage (`golang:1.26-alpine`). golangci-lint must be built
+  with the targeted Go version or newer (v2.13.0+ for 1.27; `linter.yml` pins
+  v2.9.0). Bump everywhere in one pass and run the full suite
   (`go test -race ./...` plus the integration suite).
 - [ ] Monitoring server coverage (explicitly out of scope for the first
   suite) — **now unblocked**: the readiness/liveness endpoints shipped
