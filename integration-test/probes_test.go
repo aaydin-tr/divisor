@@ -10,11 +10,10 @@ import (
 // monitoringStatus probes a monitoring endpoint the way a kubelet does: over
 // the network, judging only the status code.
 func monitoringStatus(s *Scenario, path string) (int, error) {
-	resp, err := ctlClient.Get("http://" + s.MonitoringAddr + path)
+	resp, _, err := getMonitoring(s, path)
 	if err != nil {
 		return 0, err
 	}
-	resp.Body.Close()
 	return resp.StatusCode, nil
 }
 

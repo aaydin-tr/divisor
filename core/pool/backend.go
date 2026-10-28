@@ -3,6 +3,7 @@ package pool
 import (
 	"sync/atomic"
 
+	"github.com/aaydin-tr/divisor/core/types"
 	"github.com/aaydin-tr/divisor/internal/proxy"
 )
 
@@ -11,12 +12,13 @@ import (
 // listed twice is two Backends. The Backends handed to a Pool or a Balancer
 // constructor carry Indexes 0..n-1, each exactly once, in any order.
 type Backend struct {
-	Proxy    proxy.IProxyClient
-	Addr     string
-	ProbeURL string
-	Index    int
-	Weight   uint
-	isAlive  atomic.Bool
+	Proxy               proxy.IProxyClient
+	Addr                string
+	ProbeURL            string
+	ExpectedProbeStatus types.ExpectedProbeStatus
+	Index               int
+	Weight              uint
+	isAlive             atomic.Bool
 }
 
 func (b *Backend) IsAlive() bool {

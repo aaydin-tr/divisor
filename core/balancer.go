@@ -17,12 +17,12 @@ import (
 )
 
 var balancers = map[string]func(*config.Config, []*pool.Backend) pool.Balancer{
-	"round-robin":         round_robin.New,
-	"w-round-robin":       w_round_robin.New,
-	"ip-hash":             ip_hash.New,
-	"random":              random.New,
-	"least-connection":    least_connection.New,
-	"least-response-time": least_response_time.New,
+	config.RoundRobinType:         round_robin.New,
+	config.WeightedRoundRobinType: w_round_robin.New,
+	config.IPHashType:             ip_hash.New,
+	config.RandomType:             random.New,
+	config.LeastConnectionType:    least_connection.New,
+	config.LeastResponseTimeType:  least_response_time.New,
 }
 
 // loadBalancer is the Pool plus a Balancer, as the rest of the process sees
@@ -47,11 +47,12 @@ func NewBalancer(cfg *config.Config, middlewareExecutor *middleware.Executor, pr
 	for i := range cfg.Backends {
 		b := &cfg.Backends[i]
 		backends = append(backends, &pool.Backend{
-			Index:    i,
-			Addr:     b.Url,
-			Weight:   b.Weight,
-			ProbeURL: b.GetHealthCheckURL(),
-			Proxy:    proxyFunc(b, cfg.CustomHeaders, middlewareExecutor),
+			Index:               i,
+			Addr:                b.Url,
+			Weight:              b.Weight,
+			ProbeURL:            b.GetHealthCheckURL(),
+			ExpectedProbeStatus: b.HealthCheckStatus,
+			Proxy:               proxyFunc(b, cfg.CustomHeaders, middlewareExecutor),
 		})
 	}
 

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/aaydin-tr/divisor/core/pool"
+	"github.com/aaydin-tr/divisor/core/types"
 	"github.com/aaydin-tr/divisor/mocks"
 	"github.com/stretchr/testify/assert"
 )
@@ -54,6 +55,33 @@ func TestProbeAllBackendsAppliesOneTransitionPerFlip(t *testing.T) {
 	assert.Len(t, leaves, 1)
 	assert.True(t, backends[0].IsAlive())
 	assert.Equal(t, 2, p.AliveBackendCount())
+}
+
+func TestExpectedProbeStatusDecidesLiveness(t *testing.T) {
+	backends := mocks.NewBackends(2)
+	backends[0].ExpectedProbeStatus = 204
+	probes := &mocks.ProbeTable{}
+	probes.SetAnsweredStatus(backends[0], 200)
+	probes.SetAnsweredStatus(backends[1], 200)
+	balancer := &mocks.RecordingBalancer{}
+
+	p := pool.NewPool(backends, probes.Probe, time.Hour, balancer)
+	defer p.Shutdown() //nolint:errcheck
+
+	assert.False(t, backends[0].IsAlive(), "a 200 is a failed Probe when 204 is expected")
+	assert.True(t, backends[1].IsAlive(), "without an override a 200 is a successful Probe")
+
+	probes.SetAnsweredStatus(backends[0], 204)
+	p.ProbeAllBackends()
+	assert.True(t, backends[0].IsAlive(), "the expected status Rejoins the Backend")
+
+	probes.SetAnsweredStatus(backends[0], 302)
+	p.ProbeAllBackends()
+	assert.False(t, backends[0].IsAlive(), "any other status, even a 3xx, sends it Down")
+	assert.True(t, backends[1].IsAlive())
+
+	_, leaves := balancer.Transitions()
+	assert.Equal(t, []*pool.Backend{backends[0]}, leaves)
 }
 
 func TestRejoinResetsResponseTimeScore(t *testing.T) {
@@ -139,7 +167,7 @@ func TestShutdownClosesEveryBackend(t *testing.T) {
 func TestShutdownStopsHealthChecker(t *testing.T) {
 	backends := mocks.NewBackends(2)
 	var checks atomic.Int64
-	probe := func(string) bool { checks.Add(1); return true }
+	probe := func(string, types.ExpectedProbeStatus) bool { checks.Add(1); return true }
 	p := pool.NewPool(backends, probe, 5*time.Millisecond, &mocks.RecordingBalancer{})
 	p.StartHealthChecker()
 
@@ -159,7 +187,7 @@ func TestStatsConcurrentWithProbeRound(t *testing.T) {
 	backends := mocks.NewBackends(1)
 	var alive atomic.Bool
 	alive.Store(true)
-	p := pool.NewPool(backends, func(string) bool { return alive.Load() }, time.Hour, &mocks.RecordingBalancer{})
+	p := pool.NewPool(backends, func(string, types.ExpectedProbeStatus) bool { return alive.Load() }, time.Hour, &mocks.RecordingBalancer{})
 	defer p.Shutdown() //nolint:errcheck
 
 	done := make(chan struct{})

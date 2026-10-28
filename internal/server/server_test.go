@@ -77,6 +77,20 @@ func TestConfiguredKnobsReachTheFasthttpServer(t *testing.T) {
 	assert.Equal(t, 1000, inner.MaxRequestsPerConn)
 }
 
+func TestHTTP2ConfigReachesTheNetHttpServer(t *testing.T) {
+	cfg := newConfig(t, config.Http2)
+	cfg.Server.HTTP2.MaxConcurrentStreams = 500
+
+	ln := localListener(t)
+	srv, _, err := Start(cfg, &mocks.MockBalancer{}, ln)
+	require.NoError(t, err)
+	defer srv.Shutdown(context.Background())
+
+	inner := srv.(netHttpServer).Server
+	require.NotNil(t, inner.HTTP2)
+	assert.Equal(t, 500, inner.HTTP2.MaxConcurrentStreams)
+}
+
 func TestTLSMinVersionReachesBothStacks(t *testing.T) {
 	t.Run("fasthttp", func(t *testing.T) {
 		cfg := newConfig(t, config.Http1)

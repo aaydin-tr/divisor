@@ -30,7 +30,7 @@ func balancerConfig(balancerType string, probe types.IsHostAlive, addrs ...strin
 // backendsOf reaches the Backends NewBalancer built, in config order.
 func backendsOf(b types.IBalancer) []*pool.Backend { return b.(*loadBalancer).pool.Backends() }
 
-func alwaysAlive(string) bool { return true }
+func alwaysAlive(string, types.ExpectedProbeStatus) bool { return true }
 
 func TestNewBalancerBuildsEveryType(t *testing.T) {
 	for _, balancerType := range config.ValidTypes {
@@ -57,7 +57,7 @@ func TestNewBalancerServes503UntilAProbeSucceedsWhenNothingIsAliveAtStartup(t *t
 	for _, balancerType := range config.ValidTypes {
 		t.Run(balancerType, func(t *testing.T) {
 			var probeSucceeds atomic.Bool
-			probe := func(string) bool { return probeSucceeds.Load() }
+			probe := func(string, types.ExpectedProbeStatus) bool { return probeSucceeds.Load() }
 			cfg := balancerConfig(balancerType, probe, "localhost:8080")
 			b := NewBalancer(cfg, nil, mocks.CreateNewMockProxy)
 			if !assert.NotNil(t, b, "divisor boots even when every Backend fails its first Probe round") {
@@ -97,6 +97,17 @@ func TestServeForwardsToThePickedBackend(t *testing.T) {
 	assert.True(t, mocks.MockProxyOf(backendsOf(b)[0]).IsCalled, "the request reached the picked Backend")
 }
 
+func TestNewBalancerProbesWithEachBackendsHealthCheckStatus(t *testing.T) {
+	probes := &mocks.ProbeTable{}
+	cfg := balancerConfig("round-robin", probes.Probe, "localhost:8080", "localhost:8081")
+	cfg.Backends[0].HealthCheckStatus = fasthttp.StatusNoContent
+	b := NewBalancer(cfg, nil, mocks.CreateNewMockProxy)
+	defer b.Shutdown() //nolint:errcheck
+
+	assert.False(t, b.Stats()[0].IsHostAlive, "a 200 is a failed Probe when health_check_status is 204")
+	assert.True(t, b.Stats()[1].IsHostAlive)
+}
+
 func TestServeAnswers503WhenNothingIsAlive(t *testing.T) {
 	probes := &mocks.ProbeTable{}
 	cfg := balancerConfig("round-robin", probes.Probe, "localhost:8080")
@@ -130,7 +141,7 @@ func TestPickConcurrentWithProbeRound(t *testing.T) {
 			picker := newBalancer(cfg, backends)
 
 			var flapping atomic.Bool
-			alive := func(url string) bool { return url != backends[0].ProbeURL || !flapping.Load() }
+			alive := func(url string, _ types.ExpectedProbeStatus) bool { return url != backends[0].ProbeURL || !flapping.Load() }
 			pool := pool.NewPool(backends, alive, time.Hour, picker)
 			defer pool.Shutdown() //nolint:errcheck
 

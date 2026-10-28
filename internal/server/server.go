@@ -89,6 +89,7 @@ func startNetHttp(cfg *config.Config, balancer types.IBalancer, ln net.Listener)
 		IdleTimeout:  cfg.Server.IdleTimeout,
 		TLSConfig:    tlsConfig(cfg),
 		Protocols:    &protocols,
+		HTTP2:        &http.HTTP2Config{MaxConcurrentStreams: cfg.Server.HTTP2.MaxConcurrentStreams},
 	}
 	srv.SetKeepAlivesEnabled(!cfg.Server.DisableKeepalive)
 
@@ -110,7 +111,7 @@ func tlsConfig(cfg *config.Config) *tls.Config {
 	if minVersion == 0 {
 		return nil
 	}
-	return &tls.Config{MinVersion: minVersion} //nolint:gosec
+	return &tls.Config{MinVersion: minVersion}
 }
 
 func serveInBackground(cfg *config.Config, serve func() error) <-chan error {

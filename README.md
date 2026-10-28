@@ -98,6 +98,7 @@ backends:
 | host | Server host | string | `0.0.0.0` | No |
 | type | Load balancing algorithm | string | `round-robin` | No |
 | health_checker_time | Health check interval for backends | duration | `30s` | No |
+| health_checker_timeout | Bound on each health check as a whole (connect, send, answer); a slower answer marks the backend Down. `0` means the default; negative is a startup error | duration | `5s` | No |
 
 **Valid algorithm types**: `round-robin`, `w-round-robin`, `ip-hash`, `random`, `least-connection`, `least-response-time`
 
@@ -107,7 +108,8 @@ backends:
 | --- | --- | --- | --- | --- |
 | backends | List of backend servers | array | - | ⚠️ **Yes** (min: 1) |
 | backends.url | Backend URL (without protocol) | string | - | ⚠️ **Yes** |
-| backends.health_check_path | Health check endpoint; a `GET` answered with any 2xx or 3xx status (within 5s, redirects not followed) counts as healthy | string | `/` | No |
+| backends.health_check_path | Health check endpoint; a `GET` answered with any 2xx or 3xx status (within `health_checker_timeout`, redirects not followed) keeps the backend Alive | string | `/` | No |
+| backends.health_check_status | Exact status the health check must answer (e.g. `204`); when set, only that status keeps the backend Alive. Must be 200-599 | int | any 2xx/3xx | No |
 | backends.weight | Backend weight (w-round-robin only) | int | - | ⚠️ **w-round-robin** |
 | backends.max_conn | Max connections per backend | int | `512` | No |
 | backends.max_conn_timeout | Max wait time for free connection | duration | `30s` | No |
@@ -145,6 +147,7 @@ backends:
 | server.tls_min_version | Minimum accepted TLS version: `"1.2"` or `"1.3"` (any other value is a startup error); empty keeps the runtime default. Only takes effect when `cert_file`/`key_file` are set | string | - |
 | server.dns_cache_duration | How long resolved backend IPs are cached before re-resolving (proxy dialer and health probes); set to a few seconds when backend IPs churn, e.g. Kubernetes pods | duration | `60s` |
 | server.disable_keepalive | Force connection close after response | bool | `false` |
+| server.http2.max_concurrent_streams | Max concurrent streams a client may open per HTTP/2 connection. HTTP/2 path only. Unset or `<= 0` means the default; above `2147483647` is a startup error | int | `250` |
 
 Header names are always normalized to canonical form (`x-api-key` → `X-Api-Key`) on both the request and the response, as RFC 9110 §5.1 makes them case-insensitive; middleware lookups such as `ctx.Request.Header.Peek("X-Api-Key")` therefore match whatever case the client sent.
 

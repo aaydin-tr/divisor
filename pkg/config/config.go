@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/url"
 	"os"
@@ -21,31 +22,43 @@ import (
 )
 
 var (
-	ErrAtLeastOneBackend              = errors.New("At least one backend must be set")
-	ErrInvalidPort                    = errors.New("Please choose valid port")
-	ErrInvalidWeight                  = errors.New("When using the weighted-round-robin algorithm, a weight must be specified for each backend")
-	ErrHttp2WithoutTls                = errors.New("The HTTP/2 connection can be only established if the server is using TLS. Please provide cert and key file")
-	ErrInvalidHttpVersion             = errors.New("server.http_version must be http1 or http2")
-	ErrConfigFileEmpty                = errors.New("Config file is empty")
-	ErrInvalidTLSKeyPair              = errors.New("cert_file/key_file could not be loaded as a TLS key pair")
-	ErrBackendUrlEmpty                = errors.New("Backend url must not be empty")
-	ErrBackendUrlInvalid              = errors.New("Backend url is not valid")
-	ErrBackendUrlHttps                = errors.New("Backend url must not use https, divisor terminates TLS and always speaks plain HTTP to backends")
-	ErrBackendUrlScheme               = errors.New("Backend url has an unsupported scheme")
-	ErrBackendUrlUserinfo             = errors.New("Backend url must not contain userinfo")
-	ErrBackendUrlNotHostPort          = errors.New("Backend url must be host:port only, divisor cannot forward to a path")
-	ErrBackendUrlNoHost               = errors.New("Backend url has no host")
-	ErrMiddlewareNameRequired         = errors.New("middleware name is required")
-	ErrMiddlewareCodeAndFileEmpty     = errors.New("middleware needs either code or file")
-	ErrMiddlewareCodeAndFileBothSet   = errors.New("middleware cannot specify both code and file, choose one")
-	ErrInvalidLoggingFormat           = errors.New("logging.format must be json or console")
-	ErrInvalidLoggingLevel            = errors.New("logging.level must be a zap level (debug, info, warn, error, dpanic, panic, fatal)")
-	ErrInvalidGracefulShutdownTimeout = errors.New("server.graceful_shutdown_timeout must not be negative")
-	ErrInvalidTLSMinVersion           = errors.New("server.tls_min_version must be 1.2 or 1.3")
-	ErrInvalidDNSCacheDuration        = errors.New("server.dns_cache_duration must not be negative")
+	ErrAtLeastOneBackend                = errors.New("At least one backend must be set")
+	ErrInvalidPort                      = errors.New("Please choose valid port")
+	ErrInvalidWeight                    = errors.New("When using the weighted-round-robin algorithm, a weight must be specified for each backend")
+	ErrHttp2WithoutTls                  = errors.New("The HTTP/2 connection can be only established if the server is using TLS. Please provide cert and key file")
+	ErrInvalidHttpVersion               = errors.New("server.http_version must be http1 or http2")
+	ErrConfigFileEmpty                  = errors.New("Config file is empty")
+	ErrInvalidTLSKeyPair                = errors.New("cert_file/key_file could not be loaded as a TLS key pair")
+	ErrBackendUrlEmpty                  = errors.New("Backend url must not be empty")
+	ErrBackendUrlInvalid                = errors.New("Backend url is not valid")
+	ErrBackendUrlHttps                  = errors.New("Backend url must not use https, divisor terminates TLS and always speaks plain HTTP to backends")
+	ErrBackendUrlScheme                 = errors.New("Backend url has an unsupported scheme")
+	ErrBackendUrlUserinfo               = errors.New("Backend url must not contain userinfo")
+	ErrBackendUrlNotHostPort            = errors.New("Backend url must be host:port only, divisor cannot forward to a path")
+	ErrBackendUrlNoHost                 = errors.New("Backend url has no host")
+	ErrMiddlewareNameRequired           = errors.New("middleware name is required")
+	ErrMiddlewareCodeAndFileEmpty       = errors.New("middleware needs either code or file")
+	ErrMiddlewareCodeAndFileBothSet     = errors.New("middleware cannot specify both code and file, choose one")
+	ErrInvalidLoggingFormat             = errors.New("logging.format must be json or console")
+	ErrInvalidLoggingLevel              = errors.New("logging.level must be a zap level (debug, info, warn, error, dpanic, panic, fatal)")
+	ErrInvalidGracefulShutdownTimeout   = errors.New("server.graceful_shutdown_timeout must not be negative")
+	ErrInvalidTLSMinVersion             = errors.New("server.tls_min_version must be 1.2 or 1.3")
+	ErrInvalidDNSCacheDuration          = errors.New("server.dns_cache_duration must not be negative")
+	ErrInvalidHTTP2MaxConcurrentStreams = errors.New("server.http2.max_concurrent_streams must not exceed 2147483647")
+	ErrInvalidHealthCheckerTimeout      = errors.New("health_checker_timeout must not be negative")
+	ErrInvalidHealthCheckStatus         = errors.New("health_check_status must be a final HTTP status (200-599)")
 )
 
-var ValidTypes = []string{"round-robin", "w-round-robin", "ip-hash", "random", "least-connection", "least-response-time"}
+const (
+	RoundRobinType         = "round-robin"
+	WeightedRoundRobinType = "w-round-robin"
+	IPHashType             = "ip-hash"
+	RandomType             = "random"
+	LeastConnectionType    = "least-connection"
+	LeastResponseTimeType  = "least-response-time"
+)
+
+var ValidTypes = []string{RoundRobinType, WeightedRoundRobinType, IPHashType, RandomType, LeastConnectionType, LeastResponseTimeType}
 var ValidCustomHeaders = []string{"$remote_addr", "$time", "$uuid", "$incremental"}
 
 const (
@@ -55,7 +68,8 @@ const (
 	DefaultMaxIdleConnDuration       = time.Second * 10
 	DefaultMaxIdemponentCallAttempts = 5
 
-	DefaultHealthCheckerTime = time.Second * 30
+	DefaultHealthCheckerTime    = time.Second * 30
+	DefaultHealthCheckerTimeout = time.Second * 5
 
 	// No "unlimited" setting exists; see docs/adr/0003-bounded-proxy-timeout.md.
 	DefaultProxyTimeout = time.Second * 60
@@ -75,6 +89,9 @@ const (
 	// Bounds how long the proxy dialer and the Probe client reuse a resolved
 	// Backend IP; deployments with churning Backend IPs (k8s) set it short.
 	DefaultDNSCacheDuration = time.Minute
+
+	// net/http's HTTP/2 server default (it keeps it unexported).
+	DefaultHTTP2MaxConcurrentStreams = 250
 
 	TLSMinVersion12 = "1.2"
 	TLSMinVersion13 = "1.3"
@@ -99,16 +116,17 @@ type Middleware struct {
 }
 
 type Backend struct {
-	Url                       string        `yaml:"url"`
-	HealthCheckPath           string        `yaml:"health_check_path"`
-	Weight                    uint          `yaml:"weight,omitempty"`
-	MaxConnection             int           `yaml:"max_conn"`
-	MaxConnWaitTimeout        time.Duration `yaml:"max_conn_timeout"`
-	MaxConnDuration           time.Duration `yaml:"max_conn_duration"`
-	MaxIdleConnDuration       time.Duration `yaml:"max_idle_conn_duration"`
-	MaxIdemponentCallAttempts int           `yaml:"max_idemponent_call_attempts"`
-	ProxyTimeout              time.Duration `yaml:"-"`
-	DNSCacheDuration          time.Duration `yaml:"-"`
+	Url                       string                    `yaml:"url"`
+	HealthCheckPath           string                    `yaml:"health_check_path"`
+	HealthCheckStatus         types.ExpectedProbeStatus `yaml:"health_check_status"`
+	Weight                    uint                      `yaml:"weight,omitempty"`
+	MaxConnection             int                       `yaml:"max_conn"`
+	MaxConnWaitTimeout        time.Duration             `yaml:"max_conn_timeout"`
+	MaxConnDuration           time.Duration             `yaml:"max_conn_duration"`
+	MaxIdleConnDuration       time.Duration             `yaml:"max_idle_conn_duration"`
+	MaxIdemponentCallAttempts int                       `yaml:"max_idemponent_call_attempts"`
+	ProxyTimeout              time.Duration             `yaml:"-"`
+	DNSCacheDuration          time.Duration             `yaml:"-"`
 }
 
 func (b *Backend) GetHealthCheckURL() string {
@@ -126,6 +144,12 @@ type Logging struct {
 	Format    string `yaml:"format"`
 	Level     string `yaml:"level"`
 	AccessLog bool   `yaml:"access_log"`
+}
+
+// HTTP2Config mirrors http.Server.HTTP2; it is an HTTP/2-path section, inert
+// on http1.1.
+type HTTP2Config struct {
+	MaxConcurrentStreams int `yaml:"max_concurrent_streams"`
 }
 
 type Server struct {
@@ -152,6 +176,7 @@ type Server struct {
 	GracefulShutdownTimeout time.Duration `yaml:"graceful_shutdown_timeout"`
 	DNSCacheDuration        time.Duration `yaml:"dns_cache_duration"`
 	DisableKeepalive        bool          `yaml:"disable_keepalive"`
+	HTTP2                   HTTP2Config   `yaml:"http2"`
 }
 
 // TLSMinVersionValue maps the validated tls_min_version onto crypto/tls
@@ -167,18 +192,19 @@ func (s *Server) TLSMinVersionValue() uint16 {
 }
 
 type Config struct {
-	CustomHeaders     map[string]string `yaml:"custom_headers"`
-	HealthCheckerFunc types.IsHostAlive
-	HashFunc          types.HashFunc
-	Monitoring        Monitoring    `yaml:"monitoring"`
-	Type              string        `yaml:"type"`
-	Host              string        `yaml:"host"`
-	Port              string        `yaml:"port"`
-	Backends          []Backend     `yaml:"backends"`
-	Server            Server        `yaml:"server"`
-	Middlewares       []Middleware  `yaml:"middlewares"`
-	Logging           Logging       `yaml:"logging"`
-	HealthCheckerTime time.Duration `yaml:"health_checker_time"`
+	CustomHeaders        map[string]string `yaml:"custom_headers"`
+	HealthCheckerFunc    types.IsHostAlive
+	HashFunc             types.HashFunc
+	Monitoring           Monitoring    `yaml:"monitoring"`
+	Type                 string        `yaml:"type"`
+	Host                 string        `yaml:"host"`
+	Port                 string        `yaml:"port"`
+	Backends             []Backend     `yaml:"backends"`
+	Server               Server        `yaml:"server"`
+	Middlewares          []Middleware  `yaml:"middlewares"`
+	Logging              Logging       `yaml:"logging"`
+	HealthCheckerTime    time.Duration `yaml:"health_checker_time"`
+	HealthCheckerTimeout time.Duration `yaml:"health_checker_timeout"`
 }
 
 func (c *Config) GetAddr() string {
@@ -233,19 +259,26 @@ func (c *Config) PrepareConfig() error {
 	}
 
 	if c.Type == "" {
-		c.Type = "round-robin"
+		c.Type = RoundRobinType
 	}
 
 	if !helper.Contains(ValidTypes, c.Type) {
 		return fmt.Errorf("Please choose valid load balancing type e.g %v", ValidTypes)
 	}
 
-	if c.Type == "w-round-robin" && len(c.Backends) == 1 {
-		c.Type = "round-robin"
+	if c.Type == WeightedRoundRobinType && len(c.Backends) == 1 {
+		c.Type = RoundRobinType
 	}
 
 	if c.HealthCheckerTime <= 0 {
 		c.HealthCheckerTime = DefaultHealthCheckerTime
+	}
+
+	if c.HealthCheckerTimeout < 0 {
+		return fmt.Errorf("%w, got %v", ErrInvalidHealthCheckerTimeout, c.HealthCheckerTimeout)
+	}
+	if c.HealthCheckerTimeout == 0 {
+		c.HealthCheckerTimeout = DefaultHealthCheckerTimeout
 	}
 
 	if c.Monitoring.Host == "" {
@@ -278,7 +311,7 @@ func (c *Config) PrepareConfig() error {
 	// Default funcs
 	// TODO make more flexible
 	c.HashFunc = helper.HashFunc
-	c.HealthCheckerFunc = http.NewHttpClient(c.Server.DNSCacheDuration).IsHostAlive
+	c.HealthCheckerFunc = http.NewHttpClient(c.Server.DNSCacheDuration, c.HealthCheckerTimeout).IsHostAlive
 
 	return c.prepareBackends()
 }
@@ -293,12 +326,16 @@ func (c *Config) prepareBackends() error {
 		}
 		b.Url = addr
 
-		if c.Type == "w-round-robin" && b.Weight <= 0 {
+		if c.Type == WeightedRoundRobinType && b.Weight <= 0 {
 			return ErrInvalidWeight
 		}
 
 		if b.HealthCheckPath == "" {
 			b.HealthCheckPath = "/"
+		}
+
+		if b.HealthCheckStatus != types.AnySuccessOrRedirect && !isFinalHTTPStatus(int(b.HealthCheckStatus)) {
+			return fmt.Errorf("%w: backend at index %d, got %d", ErrInvalidHealthCheckStatus, i, b.HealthCheckStatus)
 		}
 
 		if b.MaxConnection <= 0 {
@@ -326,6 +363,10 @@ func (c *Config) prepareBackends() error {
 	}
 
 	return nil
+}
+
+func isFinalHTTPStatus(status int) bool {
+	return status >= fasthttp.StatusOK && status <= 599
 }
 
 // normalizeBackendAddress derives the dialable Backend address (host:port)
@@ -479,6 +520,14 @@ func (s *Server) applyServerDefaults() error {
 	}
 	if s.DNSCacheDuration == 0 {
 		s.DNSCacheDuration = DefaultDNSCacheDuration
+	}
+
+	// net/http silently replaces a value above math.MaxInt32 with its default.
+	if s.HTTP2.MaxConcurrentStreams > math.MaxInt32 {
+		return fmt.Errorf("%w, got %d", ErrInvalidHTTP2MaxConcurrentStreams, s.HTTP2.MaxConcurrentStreams)
+	}
+	if s.HTTP2.MaxConcurrentStreams <= 0 {
+		s.HTTP2.MaxConcurrentStreams = DefaultHTTP2MaxConcurrentStreams
 	}
 
 	return nil

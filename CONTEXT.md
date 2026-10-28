@@ -23,7 +23,7 @@ The dialable `host:port` divisor connects to, derived from the config `url` key 
 _Avoid_: backend URL, upstream address
 
 **Probe**:
-A single health-check request (GET on the Backend's `health_check_path`) sent to a Backend to decide whether it is Alive. A Probe succeeds when the Backend answers with a 2xx or 3xx status within the Probe timeout; a connection failure, a timeout, or any other status is a failed Probe. Redirects are not followed.
+A single health-check request (GET on the Backend's `health_check_path`) sent to a Backend to decide whether it is Alive. A Probe succeeds when the Backend answers with a 2xx or 3xx status within the Probe timeout (`health_checker_timeout`, one deadline covering dial, write and read); a connection failure, a timeout, or any other status is a failed Probe. A Backend with a `health_check_status` overrides that rule: only that exact status is a successful Probe. Redirects are not followed.
 _Avoid_: ping, heartbeat
 
 **Alive / Down**:

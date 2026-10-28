@@ -24,7 +24,7 @@ type Balancer interface {
 // moves Backends between Alive and Down, and tells the Balancer what it may
 // pick from.
 type Pool struct {
-	probe                func(url string) bool
+	probe                types.IsHostAlive
 	balancer             Balancer
 	stopHealthChecker    chan struct{}
 	healthCheckerDone    chan struct{}
@@ -38,7 +38,7 @@ type Pool struct {
 
 // NewPool Probes every Backend once, synchronously, and Joins the Alive ones;
 // the periodic Probe loop does not run until StartHealthChecker.
-func NewPool(backends []*Backend, probe func(url string) bool, healthCheckInterval time.Duration, b Balancer) *Pool {
+func NewPool(backends []*Backend, probe types.IsHostAlive, healthCheckInterval time.Duration, b Balancer) *Pool {
 	pool := &Pool{
 		backends:            backends,
 		probe:               probe,
@@ -49,7 +49,7 @@ func NewPool(backends []*Backend, probe func(url string) bool, healthCheckInterv
 	}
 
 	for _, backend := range backends {
-		if !pool.probe(backend.ProbeURL) {
+		if !pool.probe(backend.ProbeURL, backend.ExpectedProbeStatus) {
 			zap.S().Warnf("Backend is Down at startup, it will Rejoin once a Probe succeeds, Addr: %s", backend.Addr)
 			continue
 		}
@@ -102,7 +102,7 @@ func (p *Pool) ProbeAllBackends() {
 		if helper.IsClosed(p.stopHealthChecker) {
 			return
 		}
-		p.updateLiveness(backend, p.probe(backend.ProbeURL))
+		p.updateLiveness(backend, p.probe(backend.ProbeURL, backend.ExpectedProbeStatus))
 	}
 }
 
