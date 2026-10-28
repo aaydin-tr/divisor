@@ -42,7 +42,9 @@ func (m *mockServer) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 	}
 	if _, ok := req.Header["After"]; ok {
 		for _, h := range hopHeaders {
-			if string(h) != "Trailer" {
+			// Framing headers net/http writes itself; a bogus value makes the
+			// response unparseable (fasthttp rejects it as a 502).
+			if string(h) != "Trailer" && string(h) != "Transfer-Encoding" {
 				res.Header().Add(string(h), string(h))
 			}
 		}
@@ -1451,4 +1453,85 @@ func TestIncrementalHeaderUniquePerRequest(t *testing.T) {
 func TestBackendDialerUsesConfiguredDNSCacheDuration(t *testing.T) {
 	dialer := newBackendDialer(2 * time.Second)
 	assert.Equal(t, 2*time.Second, dialer.DNSCacheDuration)
+}
+
+const absoluteFormTargetWithCredentials = "GET http://url-user:url%40pass@divisor.example/api HTTP/1.1\r\n" +
+	"Host: divisor.example\r\n"
+
+// fasthttp writes URI userinfo as a Basic Authorization header that replaces
+// the client's; an explicit header must win, as in net/http.Client.
+func TestPreReqKeepsExplicitAuthorization(t *testing.T) {
+	for _, frontend := range frontends {
+		t.Run(frontend.name, func(t *testing.T) {
+			p, backendWire := newWireRecordingProxyClient()
+			frontend.proxy(t, p, absoluteFormTargetWithCredentials+"Authorization: Bearer explicit-token\r\n\r\n")
+
+			wire := <-backendWire
+			assert.True(t, strings.HasPrefix(wire, "GET /api HTTP/1.1\r\n"), "origin-form, no userinfo: %q", wire)
+			assert.Contains(t, wire, "\r\nAuthorization: Bearer explicit-token\r\n")
+			assert.NotContains(t, wire, "Basic")
+		})
+	}
+}
+
+// Without an explicit header the URL credentials apply, percent-decoded, and a
+// Middleware already sees them: the policy layer checks what the Backend gets.
+func TestPreReqURLCredentialsBecomeBasic(t *testing.T) {
+	const urlCredentials = "Basic dXJsLXVzZXI6dXJsQHBhc3M=" // url-user:url@pass
+	for _, frontend := range frontends {
+		t.Run(frontend.name, func(t *testing.T) {
+			var seenByMiddleware string
+			p, backendWire := newWireRecordingProxyClient(&mockMiddleware{onRequestFunc: func(ctx *middleware.Context) error {
+				seenByMiddleware = string(ctx.Request.Header.Peek(fasthttp.HeaderAuthorization))
+				return nil
+			}})
+			frontend.proxy(t, p, absoluteFormTargetWithCredentials+"\r\n")
+
+			wire := <-backendWire
+			assert.True(t, strings.HasPrefix(wire, "GET /api HTTP/1.1\r\n"), "origin-form, no userinfo: %q", wire)
+			assert.Contains(t, wire, "\r\nAuthorization: "+urlCredentials+"\r\n")
+			assert.Equal(t, urlCredentials, seenByMiddleware)
+		})
+	}
+}
+
+// fasthttp writes application/octet-stream for a request without a
+// Content-Type; the Backend must see exactly what the client sent.
+func TestPreReqDoesNotInventContentType(t *testing.T) {
+	for _, frontend := range frontends {
+		t.Run(frontend.name, func(t *testing.T) {
+			p, backendWire := newWireRecordingProxyClient()
+			frontend.proxy(t, p, "POST /api/items HTTP/1.1\r\nHost: divisor.example\r\nContent-Length: 2\r\n\r\n{}")
+
+			wire := <-backendWire
+			assert.NotContains(t, wire, "Content-Type")
+			assert.Equal(t, "{}", decodedBody(t, wire))
+		})
+	}
+}
+
+func TestPreReqKeepsExplicitContentType(t *testing.T) {
+	for _, frontend := range frontends {
+		t.Run(frontend.name, func(t *testing.T) {
+			p, backendWire := newWireRecordingProxyClient()
+			frontend.proxy(t, p, "POST /api/items HTTP/1.1\r\nHost: divisor.example\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nhi")
+
+			assert.Contains(t, <-backendWire, "\r\nContent-Type: text/plain\r\n")
+		})
+	}
+}
+
+// fasthttp's client sends User-Agent: fasthttp for a request without one.
+func TestBackendSeesOnlyTheClientUserAgent(t *testing.T) {
+	for _, frontend := range frontends {
+		t.Run(frontend.name, func(t *testing.T) {
+			p, backendWire := newWireRecordingProxyClient()
+			frontend.proxy(t, p, "GET /api HTTP/1.1\r\nHost: divisor.example\r\n\r\n")
+			assert.NotContains(t, <-backendWire, "User-Agent")
+
+			p, backendWire = newWireRecordingProxyClient()
+			frontend.proxy(t, p, "GET /api HTTP/1.1\r\nHost: divisor.example\r\nUser-Agent: curl/8.0\r\n\r\n")
+			assert.Contains(t, <-backendWire, "\r\nUser-Agent: curl/8.0\r\n")
+		})
+	}
 }

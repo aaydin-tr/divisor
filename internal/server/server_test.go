@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"net"
+	"net/http"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/aaydin-tr/divisor/mocks"
 	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // brokenListener fails every Accept permanently, the way a listener whose
@@ -103,6 +105,36 @@ func TestTLSMinVersionReachesBothStacks(t *testing.T) {
 		assert.NotNil(t, inner.TLSConfig)
 		assert.Equal(t, uint16(tls.VersionTLS13), inner.TLSConfig.MinVersion)
 	})
+}
+
+func TestNetHttpStackServesHTTP2AndHTTP1(t *testing.T) {
+	ln := localListener(t)
+	srv, _, err := Start(newConfig(t, config.Http2), &mocks.MockBalancer{}, ln)
+	require.NoError(t, err)
+	defer srv.Shutdown(context.Background())
+
+	for _, tc := range []struct {
+		name           string
+		enableProtocol func(*http.Protocols)
+		wantProtoMajor int
+	}{
+		{"HTTP/2 client", func(p *http.Protocols) { p.SetHTTP2(true) }, 2},
+		{"HTTP/1.1 client", func(p *http.Protocols) { p.SetHTTP1(true) }, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var protocols http.Protocols
+			tc.enableProtocol(&protocols)
+			client := &http.Client{Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				Protocols:       &protocols,
+			}}
+
+			res, err := client.Get("https://" + ln.Addr().String())
+			require.NoError(t, err)
+			defer res.Body.Close()
+			assert.Equal(t, tc.wantProtoMajor, res.ProtoMajor)
+		})
+	}
 }
 
 func TestUnsetTLSMinVersionLeavesTheRuntimeDefault(t *testing.T) {

@@ -11,6 +11,8 @@ import (
 
 	"github.com/aaydin-tr/divisor/core/types"
 	"github.com/aaydin-tr/divisor/pkg/config"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/valyala/fasthttp"
 )
 
@@ -192,6 +194,76 @@ func TestNetHttpAdapterIgnoresStaleContentLength(t *testing.T) {
 			}
 		})
 	}
+}
+
+// net/http's HTTP/2 server hands every request a non-nil Body, so a GET whose
+// HEADERS frame ended the stream must not reach the Backend as chunked.
+func TestNetHttpAdapterBodilessHTTP2Get(t *testing.T) {
+	p, backendWire := newWireRecordingProxyClient()
+	frontend := newHTTP2Frontend(t, p)
+
+	res, err := frontend.Client().Get(frontend.URL + "/api/health")
+	require.NoError(t, err)
+	res.Body.Close()
+	require.Equal(t, 2, res.ProtoMajor)
+
+	wire := <-backendWire
+	assert.True(t, strings.HasPrefix(wire, "GET /api/health HTTP/1.1\r\n"), wire)
+	assert.NotContains(t, wire, "Transfer-Encoding")
+	assert.NotContains(t, wire, "Content-Length")
+	assert.True(t, strings.HasSuffix(wire, "\r\n\r\n"), "no body after the header block: %q", wire)
+}
+
+// ContentLength 0 guarantees an empty HTTP/2 body whatever the method, so a
+// bodiless POST goes out like on the fasthttp listener: Content-Length 0.
+func TestNetHttpAdapterBodilessHTTP2Post(t *testing.T) {
+	p, backendWire := newWireRecordingProxyClient()
+	frontend := newHTTP2Frontend(t, p)
+
+	req, err := http.NewRequest(http.MethodPost, frontend.URL+"/api/items", nil)
+	require.NoError(t, err)
+	res, err := frontend.Client().Do(req)
+	require.NoError(t, err)
+	res.Body.Close()
+	require.Equal(t, 2, res.ProtoMajor)
+
+	wire := <-backendWire
+	assert.NotContains(t, wire, "Transfer-Encoding")
+	assert.Contains(t, wire, "\r\nContent-Length: 0\r\n")
+	assert.True(t, strings.HasSuffix(wire, "\r\n\r\n"), "no body after the header block: %q", wire)
+}
+
+func TestNetHttpAdapterHTTP2GetWithBody(t *testing.T) {
+	p, backendWire := newWireRecordingProxyClient()
+	frontend := newHTTP2Frontend(t, p)
+
+	// NopCloser hides the length, so the stream carries DATA without a
+	// content-length and the adapter has to read to know the body exists.
+	req, err := http.NewRequest(http.MethodGet, frontend.URL+"/api/search", io.NopCloser(strings.NewReader("payload")))
+	require.NoError(t, err)
+	res, err := frontend.Client().Do(req)
+	require.NoError(t, err)
+	res.Body.Close()
+	require.Equal(t, 2, res.ProtoMajor)
+
+	wire := <-backendWire
+	assert.Contains(t, wire, "\r\nTransfer-Encoding: chunked\r\n")
+	assert.Equal(t, "payload", decodedBody(t, wire), "the probed bytes are still forwarded")
+}
+
+func TestNetHttpAdapterPostWithoutLengthStaysChunked(t *testing.T) {
+	p, backendWire := newWireRecordingProxyClient()
+	frontend := newHTTP2Frontend(t, p)
+
+	req, err := http.NewRequest(http.MethodPost, frontend.URL+"/api/items", io.NopCloser(strings.NewReader("{}")))
+	require.NoError(t, err)
+	res, err := frontend.Client().Do(req)
+	require.NoError(t, err)
+	res.Body.Close()
+
+	wire := <-backendWire
+	assert.Contains(t, wire, "\r\nTransfer-Encoding: chunked\r\n")
+	assert.Equal(t, "{}", decodedBody(t, wire))
 }
 
 // trailerBody mimics net/http: the announced trailer's value appears in

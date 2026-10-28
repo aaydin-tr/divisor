@@ -2,10 +2,12 @@ package proxy
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"math"
 	"net"
+	"net/url"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -229,8 +231,35 @@ func (h *ProxyClient) preReq(req *fasthttp.Request, clientIP []byte, requestSequ
 
 	req.URI().SetSchemeBytes(httpB)
 	req.SetHostBytes(h.addrB)
+	moveURICredentialsToAuthorization(req)
+	// Otherwise fasthttp writes application/octet-stream for a request the
+	// client sent without a Content-Type.
+	req.Header.SetNoDefaultContentType(true)
 	appendForwardedFor(req, clientIP)
 	h.setCustomHeaders(req, clientIP, requestSequenceNumber)
+}
+
+// Left in the URI, userinfo replaces the client's Authorization header when
+// fasthttp writes the request. Precedence and decoding follow net/http.Client.
+func moveURICredentialsToAuthorization(req *fasthttp.Request) {
+	uri := req.URI()
+	if len(uri.Username()) == 0 && len(uri.Password()) == 0 {
+		return
+	}
+	if len(req.Header.Peek(fasthttp.HeaderAuthorization)) == 0 {
+		credentials := decodeUserinfo(uri.Username()) + ":" + decodeUserinfo(uri.Password())
+		req.Header.Set(fasthttp.HeaderAuthorization, "Basic "+base64.StdEncoding.EncodeToString(helper.S2B(credentials)))
+	}
+	uri.SetUsername("")
+	uri.SetPassword("")
+}
+
+func decodeUserinfo(percentEncoded []byte) string {
+	decoded, err := url.PathUnescape(helper.B2S(percentEncoded))
+	if err != nil {
+		return helper.B2S(percentEncoded)
+	}
+	return decoded
 }
 
 // appendForwardedFor adds the Client IP (CONTEXT.md) to the end of the
@@ -464,6 +493,7 @@ func NewProxyClient(backend *config.Backend, customHeaders map[string]string, mi
 		MaxIdleConnDuration:       backend.MaxIdleConnDuration,
 		MaxIdemponentCallAttempts: backend.MaxIdemponentCallAttempts,
 		MaxConnWaitTimeout:        backend.MaxConnWaitTimeout,
+		NoDefaultUserAgentHeader:  true,
 		// Without a pinned dialer, fasthttp uses proxy_timeout as the
 		// per-dial bound, hanging on unreachable Backends instead of
 		// failing 502 within DefaultDialTimeout (3s).

@@ -92,6 +92,7 @@ when `Pick` returns nil.
 - `ProxyClient` wraps `fasthttp.HostClient` for each backend
 - Removes hop-by-hop headers (Connection, Keep-Alive, etc.)
 - Sets `X-Forwarded-For` header with client IP
+- Forwards headers as the client sent them: no default `Content-Type` or `User-Agent`; URI userinfo becomes `Authorization: Basic` in `preReq` (a client Authorization header wins)
 - Supports custom headers with special variables: `$remote_addr`, `$time`, `$uuid`, `$incremental`
 - Tracks metrics: total requests, average response time, last use time, connection count
 
@@ -192,7 +193,7 @@ The Pool owns it: one Probe loop per process, stopped by closing a channel and d
 Uses `pkg/consistent` package implementing consistent hashing ring for stable IP-to-backend mapping.
 
 ### HTTP/2 Support
-When `server.http_version: http2`, divisor serves via `net/http` + `golang.org/x/net/http2` instead of fasthttp; `internal/proxy/nethttp_adapter.go` bridges each request into a synthetic `fasthttp.RequestCtx` so the balancer/proxy path stays shared. TLS is mandatory on this path (no h2c). Backends always speak HTTP/1.1 over plain HTTP.
+When `server.http_version: http2`, divisor serves via `net/http` (its built-in HTTP/2 server, enabled through `http.Server.Protocols`) instead of fasthttp; `internal/proxy/nethttp_adapter.go` bridges each request into a synthetic `fasthttp.RequestCtx` (via `fasthttpadaptor.ConvertNetHTTPRequestToFastHTTPRequest`) so the balancer/proxy path stays shared. TLS is mandatory on this path (no h2c). Backends always speak HTTP/1.1 over plain HTTP.
 
 ## Testing Notes
 
