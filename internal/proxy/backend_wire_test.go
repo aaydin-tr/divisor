@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aaydin-tr/divisor/middleware"
 	"github.com/aaydin-tr/divisor/pkg/config"
@@ -88,9 +89,15 @@ func proxyThroughNetHttpFrontend(t *testing.T, p *ProxyClient, rawRequest string
 // listener, proxying every request through p.
 func newHTTP2Frontend(t *testing.T, p *ProxyClient) *httptest.Server {
 	t.Helper()
+	return newHTTP2FrontendWithWriteTimeout(t, p, noWriteTimeout)
+}
+
+func newHTTP2FrontendWithWriteTimeout(t *testing.T, p *ProxyClient, writeTimeout time.Duration) *httptest.Server {
+	t.Helper()
 	server := httptest.NewUnstartedServer(NewNetHttpAdapter(&stubBalancer{handler: func(ctx *fasthttp.RequestCtx) {
 		_ = p.ReverseProxyHandler(ctx)
 	}}, 0))
+	server.Config.WriteTimeout = writeTimeout
 	server.EnableHTTP2 = true
 	server.StartTLS()
 	t.Cleanup(server.Close)

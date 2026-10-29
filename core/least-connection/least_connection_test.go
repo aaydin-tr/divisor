@@ -15,7 +15,7 @@ func TestLeastConnectionPicksFewestPending(t *testing.T) {
 		mocks.MockProxyOf(backends[0]).Pending = 5
 		mocks.MockProxyOf(backends[1]).Pending = 3
 		mocks.MockProxyOf(backends[2]).Pending = 1
-		lc := New(nil, backends)
+		lc := New(nil)
 		mocks.JoinAll(lc, backends)
 
 		for i := 0; i < 10; i++ {
@@ -25,7 +25,7 @@ func TestLeastConnectionPicksFewestPending(t *testing.T) {
 
 	t.Run("rotates among equally loaded Backends", func(t *testing.T) {
 		backends := mocks.NewBackends(3)
-		lc := New(nil, backends)
+		lc := New(nil)
 		mocks.JoinAll(lc, backends)
 
 		seen := map[*pool.Backend]int{}
@@ -40,7 +40,7 @@ func TestLeastConnectionPicksFewestPending(t *testing.T) {
 		for _, b := range backends {
 			mocks.MockProxyOf(b).Pending = 2
 		}
-		lc := New(nil, backends)
+		lc := New(nil)
 		mocks.JoinAll(lc, backends[:2])
 		lc.Pick(nil)
 
@@ -54,7 +54,7 @@ func TestLeastConnectionPicksFewestPending(t *testing.T) {
 
 	t.Run("the rotation shrinking never indexes past it", func(t *testing.T) {
 		backends := mocks.NewBackends(3)
-		lc := New(nil, backends)
+		lc := New(nil)
 		mocks.JoinAll(lc, backends)
 		lc.Pick(nil)
 		lc.Pick(nil)

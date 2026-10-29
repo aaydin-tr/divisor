@@ -38,6 +38,9 @@ func NewContext(ctx *fasthttp.RequestCtx) *Context {
 // last. A short-circuit (ErrShortCircuit) or any other error from OnRequest
 // skips every OnResponse; from OnResponse it skips the hooks that would run
 // after it (the ones before it in config order).
+//
+// On a Streamed response (CONTEXT.md) OnResponse sees the status and headers, never the body: status and header
+// changes are forwarded, a body set there is dropped, and ErrShortCircuit replaces the stream with ctx.Response.
 type Middleware interface {
 	OnRequest(ctx *Context) error
 	OnResponse(ctx *Context, err error) error

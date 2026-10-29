@@ -13,7 +13,7 @@ type roundRobin struct {
 	requestCounter atomic.Uint64
 }
 
-func New(*config.Config, []*pool.Backend) pool.Balancer {
+func New(*config.Config) pool.Balancer {
 	return &roundRobin{}
 }
 

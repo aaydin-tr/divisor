@@ -1,6 +1,7 @@
 package pool
 
 import (
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -11,9 +12,9 @@ import (
 	"go.uber.org/zap"
 )
 
-// Balancer picks a Backend for each request from the ones the Pool has handed
-// it. Join and Leave are called only from the Probe loop (one writer); Pick
-// runs on every request goroutine and returns nil when nothing is Alive.
+// Balancer picks a Backend for each request from the ones the Pool handed it.
+// Join and Leave come from one writer at a time (a Probe round or a Reload);
+// Pick runs on every request goroutine and returns nil when nothing is Alive.
 type Balancer interface {
 	Join(*Backend)
 	Leave(*Backend)
@@ -24,47 +25,49 @@ type Balancer interface {
 // moves Backends between Alive and Down, and tells the Balancer what it may
 // pick from.
 type Pool struct {
-	probe                types.IsHostAlive
-	balancer             Balancer
-	stopHealthChecker    chan struct{}
-	healthCheckerDone    chan struct{}
-	backends             []*Backend
-	healthCheckInterval  time.Duration
-	aliveBackendCount    atomic.Int64
-	healthCheckerStarted atomic.Bool
-	startOnce            sync.Once
-	stopOnce             sync.Once
+	balancer                   Balancer
+	stopHealthChecker          chan struct{}
+	healthCheckerDone          chan struct{}
+	healthCheckIntervalChanged chan struct{}
+	backends                   atomic.Pointer[[]*Backend]
+	healthCheckInterval        atomic.Int64
+	aliveBackendCount          atomic.Int64
+	healthCheckerStarted       atomic.Bool
+	startOnce                  sync.Once
+	stopOnce                   sync.Once
+
+	// transitionsMu makes Probe rounds and Backend set changes the Balancer's
+	// one writer; it guards the fields below.
+	transitionsMu    sync.Mutex
+	probe            types.IsHostAlive
+	nextBackendIndex int
 }
 
 // NewPool Probes every Backend once, synchronously, and Joins the Alive ones;
 // the periodic Probe loop does not run until StartHealthChecker.
 func NewPool(backends []*Backend, probe types.IsHostAlive, healthCheckInterval time.Duration, b Balancer) *Pool {
 	pool := &Pool{
-		backends:            backends,
-		probe:               probe,
-		healthCheckInterval: healthCheckInterval,
-		balancer:            b,
-		stopHealthChecker:   make(chan struct{}),
-		healthCheckerDone:   make(chan struct{}),
+		probe:                      probe,
+		balancer:                   b,
+		nextBackendIndex:           len(backends),
+		stopHealthChecker:          make(chan struct{}),
+		healthCheckerDone:          make(chan struct{}),
+		healthCheckIntervalChanged: make(chan struct{}, 1),
 	}
+	pool.backends.Store(&backends)
+	pool.healthCheckInterval.Store(int64(healthCheckInterval))
 
 	for _, backend := range backends {
-		if !pool.probe(backend.ProbeURL, backend.ExpectedProbeStatus) {
-			zap.S().Warnf("Backend is Down at startup, it will Rejoin once a Probe succeeds, Addr: %s", backend.Addr)
-			continue
-		}
-		pool.balancer.Join(backend)
-		backend.isAlive.Store(true)
-		pool.aliveBackendCount.Add(1)
-		zap.S().Infof("Backend is Alive and in rotation, Addr: %s", backend.Addr)
+		pool.registerNewBackend(backend, probe(backend.ProbeURL, backend.ExpectedProbeStatus))
 	}
 
 	return pool
 }
 
-// Backends returns every registered Backend in config order.
+// Backends returns every registered Backend in config order; callers must not
+// mutate the slice.
 func (p *Pool) Backends() []*Backend {
-	return p.backends
+	return *p.backends.Load()
 }
 
 func (p *Pool) AliveBackendCount() int {
@@ -82,28 +85,117 @@ func (p *Pool) StartHealthChecker() {
 
 func (p *Pool) runHealthCheckLoop() {
 	defer close(p.healthCheckerDone)
-	ticker := time.NewTicker(p.healthCheckInterval)
+	ticker := time.NewTicker(p.currentHealthCheckInterval())
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-p.stopHealthChecker:
 			return
+		case <-p.healthCheckIntervalChanged:
+			ticker.Reset(p.currentHealthCheckInterval())
 		case <-ticker.C:
 			p.ProbeAllBackends()
 		}
 	}
 }
 
-// ProbeAllBackends Probes every Backend and applies the liveness transitions. The
-// Probe loop and tests share it; it must not run concurrently with itself.
+func (p *Pool) currentHealthCheckInterval() time.Duration {
+	return time.Duration(p.healthCheckInterval.Load())
+}
+
+// ProbeAllBackends Probes every Backend and applies the liveness transitions.
+// The Probe loop and tests share it.
 func (p *Pool) ProbeAllBackends() {
-	for _, backend := range p.backends {
+	p.transitionsMu.Lock()
+	defer p.transitionsMu.Unlock()
+	for _, backend := range p.Backends() {
 		if helper.IsClosed(p.stopHealthChecker) {
 			return
 		}
 		p.updateLiveness(backend, p.probe(backend.ProbeURL, backend.ExpectedProbeStatus))
 	}
+}
+
+// SetProbeSettings replaces the Probe and the Probe loop interval; the next
+// Probe (a round, or a Backend added by ReplaceBackends) uses them.
+func (p *Pool) SetProbeSettings(probe types.IsHostAlive, healthCheckInterval time.Duration) {
+	p.transitionsMu.Lock()
+	p.probe = probe
+	p.transitionsMu.Unlock()
+
+	p.healthCheckInterval.Store(int64(healthCheckInterval))
+	select {
+	case p.healthCheckIntervalChanged <- struct{}{}:
+	default:
+	}
+}
+
+// ReplaceBackends makes backendsInConfigOrder the registered set (a Reload):
+// survivors keep their Index, liveness and stats, added Backends get a
+// never-used Index and a Probe, removed ones Leave and close. A no-op after
+// Shutdown.
+func (p *Pool) ReplaceBackends(backendsInConfigOrder []*Backend) {
+	p.transitionsMu.Lock()
+	defer p.transitionsMu.Unlock()
+	if helper.IsClosed(p.stopHealthChecker) {
+		return
+	}
+
+	runningBackends := p.Backends()
+	var addedBackends []*Backend
+	for _, backend := range backendsInConfigOrder {
+		if slices.Contains(runningBackends, backend) {
+			continue
+		}
+		backend.Index = p.nextBackendIndex
+		p.nextBackendIndex++
+		addedBackends = append(addedBackends, backend)
+	}
+	for addedPosition, isAlive := range p.probeConcurrently(addedBackends) {
+		p.registerNewBackend(addedBackends[addedPosition], isAlive)
+	}
+
+	// Removed Backends Leave only after the added ones Joined, so replacing
+	// every Backend never empties the rotation in between.
+	nextBackends := slices.Clone(backendsInConfigOrder)
+	p.backends.Store(&nextBackends)
+	for _, backend := range runningBackends {
+		if !slices.Contains(nextBackends, backend) {
+			p.removeBackend(backend)
+		}
+	}
+}
+
+// probeConcurrently bounds a Reload adding many unreachable Backends to one
+// Probe timeout, not one per Backend; it holds up Probe rounds and shutdown.
+func (p *Pool) probeConcurrently(backends []*Backend) []bool {
+	isAlive := make([]bool, len(backends))
+	var probes sync.WaitGroup
+	for position, backend := range backends {
+		probes.Go(func() {
+			isAlive[position] = p.probe(backend.ProbeURL, backend.ExpectedProbeStatus)
+		})
+	}
+	probes.Wait()
+	return isAlive
+}
+
+func (p *Pool) registerNewBackend(backend *Backend, isAlive bool) {
+	if !isAlive {
+		zap.S().Warnf("Backend is Down, it will join the rotation once a Probe succeeds, Addr: %s", backend.Addr)
+		return
+	}
+	p.joinRotation(backend)
+	zap.S().Infof("Backend is Alive and in rotation, Addr: %s", backend.Addr)
+}
+
+func (p *Pool) removeBackend(backend *Backend) {
+	if backend.isAlive.Load() {
+		p.leaveRotation(backend)
+	}
+	closeConnections(backend)
+	zap.S().Infof("Backend removed from the Pool, Addr: %s", backend.Addr)
 }
 
 func (p *Pool) updateLiveness(backend *Backend, isAlive bool) {
@@ -115,24 +207,39 @@ func (p *Pool) updateLiveness(backend *Backend, isAlive bool) {
 		// A Rejoining Backend starts unmeasured: its score from before it
 		// went Down — possibly a failure penalty — says nothing about it now.
 		backend.Proxy.ResetRecentResponseTime()
-		p.balancer.Join(backend)
-		backend.isAlive.Store(true)
-		p.aliveBackendCount.Add(1)
+		p.joinRotation(backend)
 		zap.S().Infof("Backend is Alive again, Rejoining rotation, Addr: %s", backend.Addr)
 		return
 	}
 
+	zap.S().Infof("Backend is Down, leaving rotation, Addr: %s", backend.Addr)
+	p.leaveRotation(backend)
+}
+
+func (p *Pool) joinRotation(backend *Backend) {
+	p.balancer.Join(backend)
+	backend.isAlive.Store(true)
+	p.aliveBackendCount.Add(1)
+}
+
+func (p *Pool) leaveRotation(backend *Backend) {
 	p.balancer.Leave(backend)
 	backend.isAlive.Store(false)
-	zap.S().Infof("Backend is Down, leaving rotation, Addr: %s", backend.Addr)
 	if p.aliveBackendCount.Add(-1) == 0 {
 		zap.S().Warn("All backends are down, serving 503 until a backend rejoins")
 	}
 }
 
+func closeConnections(backend *Backend) {
+	if err := backend.Proxy.Close(); err != nil {
+		zap.S().Errorf("Error closing proxy connection: %s", err)
+	}
+}
+
 func (p *Pool) Stats() []types.ProxyStat {
-	stats := make([]types.ProxyStat, len(p.backends))
-	for i, backend := range p.backends {
+	backends := p.Backends()
+	stats := make([]types.ProxyStat, len(backends))
+	for i, backend := range backends {
 		stat := backend.Proxy.Stat()
 		stat.IsHostAlive = backend.isAlive.Load()
 		stat.BackendHash = uint32(backend.Index)
@@ -155,10 +262,8 @@ func (p *Pool) Shutdown() error {
 		}
 	}
 
-	for _, backend := range p.backends {
-		if err := backend.Proxy.Close(); err != nil {
-			zap.S().Errorf("Error closing proxy connection: %s", err)
-		}
+	for _, backend := range p.Backends() {
+		closeConnections(backend)
 	}
 	return nil
 }

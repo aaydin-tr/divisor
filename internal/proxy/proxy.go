@@ -90,6 +90,9 @@ type ProxyClient struct {
 	Addr                 string
 	addrB                []byte
 	proxyTimeout         time.Duration
+	streaming            bool
+	streamIdleTimeout    time.Duration
+	openStreamCount      atomic.Int64
 }
 
 func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
@@ -103,20 +106,25 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 
 	shortCircuited := false
 	if logger.AccessLogEnabled() {
-		clientSentMethod := string(ctx.Method())
-		clientSentPath := string(ctx.Path())
+		// Copied out of ctx now: a Middleware may rewrite them, and a Streamed
+		// response's line may be written after fasthttp has reused ctx.
+		accessLog := logger.AccessLogEntry{
+			ClientIP:        helper.B2S(clientIP),
+			Method:          string(ctx.Method()),
+			Path:            string(ctx.Path()),
+			Backend:         h.Addr,
+			RequestSequence: requestSequenceNumber,
+		}
 		defer func() {
-			logger.LogAccess(&logger.AccessLogEntry{
-				ClientIP:        helper.B2S(clientIP),
-				Method:          clientSentMethod,
-				Path:            clientSentPath,
-				Status:          res.StatusCode(),
-				Backend:         h.Addr,
-				Duration:        time.Since(s),
-				BytesOut:        responseBytesOut(res),
-				RequestSequence: requestSequenceNumber,
-				ShortCircuit:    shortCircuited,
-			})
+			accessLog.Status = res.StatusCode()
+			accessLog.ShortCircuit = shortCircuited
+			if forwardedStream, isStreamed := streamedBodyOf(res); isStreamed {
+				forwardedStream.logAccessAtEnd(&accessLog, s)
+				return
+			}
+			accessLog.Duration = time.Since(s)
+			accessLog.BytesOut = responseBytesOut(res)
+			logger.LogAccess(&accessLog)
 		}()
 	}
 
@@ -134,23 +142,22 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 		}
 	}
 
-	// fasthttp treats DoTimeout(0) as already expired, not "no deadline".
-	var serverErr error
-	if h.proxyTimeout > 0 {
-		serverErr = h.proxy.DoTimeout(req, res, h.proxyTimeout)
-	} else {
-		serverErr = h.proxy.Do(req, res)
-	}
-	// Scored here, before OnResponse: the score is the Backend's, whatever a
+	// Scored before OnResponse: the score is the Backend's, whatever a
 	// Middleware does with its response afterwards.
-	if serverErr != nil {
-		h.recordFailure(time.Since(s))
+	var stream *streamedBody
+	var serverErr error
+	if h.streaming {
+		stream, serverErr = h.forwardAllowingStream(req, res, s)
 	} else {
-		h.recordResponseTime(time.Since(s))
+		serverErr = h.doWithProxyTimeout(req, res)
+		h.recordOutcome(serverErr, time.Since(s))
 	}
 
 	if h.middlewareExecutor != nil {
 		if err := h.middlewareExecutor.RunOnResponse(mwCtx, serverErr); err != nil {
+			if stream != nil {
+				stream.endWith(streamEndReplacedByMiddleware, err) //nolint:errcheck
+			}
 			h.postRes(res)
 			if isShortCircuit(err) {
 				shortCircuited = true
@@ -165,7 +172,26 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 	if serverErr != nil {
 		h.serverError(res, serverErr)
 	}
+	if stream != nil {
+		stream.forwardTo(res)
+	}
 	return serverErr
+}
+
+// fasthttp treats DoTimeout(0) as already expired, not "no deadline".
+func (h *ProxyClient) doWithProxyTimeout(req *fasthttp.Request, res *fasthttp.Response) error {
+	if h.proxyTimeout > 0 {
+		return h.proxy.DoTimeout(req, res, h.proxyTimeout)
+	}
+	return h.proxy.Do(req, res)
+}
+
+func (h *ProxyClient) recordOutcome(serverErr error, elapsed time.Duration) {
+	if serverErr != nil {
+		h.recordFailure(elapsed)
+	} else {
+		h.recordResponseTime(elapsed)
+	}
 }
 
 func responseBytesOut(res *fasthttp.Response) int {
@@ -435,8 +461,10 @@ func (h *ProxyClient) Stat() types.ProxyStat {
 	}
 }
 
+// PendingRequests counts a Streamed response until it closes; fasthttp's own
+// count ends when the headers arrive.
 func (h *ProxyClient) PendingRequests() int {
-	return h.proxy.PendingRequests()
+	return h.proxy.PendingRequests() + int(h.openStreamCount.Load())
 }
 
 // AvgResponseTime returns the lifetime average over successful requests in
@@ -486,6 +514,10 @@ func NewProxyClient(backend *config.Backend, customHeaders map[string]string, mi
 		return nil
 	}
 
+	dial := newBackendDialer(backend.DNSCacheDuration).Dial
+	if backend.Streaming {
+		dial = dialBackendConn(dial)
+	}
 	proxyClient := &fasthttp.HostClient{
 		Addr:                      backend.Url,
 		MaxConns:                  backend.MaxConnection,
@@ -497,7 +529,7 @@ func NewProxyClient(backend *config.Backend, customHeaders map[string]string, mi
 		// Without a pinned dialer, fasthttp uses proxy_timeout as the
 		// per-dial bound, hanging on unreachable Backends instead of
 		// failing 502 within DefaultDialTimeout (3s).
-		Dial: newBackendDialer(backend.DNSCacheDuration).Dial,
+		Dial: dial,
 	}
 
 	return &ProxyClient{
@@ -511,5 +543,7 @@ func NewProxyClient(backend *config.Backend, customHeaders map[string]string, mi
 		customHeaders:        customHeaders,
 		middlewareExecutor:   middlewareExecutor,
 		proxyTimeout:         backend.ProxyTimeout,
+		streaming:            backend.Streaming,
+		streamIdleTimeout:    backend.StreamIdleTimeout,
 	}
 }

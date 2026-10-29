@@ -25,7 +25,7 @@ func clientIP(i int) string { return fmt.Sprintf("10.%d.%d.%d", i%7, i/3, i) }
 
 func TestIPHashIsStablePerClient(t *testing.T) {
 	backends := mocks.NewBackends(3)
-	ih := New(ipHashConfig(3), backends)
+	ih := New(ipHashConfig(3))
 	mocks.JoinAll(ih, backends)
 
 	seen := map[*pool.Backend]int{}
@@ -40,7 +40,7 @@ func TestIPHashIsStablePerClient(t *testing.T) {
 func TestIPHashAcceptsBackendsInAnyOrder(t *testing.T) {
 	backends := mocks.NewBackends(3)
 	shuffled := []*pool.Backend{backends[2], backends[0], backends[1]}
-	ih := New(ipHashConfig(3), shuffled)
+	ih := New(ipHashConfig(3))
 	mocks.JoinAll(ih, shuffled)
 
 	for i := 0; i < clientSamples; i++ {
@@ -51,7 +51,7 @@ func TestIPHashAcceptsBackendsInAnyOrder(t *testing.T) {
 
 func TestIPHashNothingAlive(t *testing.T) {
 	backends := mocks.NewBackends(2)
-	ih := New(ipHashConfig(2), backends)
+	ih := New(ipHashConfig(2))
 	assert.Nil(t, ih.Pick(mocks.RequestFrom("10.0.0.1")))
 
 	ih.Join(backends[0])
@@ -64,7 +64,7 @@ func TestDuplicateAddressTwinKeepsItsVirtualNodes(t *testing.T) {
 	backends[1].Addr = backends[0].Addr
 	cfg := ipHashConfig(2)
 	cfg.Backends[1].Url = cfg.Backends[0].Url
-	ih := New(cfg, backends)
+	ih := New(cfg)
 	mocks.JoinAll(ih, backends)
 
 	before := make([]*pool.Backend, clientSamples)
@@ -88,7 +88,7 @@ func TestDuplicateAddressTwinKeepsItsVirtualNodes(t *testing.T) {
 func TestIPHashSpreadsClientsEvenly(t *testing.T) {
 	const backendCount, clients = 3, 10000
 	backends := mocks.NewBackends(backendCount)
-	ih := New(ipHashConfig(backendCount), backends)
+	ih := New(ipHashConfig(backendCount))
 	mocks.JoinAll(ih, backends)
 
 	share := map[*pool.Backend]int{}
@@ -98,5 +98,38 @@ func TestIPHashSpreadsClientsEvenly(t *testing.T) {
 	ideal := clients / backendCount
 	for b, got := range share {
 		assert.InDelta(t, ideal, got, float64(ideal)*0.25, "Backend %s share %d is more than 25%% off the ideal %d", b.Addr, got, ideal)
+	}
+}
+
+// A Reload hands the Balancer Backends it was not constructed with, under an
+// Index past the boot-time ones; only the clients they take over move.
+func TestIPHashBackendAddedAfterConstructionTakesOverSomeClients(t *testing.T) {
+	backends := mocks.NewBackends(2)
+	ih := New(ipHashConfig(2))
+	mocks.JoinAll(ih, backends)
+	before := make([]*pool.Backend, clientSamples)
+	for i := range before {
+		before[i] = ih.Pick(mocks.RequestFrom(clientIP(i)))
+	}
+
+	added := mocks.NewBackend("localhost:9000")
+	added.Index = 7
+	ih.Join(added)
+
+	movedToAdded := 0
+	for i := 0; i < clientSamples; i++ {
+		picked := ih.Pick(mocks.RequestFrom(clientIP(i)))
+		if picked == added {
+			movedToAdded++
+			continue
+		}
+		assert.Same(t, before[i], picked, "client %d moved between the Backends that were already there", i)
+	}
+	assert.NotZero(t, movedToAdded, "the added Backend takes over some clients")
+
+	ih.Leave(added)
+	ih.Leave(backends[0])
+	for i := 0; i < clientSamples; i++ {
+		assert.Same(t, backends[1], ih.Pick(mocks.RequestFrom(clientIP(i))))
 	}
 }

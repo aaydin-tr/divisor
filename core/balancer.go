@@ -16,7 +16,7 @@ import (
 	"go.uber.org/zap"
 )
 
-var balancers = map[string]func(*config.Config, []*pool.Backend) pool.Balancer{
+var balancers = map[string]func(*config.Config) pool.Balancer{
 	config.RoundRobinType:         round_robin.New,
 	config.WeightedRoundRobinType: w_round_robin.New,
 	config.IPHashType:             ip_hash.New,
@@ -25,45 +25,80 @@ var balancers = map[string]func(*config.Config, []*pool.Backend) pool.Balancer{
 	config.LeastResponseTimeType:  least_response_time.New,
 }
 
-// loadBalancer is the Pool plus a Balancer, as the rest of the process sees
+// LoadBalancer is the Pool plus a Balancer, as the rest of the process sees
 // them.
+type LoadBalancer interface {
+	types.IBalancer
+	// ApplyReload swaps in an accepted Reload's Backend set and Probe
+	// settings; calls must not overlap.
+	ApplyReload(plan *config.ReloadPlan)
+}
+
 type loadBalancer struct {
-	pool     *pool.Pool
-	balancer pool.Balancer
+	pool            *pool.Pool
+	balancer        pool.Balancer
+	newBackendProxy func(*config.Backend) proxy.IProxyClient
 }
 
 // NewBalancer wires the config into Backends, a Balancer and a Pool. It
 // returns nil only when the type is unknown; zero Alive Backends at startup
 // is a served state (503 until a Probe lets one Rejoin), so orchestrated
 // deploys can start divisor before its Backends.
-func NewBalancer(cfg *config.Config, middlewareExecutor *middleware.Executor, proxyFunc proxy.ProxyFunc) types.IBalancer {
+func NewBalancer(cfg *config.Config, middlewareExecutor *middleware.Executor, proxyFunc proxy.ProxyFunc) LoadBalancer {
 	newBalancer, ok := balancers[cfg.Type]
 	if !ok {
 		zap.S().Errorf("Unknown balancer type %q", cfg.Type)
 		return nil
 	}
 
+	poolAndBalancer := &loadBalancer{newBackendProxy: func(backendConfig *config.Backend) proxy.IProxyClient {
+		return proxyFunc(backendConfig, cfg.CustomHeaders, middlewareExecutor)
+	}}
 	backends := make([]*pool.Backend, 0, len(cfg.Backends))
 	for i := range cfg.Backends {
-		b := &cfg.Backends[i]
-		backends = append(backends, &pool.Backend{
-			Index:               i,
-			Addr:                b.Url,
-			Weight:              b.Weight,
-			ProbeURL:            b.GetHealthCheckURL(),
-			ExpectedProbeStatus: b.HealthCheckStatus,
-			Proxy:               proxyFunc(b, cfg.CustomHeaders, middlewareExecutor),
-		})
+		backend := poolAndBalancer.newBackend(&cfg.Backends[i])
+		backend.Index = i
+		backends = append(backends, backend)
 	}
 
-	balancer := newBalancer(cfg, backends)
-	p := pool.NewPool(backends, cfg.HealthCheckerFunc, cfg.HealthCheckerTime, balancer)
-	if p.AliveBackendCount() == 0 {
+	poolAndBalancer.balancer = newBalancer(cfg)
+	poolAndBalancer.pool = pool.NewPool(backends, cfg.HealthCheckerFunc, cfg.HealthCheckerTime, poolAndBalancer.balancer)
+	if poolAndBalancer.pool.AliveBackendCount() == 0 {
 		zap.S().Warn("No Backend is Alive at startup; serving 503 until a Probe succeeds")
 	}
-	p.StartHealthChecker()
+	poolAndBalancer.pool.StartHealthChecker()
 
-	return &loadBalancer{pool: p, balancer: balancer}
+	return poolAndBalancer
+}
+
+func (l *loadBalancer) newBackend(backendConfig *config.Backend) *pool.Backend {
+	return &pool.Backend{
+		Addr:                backendConfig.Url,
+		Weight:              backendConfig.Weight,
+		ProbeURL:            backendConfig.GetHealthCheckURL(),
+		ExpectedProbeStatus: backendConfig.HealthCheckStatus,
+		Proxy:               l.newBackendProxy(backendConfig),
+	}
+}
+
+// ApplyReload relies on the Pool listing its Backends in the running config's
+// order, which holds while Reloads do not overlap.
+func (l *loadBalancer) ApplyReload(plan *config.ReloadPlan) {
+	nextConfig := plan.NextConfig
+	runningBackends := l.pool.Backends()
+	nextBackends := make([]*pool.Backend, len(nextConfig.Backends))
+	for _, kept := range plan.KeptBackends {
+		nextBackends[kept.NextPosition] = runningBackends[kept.RunningPosition]
+	}
+	for _, nextPosition := range plan.AddedBackendNextPositions {
+		nextBackends[nextPosition] = l.newBackend(&nextConfig.Backends[nextPosition])
+	}
+
+	// Setting them restarts the Probe loop's timer: frequent Reloads would starve its rounds.
+	if plan.ProbeSettingsChanged {
+		l.pool.SetProbeSettings(nextConfig.HealthCheckerFunc, nextConfig.HealthCheckerTime)
+	}
+	l.pool.ReplaceBackends(nextBackends)
 }
 
 func (l *loadBalancer) Serve() func(ctx *fasthttp.RequestCtx) {

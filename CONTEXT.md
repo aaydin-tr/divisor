@@ -18,6 +18,10 @@ _Avoid_: algorithm, strategy, scheduler
 All configured Backends together with each one's liveness. The Pool runs the Probes, moves Backends between Alive and Down, and tells the Balancer which Backends it may pick from; the Balancer never decides liveness itself.
 _Avoid_: server list, server map, registry
 
+**Index**:
+A Backend's identity number for the life of the process: its config position at boot, and a number never used before for a Backend a Reload adds. It never changes when the list is reordered or shrinks, so after the first Reload that adds a Backend it no longer matches the config position. Shown as `backend_hash` in `/stats` and `/metrics`; ip-hash places a Backend's Virtual nodes by it.
+_Avoid_: backend hash, backend ID, position
+
 **Backend address**:
 The dialable `host:port` divisor connects to, derived from the config `url` key by validation: an optional `http://` scheme and a bare trailing slash are accepted and stripped, a missing port defaults to 80; a path, query, userinfo, or `https://` scheme is rejected at startup.
 _Avoid_: backend URL, upstream address
@@ -35,7 +39,7 @@ A Down Backend returning to the traffic rotation after a successful Probe.
 _Avoid_: recovery, re-add
 
 **Pending request**:
-A request divisor has forwarded to a Backend and not yet received the response for. It is what least-connection counts and compares — not TCP connections.
+A request divisor has forwarded to a Backend and not yet received the response for; a Streamed response stays pending until its stream ends. It is what least-connection counts and compares — not TCP connections.
 _Avoid_: in-flight request, active connection, open connection
 
 **Client IP**:
@@ -55,7 +59,7 @@ A user-supplied Go snippet, declared in the config file, that runs before and/or
 _Avoid_: plugin, hook, interceptor
 
 **Short-circuit**:
-A Middleware answering the request itself: from `OnRequest`, so the Backend is never asked, or from `OnResponse`, replacing a Backend failure with a response of its own. Divisor sends that response unchanged, and no later Middleware runs: from `OnRequest`, the Middlewares after it (and no `OnResponse` at all); from `OnResponse`, the Middlewares before it in config order, since `OnResponse` runs in reverse order.
+A Middleware answering the request itself: from `OnRequest`, so the Backend is never asked, or from `OnResponse`, replacing the Backend's answer (typically a failure, or a Streamed response before its first body byte) with a response of its own. Divisor sends that response unchanged, and no later Middleware runs: from `OnRequest`, the Middlewares after it (and no `OnResponse` at all); from `OnResponse`, the Middlewares before it in config order, since `OnResponse` runs in reverse order.
 _Avoid_: handled, override, fallback, intercept, abort
 
 **Request sequence number**:
@@ -63,15 +67,15 @@ The position of a request among all requests divisor has routed to one Backend s
 _Avoid_: incremental counter, request counter, request ID
 
 **Access log**:
-One JSON line per request divisor answers, written to stdout, describing who asked and how it was served: Client IP, method and path as the client sent them (a Middleware rewrite is not logged), status, the Backend that served it (or that a Middleware short-circuited), duration, bytes out, and the Request sequence number. Off by default. Application logs go to stderr; the access log is the only thing on stdout.
+One JSON line per request divisor answers, written to stdout, describing who asked and how it was served: Client IP, method and path as the client sent them (a Middleware rewrite is not logged), status, the Backend that served it (or that a Middleware short-circuited), duration, bytes out, and the Request sequence number. A Streamed response's line is written when its stream ends, so it covers the whole stream. Off by default. Application logs go to stderr; the access log is the only thing on stdout.
 _Avoid_: request log, traffic log
 
 **Streamed response**:
-A Backend response divisor forwards to the client as bytes arrive instead of buffering it whole — what SSE and long-polling need. `OnResponse` sees its status and headers, never its body; a client disconnect aborts the Backend stream.
+A Backend response divisor forwards to the client as bytes arrive instead of buffering it whole — what Server-Sent Events and large downloads need. Opt-in (`server.streaming`); once on, a response streams when it is an event stream (`text/event-stream`) or declares no length, and every other response is still buffered. `OnResponse` sees its status and headers, never its body, and can still Short-circuit before the first body byte; a client disconnect aborts the Backend stream.
 _Avoid_: SSE mode, passthrough, chunked mode
 
 **Reload**:
-Applying an edited config file to a running divisor without restart: only the Backend set and Probe settings may change; an edit touching any other key — or an invalid new config — is rejected, divisor keeps serving with the old config and logs why. Triggered by a change to the config file or by SIGHUP.
+Applying an edited config file to a running divisor without restart: only the Backend set and Probe settings may change; an edit touching any other key — or an invalid new config — is rejected as a whole, divisor keeps serving with the old config and logs why. An entry left as it was keeps its Backend (liveness, stats) even if it moved in the list; a changed entry is a new Backend, so the old one is removed and the new one added. Triggered by SIGHUP or by a change to the config file, including a ConfigMap update (which replaces the file rather than writing it); a burst of changes is one Reload.
 _Avoid_: hot reload, live update, refresh
 
 ### Integration testing
@@ -81,7 +85,7 @@ The black-box test suite in which divisor and its Backends each run as Docker co
 _Avoid_: e2e suite, docker tests
 
 **Echo backend**:
-The purpose-built test Backend image that identifies which instance served a request and echoes the request back (method, headers, body), with knobs for delay and forced failure.
+The purpose-built test Backend image that identifies which instance served a request and echoes the request back (method, headers, body), with knobs for delay and forced failure, plus an endpoint that streams Server-Sent Events.
 _Avoid_: mock server, stub, fake
 
 **Scenario**:

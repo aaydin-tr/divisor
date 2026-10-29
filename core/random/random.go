@@ -12,7 +12,7 @@ type random struct {
 	pool.Rotation
 }
 
-func New(*config.Config, []*pool.Backend) pool.Balancer {
+func New(*config.Config) pool.Balancer {
 	return &random{}
 }
 

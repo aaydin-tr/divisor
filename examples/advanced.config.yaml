@@ -33,9 +33,11 @@ server:
   tcp_keepalive_period: 0s # Period between tcp keep-alive messages. TCP keep-alive period is determined by operation system by default. Default: 0
   concurrency: 262144 # The maximum number of concurrent connections the server may serve. Default: 262144
   read_timeout: 0s # ReadTimeout is the amount of time allowed to read the full request including body. Default: unlimited
-  write_timeout: 0s # WriteTimeout is the maximum duration before timing out writes of the response. Default: unlimited
+  write_timeout: 0s # WriteTimeout is the maximum duration before timing out writes of the response; a non-zero value also caps a whole streamed response. Default: unlimited
   idle_timeout: 0s # IdleTimeout is the maximum amount of time to wait for the next request when keep-alive is enabled. Default: unlimited
-  proxy_timeout: 60s # Bound on each upstream attempt (dial + full round trip to the backend); expiry returns 504. 0 means the default, not unlimited. Default: 60 seconds
+  proxy_timeout: 60s # Bound on each upstream attempt (dial + full round trip to the backend); expiry returns 504. 0 means the default, not unlimited. For a streamed response it bounds the time to the first response byte. Default: 60 seconds
+  streaming: false # Forward a backend response as its bytes arrive when it is text/event-stream or has no Content-Length; every other response is buffered as before. Default: false
+  stream_idle_timeout: 5m # Ends a streamed response after this long with no data from the backend. 0 means the default; there is no unlimited setting. Default: 5 minutes
   max_request_body_size: 4194304 # Maximum request body size in bytes; larger bodies get 413 and never reach a backend. 0 means the default. Default: 4194304 (4MB)
   read_buffer_size: 4096 # Per-connection read buffer in bytes; bounds request header size (raise it for large cookies/JWTs). HTTP/1.1 path only. Unset or <= 0 means the default. Default: 4096
   write_buffer_size: 4096 # Per-connection write buffer in bytes. HTTP/1.1 path only. Unset or <= 0 means the default. Default: 4096

@@ -41,6 +41,7 @@ This project is particularly suitable for large-scale applications and websites.
 - Supports round-robin, weighted round-robin, least-connection, least-response-time, IP hash, and random algorithms.
 - Supports TLS and HTTP/2 for the frontend server.
 - Support for custom middleware written in Go.
+- Opt-in response streaming (Server-Sent Events, chunked downloads) on HTTP/1.1 and HTTP/2.
 - Uses the fasthttp library for HTTP/1.1 and native Go `net/http` package for HTTP/2, ensuring high performance and scalability.
 - Offers multiple configuration options to suit user needs.
 - Can handle large-scale applications and websites.
@@ -135,9 +136,11 @@ backends:
 | server.tcp_keepalive_period | TCP keep-alive idle period for accepted client connections, on both HTTP/1.1 and HTTP/2 (Go's 15s default if unset) | duration | - |
 | server.concurrency | Max concurrent connections | int | `262144` |
 | server.read_timeout | Request read timeout | duration | unlimited |
-| server.write_timeout | Response write timeout | duration | unlimited |
+| server.write_timeout | Response write timeout; a non-zero value also caps a whole [streamed response](#streaming) | duration | unlimited |
 | server.idle_timeout | Keep-alive idle timeout | duration | unlimited |
-| server.proxy_timeout | Bound on each upstream attempt; expiry returns 504. `0` means the default, not unlimited | duration | `60s` |
+| server.proxy_timeout | Bound on each upstream attempt; expiry returns 504. `0` means the default, not unlimited. For a streamed response it bounds the time to the first response byte | duration | `60s` |
+| server.streaming | Forward a backend response as its bytes arrive when it is `text/event-stream` or has no `Content-Length`; every other response is buffered as before | bool | `false` |
+| server.stream_idle_timeout | Ends a streamed response after this long with no data from the backend, or with a write to the client blocked (a client that stopped reading). `0` means the default; there is no unlimited setting | duration | `5m` |
 | server.max_request_body_size | Max request body size in bytes; larger bodies get 413 and never reach a backend. `0` means the default | int | `4194304` (4MB) |
 | server.read_buffer_size | Per-connection read buffer in bytes; bounds request header size (raise for large cookies/JWTs). HTTP/1.1 path only. Unset or `<= 0` means the default | int | `4096` |
 | server.write_buffer_size | Per-connection write buffer in bytes. HTTP/1.1 path only. Unset or `<= 0` means the default | int | `4096` |
@@ -190,6 +193,19 @@ custom_headers:
 - **Custom header validation**: Only accepts the 4 special variables listed above
 - **Default algorithm**: If `type` is omitted or invalid, defaults to `round-robin`
 
+### Streaming
+
+With `server.streaming: true`, a backend response whose `Content-Type` is `text/event-stream` or that has no `Content-Length` (a chunked body) is forwarded as its bytes arrive, on HTTP/1.1 and HTTP/2 alike. Every other response is buffered exactly as with streaming off. A streamed response:
+
+- must deliver its status and headers within `server.proxy_timeout` (`504` otherwise), and ends once the backend sends nothing, or the client takes nothing, for `server.stream_idle_timeout`; while data flows it has no total time limit
+- is cut by a non-zero `server.write_timeout`, which bounds the whole response on both stacks: leave it unset, or set it above your longest stream
+- is aborted, backend connection included, the moment its client disconnects (an HTTP/1.1 client half-closing its connection counts as disconnecting)
+- never looks complete to the client when it ends any way but the backend finishing it (idle timeout, backend failure, write timeout): HTTP/2 resets the stream, HTTP/1.1 closes the connection without the final chunk
+- holds one backend connection while open, so `backends[].max_conn` caps concurrent streams per backend
+- drops the backend's trailers
+- keeps graceful shutdown waiting: a stream still open at `server.graceful_shutdown_timeout` makes divisor exit with status 1
+
+On HTTP/1.1, a request pipelined behind an open stream is not served: the connection closes after the stream and the client must resend it. What middleware sees of a streamed response is in [Streamed responses](#streamed-responses); the design is recorded in [ADR 0007](docs/adr/0007-opt-in-response-streaming.md).
 
 Please see [example config files](https://github.com/aaydin-tr/divisor/tree/main/examples)
 
@@ -311,6 +327,16 @@ func (g *Guard) OnResponse(ctx *middleware.Context, err error) error {
 
 Any *other* non-nil error means the middleware failed: divisor discards whatever the response holds (a backend reply, an earlier middleware's edits, anything you wrote) and answers `500` with `{"message": "<error>"}`. Returning `nil` never stops the chain. Wrapping the sentinel (`fmt.Errorf("…: %w", middleware.ErrShortCircuit)`) still counts; the match is `errors.Is`.
 
+### Streamed responses
+
+With `server.streaming` on, `OnResponse` runs on a [streamed response](#streaming) as soon as the backend's status and headers arrive, before the first body byte is forwarded:
+
+- `ctx.Response` holds the status and headers with an empty body; a middleware never sees a streamed body
+- status and header changes are forwarded with the stream; a body you set is dropped
+- `middleware.ErrShortCircuit` still works: the stream is closed and the response you wrote is sent instead; any other error is the usual `500`
+
+A response that is not streamed (it declares a `Content-Length` and is not `text/event-stream`) reaches `OnResponse` whole, as with streaming off, so body rewrites keep working on it.
+
 ### Request/Response Lifecycle
 
 The middleware execution flow allows you to intercept and control the complete request/response lifecycle. Here's exactly what happens when a request is processed:
@@ -339,6 +365,7 @@ The middleware execution flow allows you to intercept and control the complete r
 3.  **Backend Proxy**
     -   The request is forwarded to the selected backend server
     -   The response (or error) is captured and stored
+    -   A [streamed response](#streamed-responses) is captured at its status and headers; its body is forwarded after `OnResponse`
     -   **Important:** Even if the backend fails, execution continues to `OnResponse`
 
 4.  **OnResponse Middleware Execution**
@@ -418,8 +445,10 @@ While Divisor has several features and benefits, it also has some limitations to
 - Divisor currently operates at layer 7, meaning it is specifically designed for HTTP(S) load balancing. It does not support other protocols, such as TCP or UDP.
 - Divisor does not support HTTP/3, which may be important for some applications.
 - Divisor does not support HTTPS for backend servers. HTTPS only available for frontend server.
-- Divisor does not stream responses. The whole backend response is read before it is sent to the client (on HTTP/1.1 and HTTP/2 alike), so Server-Sent Events and other never-ending bodies do not work: nothing reaches the client and the request ends with `504` when `server.proxy_timeout` expires. Long-polling (a response that does eventually end) works; set `proxy_timeout` above the poll time.
-- A client that disconnects does not cancel its backend request; the backend attempt runs until it answers or `server.proxy_timeout` expires, and the result is dropped.
+- Response streaming is opt-in ([`server.streaming`](#streaming)). With it off (the default), the whole backend response is read before it is sent to the client, so Server-Sent Events and other never-ending bodies end with `504` when `server.proxy_timeout` expires. Long-polling (a response that does eventually end) works either way; set `proxy_timeout` above the poll time.
+- Request bodies are never streamed: an upload is buffered whole, up to `server.max_request_body_size`, before it is sent to the backend.
+- A client that disconnects does not cancel a buffered backend request; the attempt runs until the backend answers or `server.proxy_timeout` expires, and the result is dropped. A streamed response is aborted at once.
+- WebSockets and other connection upgrades are not supported.
 
 Please keep these limitations in mind when considering whether this load balancer is the right choice for your project.
 

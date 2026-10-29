@@ -47,6 +47,7 @@ var (
 	ErrInvalidHTTP2MaxConcurrentStreams = errors.New("server.http2.max_concurrent_streams must not exceed 2147483647")
 	ErrInvalidHealthCheckerTimeout      = errors.New("health_checker_timeout must not be negative")
 	ErrInvalidHealthCheckStatus         = errors.New("health_check_status must be a final HTTP status (200-599)")
+	ErrInvalidStreamIdleTimeout         = errors.New("server.stream_idle_timeout must not be negative")
 )
 
 const (
@@ -73,6 +74,9 @@ const (
 
 	// No "unlimited" setting exists; see docs/adr/0003-bounded-proxy-timeout.md.
 	DefaultProxyTimeout = time.Second * 60
+
+	// No "unlimited" setting exists either; see docs/adr/0007-opt-in-response-streaming.md.
+	DefaultStreamIdleTimeout = time.Minute * 5
 
 	DefaultMaxRequestBodySize = fasthttp.DefaultMaxRequestBodySize
 
@@ -127,6 +131,8 @@ type Backend struct {
 	MaxIdemponentCallAttempts int                       `yaml:"max_idemponent_call_attempts"`
 	ProxyTimeout              time.Duration             `yaml:"-"`
 	DNSCacheDuration          time.Duration             `yaml:"-"`
+	Streaming                 bool                      `yaml:"-"`
+	StreamIdleTimeout         time.Duration             `yaml:"-"`
 }
 
 func (b *Backend) GetHealthCheckURL() string {
@@ -177,6 +183,9 @@ type Server struct {
 	DNSCacheDuration        time.Duration `yaml:"dns_cache_duration"`
 	DisableKeepalive        bool          `yaml:"disable_keepalive"`
 	HTTP2                   HTTP2Config   `yaml:"http2"`
+	// Opt-in for 1.0 (ADR 0007); see CONTEXT.md, Streamed response.
+	Streaming         bool          `yaml:"streaming"`
+	StreamIdleTimeout time.Duration `yaml:"stream_idle_timeout"`
 }
 
 // TLSMinVersionValue maps the validated tls_min_version onto crypto/tls
@@ -229,9 +238,17 @@ func ParseConfigFile(path string) (*Config, error) {
 		return nil, err
 	}
 
+	config, err := ParseConfig(configFile)
+	if err != nil && !errors.Is(err, ErrConfigFileEmpty) {
+		return nil, fmt.Errorf("parsing config file %s: %w", path, err)
+	}
+	return config, err
+}
+
+func ParseConfig(configYAML []byte) (*Config, error) {
 	// KnownFields: a misspelled or removed key is a startup error, never a
 	// silently ignored setting.
-	decoder := yaml.NewDecoder(bytes.NewReader(configFile))
+	decoder := yaml.NewDecoder(bytes.NewReader(configYAML))
 	decoder.KnownFields(true)
 
 	var config Config
@@ -239,7 +256,7 @@ func ParseConfigFile(path string) (*Config, error) {
 		if errors.Is(err, io.EOF) {
 			return nil, ErrConfigFileEmpty
 		}
-		return nil, fmt.Errorf("parsing config file %s: %w", path, err)
+		return nil, err
 	}
 
 	return &config, nil
@@ -360,6 +377,8 @@ func (c *Config) prepareBackends() error {
 
 		b.ProxyTimeout = c.Server.ProxyTimeout
 		b.DNSCacheDuration = c.Server.DNSCacheDuration
+		b.Streaming = c.Server.Streaming
+		b.StreamIdleTimeout = c.Server.StreamIdleTimeout
 	}
 
 	return nil
@@ -488,6 +507,13 @@ func (s *Server) applyServerDefaults() error {
 	// Zero means the default, not unlimited (ADR 0003).
 	if s.ProxyTimeout <= 0 {
 		s.ProxyTimeout = DefaultProxyTimeout
+	}
+
+	if s.StreamIdleTimeout < 0 {
+		return fmt.Errorf("%w, got %v", ErrInvalidStreamIdleTimeout, s.StreamIdleTimeout)
+	}
+	if s.StreamIdleTimeout == 0 {
+		s.StreamIdleTimeout = DefaultStreamIdleTimeout
 	}
 
 	if s.MaxRequestBodySize <= 0 {

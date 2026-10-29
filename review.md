@@ -32,7 +32,7 @@ Tick items off as we fix them:
 - [x] [M7 — Typed-nil `any` defeats server-startup failure check](#m7) ✅ fixed (with S5)
 - [x] [M8 — Connection-nominated headers not stripped (RFC 7230 §6.1)](#m8) ✅ fixed
 - [x] [M9 — `$incremental` header race produces duplicate values](#m9)
-- [x] [L1–L21 — Low-severity bugs & sharp edges](#low) ✅ all fixed or settled 2026-08-23 (L8 streaming: declared unsupported for 1.0)
+- [x] [L1–L21 — Low-severity bugs & sharp edges](#low) ✅ all fixed or settled 2026-08-23 (L8 streaming: shipped in 1.0, ADR 0007)
 - [x] [S1–S6 — Code smells](#smells) ✅ all fixed or resolved 2026-08-23
 
 ---
@@ -277,15 +277,17 @@ Tick items off as we fix them:
 ### L6. net/http adapter ignores client cancellation — ✅ settled: documented limitation (2026-08-23)
 [internal/proxy/nethttp_adapter.go:27-66](internal/proxy/nethttp_adapter.go#L27-L66) — `r.Context()` never consulted; a disconnected HTTP/2 client leaves the backend request running, holding a connection. **Fix:** watch `r.Context().Done()` with `DoDeadline`/abort, or document the limitation.
 - **Status: DOCUMENTED, not implemented.** Re-verified: the finding is not HTTP/2-specific — the fasthttp path cannot cancel either (`HostClient.Do` has no cancellation hook), so implementing it in the adapter alone would make the two stacks behave differently. Chosen: one consistent rule, bounded by `proxy_timeout` — recorded in ADR 0003's Consequences and README Limitations.
+- **Scoped 2026-10-29:** the rule now covers buffered requests only. A Streamed response is aborted at once when its client disconnects, on both stacks (L8 shipped; ADR 0007, which scoped ADR 0003's note).
 
 ### L7. net/http adapter drops client-sent trailer values — ✅ fixed (2026-08-23)
 [internal/proxy/nethttp_adapter.go:122-129](internal/proxy/nethttp_adapter.go#L122-L129) — `r.Trailer` is read before the body is consumed (net/http populates values only after full body read), so actual trailer values are never forwarded. **Fix:** forward trailers after body consumption, or drop trailer support explicitly.
 - **Status: FIXED, and the root cause was elsewhere.** The adapter now buffers the body (up to `max_request_body_size`) whenever trailers are announced (`len(r.Trailer) > 0`) before copying them, and sends such a request length-less so the trailers can travel after a chunked body. But trailers never reached a Backend *as trailers* on either stack: `preReq` strips `Trailer` as hop-by-hop, and fasthttp's `Del("Trailer")` also forgets which headers are trailers, so their values were forwarded as ordinary headers. `reannounceTrailers` now re-registers them after hop-header stripping and re-sends an in-memory body as a chunked stream. Tests: `TestNetHttpAdapterForwardsAnnouncedTrailers` (declared and length-less bodies, end to end through a real `ProxyClient`), `TestRequestTrailersReachBackendAsTrailers` (fasthttp path; asserts the value is a trailer, not a header).
 
-### L8. Streaming responses (SSE/long-poll) are fully buffered and never reach the client — ✅ settled: unsupported in 1.0 (2026-08-23)
+### L8. Streaming responses (SSE/long-poll) are fully buffered and never reach the client — ✅ shipped in 1.0 (2026-10-29)
 [internal/proxy/proxy.go:78-84](internal/proxy/proxy.go#L78-L84) (`HostClient.Do`/`DoTimeout` reads the whole response; no `StreamResponseBody`), [internal/proxy/nethttp_adapter.go:64-65](internal/proxy/nethttp_adapter.go#L64-L65) (no `http.Flusher` path) — an SSE backend never terminates its body, so `Do` blocks indefinitely and nothing is flushed. **Fix:** enable `StreamResponseBody` and stream/flush in both paths, or document streaming as unsupported.
 - **Status: DECLARED UNSUPPORTED for 1.0.** Streaming is a feature with its own design tree (what `OnResponse` sees, what `proxy_timeout` means for an open stream, H8's content-length handling), not a Low fix. ADR 0003's Consequences were amended — they wrongly implied a bigger `proxy_timeout` makes streaming work; long-polling does, SSE 504s at `proxy_timeout` — and README Limitations says so. Post-1.0 feature; additive when it lands.
 - **Reopened 2026-08-25:** response streaming ships in 1.0 after all — the deferral above is superseded; the agreed design (opt-in knob, idle timeout, stream cancellation) lives in TODO.md's Streaming section.
+- **Shipped in 1.0 (2026-10-29):** behind `server.streaming` (default off), an event stream or a response without `Content-Length` is forwarded as it arrives on both stacks (fasthttp per-response `StreamBody`; the net/http adapter flushes every write). `proxy_timeout` bounds the wait for headers, `server.stream_idle_timeout` (default 5m) each wait for more data and each write of it to the client; a client disconnect aborts the Backend stream; `OnResponse` sees status and headers only. Recorded in ADR 0007, which amends ADR 0003. Tests: `internal/proxy/streaming_test.go` on all three listener stacks; integration `TestEventStreamFramesArriveIncrementally`, `TestEventStreamWithStreamingOffGets504AtProxyTimeout`, `TestSilentEventStreamEndsAtIdleTimeout`, `TestClientDisconnectClosesBackendStream`, `TestStreamedRequestIsAccessLoggedAtStreamEnd`.
 
 ### L9. `GetNode` has no empty-ring guard — ✅ fixed with C3
 [pkg/consistent/consistent.go:90-102](pkg/consistent/consistent.go#L90-L102) — `GetNode` now returns nil on an empty ring, and ip-hash serves 503 via `proxy.NoAliveBackends` ([core/ip-hash/ip-hash.go:82-88](core/ip-hash/ip-hash.go#L82-L88)). Regression test `TestGetNodeEmptyRing`.

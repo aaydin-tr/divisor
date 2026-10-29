@@ -11,7 +11,7 @@ import (
 
 func TestRandomPicksOnlyAliveBackends(t *testing.T) {
 	backends := mocks.NewBackends(3)
-	r := New(nil, backends)
+	r := New(nil)
 	assert.Nil(t, r.Pick(nil), "nothing Alive → nil")
 
 	for _, b := range backends {

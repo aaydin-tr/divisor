@@ -56,6 +56,10 @@ var (
 	}, []string{backendAddressLabel})
 )
 
+// backendGauges are the series labeled by Backend address; each is registered
+// and, once no Backend has its address, deleted.
+var backendGauges = []*prometheus.GaugeVec{backendTotalReqCount, backendAvgResTime, backendConnsCount, backendAlive}
+
 var registerPrometheusMetricsOnce sync.Once
 
 // registerPrometheusMetrics registers once per process: MustRegister panics
@@ -72,13 +76,14 @@ func registerAllPrometheusMetrics() {
 	prometheus.MustRegister(totalCPUPercent)
 	prometheus.MustRegister(totalGoroutine)
 	prometheus.MustRegister(openConnCount)
-	prometheus.MustRegister(backendTotalReqCount)
-	prometheus.MustRegister(backendAvgResTime)
-	prometheus.MustRegister(backendConnsCount)
-	prometheus.MustRegister(backendAlive)
+	for _, gauge := range backendGauges {
+		prometheus.MustRegister(gauge)
+	}
 }
 
-func updatePrometheusMetrics(m *Monitoring) {
+// Handing back the addresses reported last time drops the series of an address
+// a Reload removed every Backend from.
+func updatePrometheusMetrics(m *Monitoring, previouslyReportedAddresses map[string]bool) map[string]bool {
 	processMemoryPercent.Set(float64(m.Memory.ProcessPercent))
 	totalMemoryPercent.Set(float64(m.Memory.TotalPercent))
 	processMemoryMB.Set(m.Memory.ProcessMB)
@@ -87,7 +92,9 @@ func updatePrometheusMetrics(m *Monitoring) {
 	totalGoroutine.Set(float64(m.TotalGoroutine))
 	openConnCount.Set(float64(m.OpenConnectionCount))
 
+	reportedAddresses := make(map[string]bool, len(m.Backends))
 	for _, backend := range m.Backends {
+		reportedAddresses[backend.Addr] = true
 		backendTotalReqCount.WithLabelValues(backend.Addr).Set(float64(backend.TotalReqCount))
 		backendAvgResTime.WithLabelValues(backend.Addr).Set(backend.AvgResTime)
 		backendConnsCount.WithLabelValues(backend.Addr).Set(float64(backend.ConnsCount))
@@ -98,4 +105,14 @@ func updatePrometheusMetrics(m *Monitoring) {
 			return 0
 		}())
 	}
+
+	for address := range previouslyReportedAddresses {
+		if reportedAddresses[address] {
+			continue
+		}
+		for _, gauge := range backendGauges {
+			gauge.DeleteLabelValues(address)
+		}
+	}
+	return reportedAddresses
 }

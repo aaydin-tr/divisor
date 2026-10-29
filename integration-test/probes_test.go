@@ -95,3 +95,41 @@ func TestProbeEndpointsDuringServeAndShutdown(t *testing.T) {
 		t.Errorf("divisor exited with code %d after SIGTERM, want 0", code)
 	}
 }
+
+// A Reload Probes the Backends it adds and can take up to health_checker_timeout
+// (5s by default); /ready must not wait for it once shutdown begins.
+func TestReadyFlipsAtOnceWhenShutdownBeginsDuringAReload(t *testing.T) {
+	t.Parallel()
+	s := startScenario(t, ScenarioSpec{
+		Name:             "probes-reload",
+		Type:             "round-robin",
+		ExposeMonitoring: true,
+		Backends:         []BackendSpec{{ID: "a"}},
+	})
+	const probeKey = "reload-probe"
+	s.addBackend(t, BackendSpec{ID: "b", HealthCheckPath: "/?delay=1m&fail_times=0&fail_key=" + probeKey})
+	s.rewriteDivisorConfig(t)
+	s.ReloadDivisor(t)
+	eventually(t, 10*time.Second, "the Reload Probes the added Backend", func() error {
+		if s.Backend("b").Counter(t, probeKey) == 0 {
+			return fmt.Errorf("no Probe reached the added Backend yet")
+		}
+		return nil
+	})
+
+	s.TerminateDivisor(t)
+
+	eventually(t, 2*time.Second, "/ready flipped to 503 while the Reload was still Probing", func() error {
+		readyCode, err := monitoringStatus(s, "/ready")
+		if err != nil {
+			return err
+		}
+		if readyCode != http.StatusServiceUnavailable {
+			return fmt.Errorf("/ready answered %d, want 503", readyCode)
+		}
+		return nil
+	})
+	if code := s.WaitDivisorExit(t, 35*time.Second); code != 0 {
+		t.Errorf("divisor exited with code %d after SIGTERM, want 0", code)
+	}
+}

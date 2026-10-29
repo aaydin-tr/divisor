@@ -14,7 +14,7 @@ func TestLeastResponseTimePicksFastest(t *testing.T) {
 		mocks.MockProxyOf(backends[0]).ResTime = 5
 		mocks.MockProxyOf(backends[1]).ResTime = 3
 		mocks.MockProxyOf(backends[2]).ResTime = 1
-		lrt := New(nil, backends)
+		lrt := New(nil)
 		mocks.JoinAll(lrt, backends)
 
 		assert.Same(t, backends[2], lrt.Pick(nil))
@@ -24,7 +24,7 @@ func TestLeastResponseTimePicksFastest(t *testing.T) {
 		backends := mocks.NewBackends(2)
 		mocks.MockProxyOf(backends[0]).ResTime = 0.8
 		mocks.MockProxyOf(backends[1]).ResTime = 0.2
-		lrt := New(nil, backends)
+		lrt := New(nil)
 		mocks.JoinAll(lrt, backends)
 
 		assert.Same(t, backends[1], lrt.Pick(nil))
@@ -33,14 +33,14 @@ func TestLeastResponseTimePicksFastest(t *testing.T) {
 	t.Run("prefers a Backend that has not answered yet", func(t *testing.T) {
 		backends := mocks.NewBackends(2)
 		mocks.MockProxyOf(backends[0]).ResTime = 1
-		lrt := New(nil, backends)
+		lrt := New(nil)
 		mocks.JoinAll(lrt, backends)
 
 		assert.Same(t, backends[1], lrt.Pick(nil))
 	})
 
 	t.Run("nothing Alive → nil", func(t *testing.T) {
-		lrt := New(nil, nil)
+		lrt := New(nil)
 		assert.Nil(t, lrt.Pick(nil))
 	})
 }

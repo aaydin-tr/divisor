@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -29,6 +30,9 @@ func balancerConfig(balancerType string, probe types.IsHostAlive, addrs ...strin
 
 // backendsOf reaches the Backends NewBalancer built, in config order.
 func backendsOf(b types.IBalancer) []*pool.Backend { return b.(*loadBalancer).pool.Backends() }
+
+// probeAllBackends runs one Probe round now instead of waiting for the loop.
+func probeAllBackends(b types.IBalancer) { b.(*loadBalancer).pool.ProbeAllBackends() }
 
 func alwaysAlive(string, types.ExpectedProbeStatus) bool { return true }
 
@@ -71,7 +75,7 @@ func TestNewBalancerServes503UntilAProbeSucceedsWhenNothingIsAliveAtStartup(t *t
 			assert.False(t, b.Stats()[0].IsHostAlive)
 
 			probeSucceeds.Store(true)
-			b.(*loadBalancer).pool.ProbeAllBackends()
+			probeAllBackends(b)
 			ctx = mocks.RequestFrom("10.0.0.1")
 			b.Serve()(ctx)
 			assert.Equal(t, fasthttp.StatusOK, ctx.Response.StatusCode(), "a Backend that Rejoins after a zero-Alive boot serves traffic")
@@ -113,10 +117,9 @@ func TestServeAnswers503WhenNothingIsAlive(t *testing.T) {
 	cfg := balancerConfig("round-robin", probes.Probe, "localhost:8080")
 	b := NewBalancer(cfg, nil, mocks.CreateNewMockProxy)
 	defer b.Shutdown() //nolint:errcheck
-	lb := b.(*loadBalancer)
 
 	probes.SetAlive(backendsOf(b)[0], false)
-	lb.pool.ProbeAllBackends()
+	probeAllBackends(b)
 
 	ctx := mocks.RequestFrom("10.0.0.1")
 	b.Serve()(ctx)
@@ -124,7 +127,7 @@ func TestServeAnswers503WhenNothingIsAlive(t *testing.T) {
 	assert.False(t, b.Stats()[0].IsHostAlive)
 
 	probes.SetAlive(backendsOf(b)[0], true)
-	lb.pool.ProbeAllBackends()
+	probeAllBackends(b)
 	ctx = mocks.RequestFrom("10.0.0.1")
 	b.Serve()(ctx)
 	assert.Equal(t, fasthttp.StatusOK, ctx.Response.StatusCode(), "a Rejoined Backend serves again")
@@ -138,10 +141,12 @@ func TestPickConcurrentWithProbeRound(t *testing.T) {
 			backends := mocks.NewBackends(3)
 			backends[0].Weight = 2
 			cfg := balancerConfig(balancerType, nil, "localhost:8080", "localhost:8081", "localhost:8082")
-			picker := newBalancer(cfg, backends)
+			picker := newBalancer(cfg)
 
 			var flapping atomic.Bool
-			alive := func(url string, _ types.ExpectedProbeStatus) bool { return url != backends[0].ProbeURL || !flapping.Load() }
+			alive := func(url string, _ types.ExpectedProbeStatus) bool {
+				return url != backends[0].ProbeURL || !flapping.Load()
+			}
 			pool := pool.NewPool(backends, alive, time.Hour, picker)
 			defer pool.Shutdown() //nolint:errcheck
 
@@ -169,4 +174,78 @@ func TestPickConcurrentWithProbeRound(t *testing.T) {
 			}
 		})
 	}
+}
+
+// running: 8080, 8081 → next: 8081, 8082. 8081 is kept, 8080 removed, 8082 added.
+func replaceFirstBackendPlan(balancerType string, nextProbe types.IsHostAlive) *config.ReloadPlan {
+	nextConfig := balancerConfig(balancerType, nextProbe, "localhost:8081", "localhost:8082")
+	return &config.ReloadPlan{
+		NextConfig:                     nextConfig,
+		KeptBackends:                   []config.KeptBackend{{RunningPosition: 1, NextPosition: 0}},
+		AddedBackendNextPositions:      []int{1},
+		RemovedBackendRunningPositions: []int{0},
+	}
+}
+
+func TestApplyReloadRoutesToTheNextBackendSet(t *testing.T) {
+	for _, balancerType := range config.ValidTypes {
+		t.Run(balancerType, func(t *testing.T) {
+			b := NewBalancer(balancerConfig(balancerType, alwaysAlive, "localhost:8080", "localhost:8081"), nil, mocks.CreateNewMockProxy)
+			defer b.Shutdown() //nolint:errcheck
+			removed, kept := backendsOf(b)[0], backendsOf(b)[1]
+
+			b.ApplyReload(replaceFirstBackendPlan(balancerType, alwaysAlive))
+
+			stats := b.Stats()
+			if assert.Len(t, stats, 2) {
+				assert.Equal(t, "localhost:8081", stats[0].Addr)
+				assert.Equal(t, "localhost:8082", stats[1].Addr)
+				assert.True(t, stats[1].IsHostAlive, "the added Backend passed its Probe")
+			}
+			assert.Same(t, kept, backendsOf(b)[0], "the kept Backend is the same Backend, stats and all")
+			assert.True(t, mocks.MockProxyOf(removed).CloseCalled, "the removed Backend's connections close")
+
+			mocks.MockProxyOf(kept).ResTime = 5 // measured, so least-response-time prefers the unmeasured added Backend
+			for i := 0; i < 200; i++ {
+				ctx := mocks.RequestFrom(fmt.Sprintf("10.0.%d.%d", i/250, i%250))
+				b.Serve()(ctx)
+				assert.Equal(t, fasthttp.StatusOK, ctx.Response.StatusCode())
+			}
+			assert.False(t, mocks.MockProxyOf(removed).IsCalled, "nothing routes to a removed Backend")
+			assert.True(t, mocks.MockProxyOf(backendsOf(b)[1]).IsCalled, "traffic reaches the added Backend")
+		})
+	}
+}
+
+func TestApplyReloadProbesAddedBackendsWithTheNextProbeSettings(t *testing.T) {
+	b := NewBalancer(balancerConfig("round-robin", alwaysAlive, "localhost:8080", "localhost:8081"), nil, mocks.CreateNewMockProxy)
+	defer b.Shutdown() //nolint:errcheck
+	alwaysDown := func(string, types.ExpectedProbeStatus) bool { return false }
+	changingProbeSettings := replaceFirstBackendPlan("round-robin", alwaysDown)
+	changingProbeSettings.ProbeSettingsChanged = true
+
+	b.ApplyReload(changingProbeSettings)
+
+	assert.True(t, b.Stats()[0].IsHostAlive, "a kept Backend keeps its liveness until its next Probe")
+	assert.False(t, b.Stats()[1].IsHostAlive, "the added Backend is Probed with the next config's Probe")
+	probeAllBackends(b)
+	assert.False(t, b.Stats()[0].IsHostAlive, "later Probe rounds use the next config's Probe")
+}
+
+func TestReloadsLeavingProbeSettingsAloneKeepTheProbeSchedule(t *testing.T) {
+	var probeCount atomic.Int64
+	countingProbe := func(string, types.ExpectedProbeStatus) bool { probeCount.Add(1); return true }
+	cfg := balancerConfig("round-robin", countingProbe, "localhost:8080")
+	cfg.HealthCheckerTime = 50 * time.Millisecond
+	b := NewBalancer(cfg, nil, mocks.CreateNewMockProxy)
+	defer b.Shutdown() //nolint:errcheck
+	probesAtBoot := probeCount.Load()
+
+	keepEverything := &config.ReloadPlan{NextConfig: cfg, KeptBackends: []config.KeptBackend{{RunningPosition: 0, NextPosition: 0}}}
+	for reloadingUntil := time.Now().Add(500 * time.Millisecond); time.Now().Before(reloadingUntil); {
+		b.ApplyReload(keepEverything)
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	assert.Greater(t, probeCount.Load(), probesAtBoot, "Reloads more frequent than health_checker_time must not starve the Probe rounds")
 }

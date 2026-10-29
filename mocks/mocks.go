@@ -88,6 +88,12 @@ func NewBackends(n int) []*pool.Backend {
 	return backends
 }
 
+// NewBackend is one Backend at addr as a Reload hands it to the Pool: the
+// Pool, not the caller, gives it its Index.
+func NewBackend(addr string) *pool.Backend {
+	return &pool.Backend{Addr: addr, Weight: 1, ProbeURL: "http://" + addr + "/", Proxy: &MockProxy{Addr: addr}}
+}
+
 func MockProxyOf(b *pool.Backend) *MockProxy { return b.Proxy.(*MockProxy) }
 
 func JoinAll(b pool.Balancer, backends []*pool.Backend) {

@@ -1,6 +1,8 @@
 package ip_hash
 
 import (
+	"sync"
+
 	"github.com/aaydin-tr/divisor/core/pool"
 	"github.com/aaydin-tr/divisor/core/types"
 	"github.com/aaydin-tr/divisor/pkg/config"
@@ -9,13 +11,14 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-// ipHash keeps one ring Node per Backend for its whole life; Join and Leave
-// add or remove all of its virtual nodes at once.
+// ipHash places each Backend on the ring by its Index; Join and Leave add or
+// remove all of its virtual nodes at once.
 type ipHash struct {
-	ring      *consistent.ConsistentHash
-	hashFunc  types.HashFunc
-	ringNodes []*consistent.Node
-	backends  []*pool.Backend
+	ring     *consistent.ConsistentHash
+	hashFunc types.HashFunc
+	// Index -> *pool.Backend, stored on Join and never deleted: a Pick may
+	// resolve a node from a ring snapshot taken before that Backend Left.
+	backendsByIndex sync.Map
 }
 
 // virtualNodesPerBackend is how many ring positions each Backend owns. The
@@ -24,29 +27,28 @@ type ipHash struct {
 // gave one Backend a single position and two Backends four each.
 const virtualNodesPerBackend = 100
 
-// New places every Backend by its Index, so a ring Node's Id resolves to
-// its Backend whatever order the slice came in.
-func New(cfg *config.Config, backends []*pool.Backend) pool.Balancer {
-	ringNodes := make([]*consistent.Node, len(backends))
-	backendsByIndex := make([]*pool.Backend, len(backends))
-	for _, b := range backends {
-		ringNodes[b.Index] = &consistent.Node{Id: b.Index, Proxy: b.Proxy, Addr: b.Addr}
-		backendsByIndex[b.Index] = b
-	}
+// New needs no Backends up front: a Reload Joins Backends this Balancer was
+// not constructed with.
+func New(cfg *config.Config) pool.Balancer {
 	return &ipHash{
-		ring:      consistent.NewConsistentHash(virtualNodesPerBackend, cfg.HashFunc),
-		hashFunc:  cfg.HashFunc,
-		ringNodes: ringNodes,
-		backends:  backendsByIndex,
+		ring:     consistent.NewConsistentHash(virtualNodesPerBackend, cfg.HashFunc),
+		hashFunc: cfg.HashFunc,
 	}
 }
 
-func (h *ipHash) Join(b *pool.Backend) {
-	h.ring.AddNode(h.ringNodes[b.Index])
+func (h *ipHash) Join(backend *pool.Backend) {
+	h.backendsByIndex.Store(backend.Index, backend)
+	h.ring.AddNode(ringNodeOf(backend))
 }
 
-func (h *ipHash) Leave(b *pool.Backend) {
-	h.ring.RemoveNode(h.ringNodes[b.Index])
+func (h *ipHash) Leave(backend *pool.Backend) {
+	h.ring.RemoveNode(ringNodeOf(backend))
+}
+
+// The ring derives a node's positions from its Id and Addr alone, so the node
+// Leave builds removes the positions Join added.
+func ringNodeOf(backend *pool.Backend) *consistent.Node {
+	return &consistent.Node{Id: backend.Index, Proxy: backend.Proxy, Addr: backend.Addr}
 }
 
 func (h *ipHash) Pick(ctx *fasthttp.RequestCtx) *pool.Backend {
@@ -54,5 +56,6 @@ func (h *ipHash) Pick(ctx *fasthttp.RequestCtx) *pool.Backend {
 	if node == nil {
 		return nil
 	}
-	return h.backends[node.Id]
+	backend, _ := h.backendsByIndex.Load(node.Id)
+	return backend.(*pool.Backend)
 }

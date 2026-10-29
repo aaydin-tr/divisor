@@ -7,10 +7,9 @@ import (
 	"github.com/aaydin-tr/divisor/internal/proxy"
 )
 
-// Backend is one `backends` config entry as the Pool and the Balancers see
-// it: its identity is Index, its position in the config, so the same address
-// listed twice is two Backends. The Backends handed to a Pool or a Balancer
-// constructor carry Indexes 0..n-1, each exactly once, in any order.
+// Backend is one `backends` config entry; its identity is Index (the config
+// position at boot, a never-used one when a Reload adds it), so the same
+// address listed twice is two Backends.
 type Backend struct {
 	Proxy               proxy.IProxyClient
 	Addr                string

@@ -7,8 +7,8 @@ import (
 )
 
 // Rotation is the Alive set as a copy-on-write slice, for Balancers that pick
-// from a list: the Probe loop replaces it on Join/Leave, request goroutines
-// only read it.
+// from a list: the Pool replaces it on Join/Leave, request goroutines only
+// read it.
 type Rotation struct {
 	aliveBackends atomic.Pointer[[]*Backend]
 }
