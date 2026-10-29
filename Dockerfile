@@ -1,17 +1,9 @@
-FROM golang:1.27-alpine AS builder
-WORKDIR /src
+# Release image: goreleaser (dockers_v2) builds it from the per-platform
+# binaries it compiled. The integration suite builds integration-test/divisor.Dockerfile.
+FROM gcr.io/distroless/static-debian13:nonroot
 
-COPY go.mod go.sum ./
-RUN go mod download
-
-COPY . .
-RUN CGO_ENABLED=0 go build -o /divisor .
-
-FROM alpine:latest
-
-RUN mkdir -p /etc/divisor
-
-COPY --from=builder /divisor /divisor
+ARG TARGETPLATFORM
+COPY ${TARGETPLATFORM}/divisor /divisor
 
 EXPOSE 8080
 ENTRYPOINT ["/divisor"]

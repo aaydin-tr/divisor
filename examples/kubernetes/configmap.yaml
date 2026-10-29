@@ -1,0 +1,29 @@
+# Editing only backends or health_checker_* is a Reload about a minute after `kubectl apply` (kubelet syncs
+# the volume), no restart; any other change waits for `kubectl rollout restart deployment/divisor`.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: divisor-config
+  labels:
+    app.kubernetes.io/name: divisor
+data:
+  config.yaml: |
+    type: round-robin
+    port: 8080
+
+    # One pod of a StatefulSet `app` behind a headless Service `app` per Backend: a stable DNS name
+    # per pod, re-resolved when a replaced pod comes back with a new IP.
+    backends:
+      - url: app-0.app:8080
+      - url: app-1.app:8080
+      - url: app-2.app:8080
+
+    server:
+      # Pod IPs churn; stop dialing a replaced pod's old IP within seconds.
+      dns_cache_duration: 5s
+
+    # kubelet probes /healthz and /ready on the pod IP, so the monitoring
+    # server must not bind localhost (its default).
+    monitoring:
+      host: 0.0.0.0
+      port: 8001

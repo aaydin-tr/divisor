@@ -1,0 +1,100 @@
+name: Release dry-run
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    name: Detect release changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      release: ${{ steps.changes.outputs.release }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect release changes
+        id: changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if git diff --quiet "$BASE_SHA" HEAD -- \
+            .goreleaser.yaml \
+            Dockerfile \
+            main.go \
+            .github/workflows/goreleaser.yml \
+            .github/workflows/release-dry-run.yml \
+            .github/scripts/ \
+            charts/; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  release-dry-run:
+    name: Release dry-run
+    needs: detect
+    if: needs.detect.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.3"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: GoReleaser snapshot
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --snapshot --clean
+
+      # The snapshot tags its images with the latest git tag, as a release does with its own.
+      - name: Read the snapshot's tag and version
+        id: snapshot
+        run: |
+          echo "tag=$(jq -r .tag dist/metadata.json)" >> "$GITHUB_OUTPUT"
+          echo "version=$(jq -r .version dist/metadata.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Run the snapshot image
+        env:
+          IMAGE: ghcr.io/aaydin-tr/divisor:${{ steps.snapshot.outputs.tag }}-amd64
+          VERSION: ${{ steps.snapshot.outputs.version }}
+        run: |
+          version_line=$(docker run --rm "$IMAGE" --version)
+          echo "$version_line"
+          if [[ "$version_line" != "divisor version $VERSION, build "* ]]; then
+            echo "want 'divisor version $VERSION, build ...'" >&2
+            exit 1
+          fi
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: v4.3.1
+
+      - name: Install kubeconform
+        run: go install github.com/yannh/kubeconform/cmd/kubeconform@v0.7.0
+
+      - name: Helm chart smoke test
+        env:
+          RELEASE_TAG: ${{ steps.snapshot.outputs.tag }}
+        run: bash .github/scripts/helm-chart-smoke-test.sh "$RELEASE_TAG"

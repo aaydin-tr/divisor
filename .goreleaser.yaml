@@ -15,6 +15,25 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}}
 
+dockers_v2:
+  - dockerfile: Dockerfile
+    images:
+      - aaydintr/divisor
+      - ghcr.io/aaydin-tr/divisor
+    tags:
+      - "{{ .Tag }}"
+      - "{{ if not .Prerelease }}v{{ .Major }}.{{ .Minor }}{{ end }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      org.opencontainers.image.title: "{{ .ProjectName }}"
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .Date }}"
+      org.opencontainers.image.source: https://github.com/aaydin-tr/divisor
+
 checksum:
   name_template: "checksums.txt"
 

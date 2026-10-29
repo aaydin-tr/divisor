@@ -42,21 +42,27 @@ Spec: `.scratch/logging/spec.md` — tickets in `.scratch/logging/issues/`.
 Spec: `.scratch/distribution/spec.md` — tickets in
 `.scratch/distribution/issues/`.
 
-- [ ] Official Docker release — goreleaser publishes the same image to Docker
-  Hub (`aaydin-tr/divisor`, where images get discovered) and GHCR
-  (`ghcr.io/aaydin-tr/divisor`, the no-friction k8s pull), multi-arch
-  `linux/amd64` + `linux/arm64` via `docker_manifests`, tags `latest` +
-  `vX.Y.Z` + `vX.Y`. Base image `gcr.io/distroless/static` running as
-  **nonroot** — no shell on a network-facing tool, and it ships the Debian
-  CA bundle, so a future https-to-backend feature needs no base change.
-  Depends on the logging rework (no writable `/var/log/divisor` required)
-  and the bind-default flip under Config surface (today's image is
-  unreachable with a default-`localhost` config). Ticket:
-  `02-docker-image.md`.
-- [ ] Helm chart — OCI chart pushed to GHCR
-  (`helm install oci://ghcr.io/aaydin-tr/charts/divisor`), released by the
-  existing tag-triggered goreleaser CI (reuses the GHCR login the Docker
-  release needs), versioned with the app tag. Ticket: `03-helm-chart.md`.
+- [x] Official Docker release — shipped: a `v*` tag makes goreleaser
+  (`dockers_v2`, chosen 2026-10-29 over the deprecated `dockers` +
+  `docker_manifests`) push one multi-arch (`linux/amd64` + `linux/arm64`)
+  image to Docker Hub as `aaydintr/divisor` (Docker Hub namespaces can't hold
+  a hyphen) and to `ghcr.io/aaydin-tr/divisor`. It is tagged `vX.Y.Z`, plus
+  `vX.Y` and `latest` for non-prereleases. The root `Dockerfile` packages
+  goreleaser's prebuilt binary on `gcr.io/distroless/static-debian13:nonroot`.
+  The integration suite builds its own `integration-test/divisor.Dockerfile`.
+  The PR job "Release dry-run" runs a goreleaser snapshot when release files
+  change and asserts the image's `--version` line. Before the first tag:
+  create `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN`; after it, make the GHCR
+  packages public. Ticket: `02-docker-image.md` (done).
+- [x] Helm chart — shipped: `charts/divisor` (Deployment, Service, ConfigMap,
+  probes; values for image, tag, replicas and inline config) is pushed by the
+  tag pipeline to `oci://ghcr.io/aaydin-tr/charts/divisor` after the image.
+  The chart version is the tag without its `v`; appVersion and the default
+  image tag are the tag itself. One packaging script
+  (`.github/scripts/helm-package-chart.sh`) serves both the publish and the
+  dry-run's `helm lint` + kubeconform smoke test. Its inline config is pinned
+  to `examples/kubernetes` by `TestHelmChartConfigMatchesTheKubernetesExample`.
+  Ticket: `03-helm-chart.md` (done).
 - [x] `--version` flag + version in the startup log — shipped: `divisor
   --version` prints `divisor version X.Y.Z, build <short-commit>` and exits 0
   (`dev` placeholders on non-release builds); the startup log's first line
@@ -93,11 +99,16 @@ Spec: `.scratch/kubernetes/spec.md` — tickets in `.scratch/kubernetes/issues/`
   `TestProbeEndpointsDuringServeAndShutdown`,
   `TestAllBackendsDownAtBootServes503ThenRejoins` (probes with zero Alive
   Backends).
-- [ ] Example manifests — Deployment + ConfigMap + Service in the repo, with
-  probes wired to `/healthz`/`/ready` and `monitoring.host: 0.0.0.0`
-  (kubelet probes hit the pod IP; the localhost default cannot serve them —
-  the default itself stays localhost for non-k8s safety). Ticket:
-  `06-example-manifests.md`.
+- [x] Example manifests — shipped: `examples/kubernetes/` (Deployment,
+  ConfigMap, Service; the Backends sit behind a headless Service). A preStop
+  sleep covers endpoint propagation. Probes hit `/healthz`/`/ready` on the
+  monitoring port. `monitoring.host: 0.0.0.0` and `dns_cache_duration: 5s`
+  are set in the example only. The ConfigMap is mounted as a directory (no
+  subPath), so an edit Reloads. The pod runs as nonroot with a read-only
+  root. Kubeconform `-strict` passed on k8s 1.34–1.36 locally (CI checks only
+  the rendered chart, on 1.36). The embedded config is
+  strict-parsed by `TestKubernetesExampleConfigMapHoldsAValidConfig`. Ticket:
+  `06-example-manifests.md` (done).
 - [x] Reload (see CONTEXT.md **Reload**) — shipped: `backends`,
   `health_checker_time` and `health_checker_timeout` are reloadable; any
   other changed key, or an invalid new config, rejects the whole Reload
@@ -410,7 +421,7 @@ flexible → docs last).
     — the long pole. If the tag date pressures, start it in parallel with
     reload; it must not be what gates the release.
 
-### Tier 4 — distribution (near-free, prerequisites now met)
+### Tier 4 — distribution (near-free, prerequisites now met) — **all three shipped 2026-10-29**
 
 14. Official Docker release (`02-docker-image.md`) — bind flip landed in
     tier 1, logging already shipped.

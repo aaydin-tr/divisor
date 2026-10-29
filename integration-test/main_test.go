@@ -68,7 +68,7 @@ func run(m *testing.M) int {
 		}
 	} else {
 		fmt.Println("building divisor image...")
-		if err := buildImage(divisorImage, "..", "Dockerfile"); err != nil {
+		if err := buildImage(divisorImage, "..", "integration-test/divisor.Dockerfile"); err != nil {
 			fmt.Printf("building divisor image: %v\n", err)
 			return 1
 		}

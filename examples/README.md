@@ -32,6 +32,9 @@ This directory contains example configurations for different use cases and deplo
 **Production Deployment**:
 - [`production.config.yaml`](production.config.yaml) - TLS, monitoring, custom headers, optimized timeouts
 
+**Kubernetes**:
+- [`kubernetes/`](kubernetes/) - Deployment, ConfigMap and Service for divisor fronting the pods of a headless Service; probes on `/healthz`/`/ready`, and a ConfigMap edit of the Backend list Reloads without a redeploy (`kubectl apply -f examples/kubernetes/`)
+
 **HTTP/2 Setup**:
 - [`http2-tls.config.yaml`](http2-tls.config.yaml) - HTTP/2 with TLS configuration
 

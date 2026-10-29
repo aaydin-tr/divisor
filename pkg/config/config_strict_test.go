@@ -1,12 +1,15 @@
 package config
 
 import (
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // Every shipped example must parse under strict decoding: an example with
@@ -20,6 +23,81 @@ func TestExamplesParseUnderStrictKeys(t *testing.T) {
 			_, err := ParseConfigFile(example)
 			assert.NoError(t, err)
 		})
+	}
+}
+
+// The Kubernetes example embeds its divisor config in a ConfigMap; kubelet
+// probes reach the monitoring server on the pod IP, so it must not bind localhost.
+func TestKubernetesExampleConfigMapHoldsAValidConfig(t *testing.T) {
+	manifests, err := filepath.Glob("../../examples/kubernetes/*.yaml")
+	require.NoError(t, err)
+
+	embeddedConfigs := map[string]string{}
+	for _, manifest := range manifests {
+		for name, configYAML := range divisorConfigsInConfigMaps(t, manifest) {
+			embeddedConfigs[filepath.Base(manifest)+"/"+name] = configYAML
+		}
+	}
+	require.NotEmpty(t, embeddedConfigs, "no ConfigMap with a config.yaml key under examples/kubernetes")
+
+	for name, configYAML := range embeddedConfigs {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := ParseConfig([]byte(configYAML))
+			require.NoError(t, err)
+			require.NoError(t, cfg.PrepareConfig())
+			assert.Equal(t, "0.0.0.0", cfg.Monitoring.Host)
+		})
+	}
+}
+
+// The Helm chart and the Kubernetes example ship one default config; a fix to
+// one that misses the other would leave users with two behaviors.
+func TestHelmChartConfigMatchesTheKubernetesExample(t *testing.T) {
+	values, err := os.ReadFile("../../charts/divisor/values.yaml")
+	require.NoError(t, err)
+	var chartValues struct {
+		Config map[string]any `yaml:"config"`
+	}
+	require.NoError(t, yaml.Unmarshal(values, &chartValues))
+	chartConfigYAML, err := yaml.Marshal(chartValues.Config)
+	require.NoError(t, err)
+
+	chartConfig, err := ParseConfig(chartConfigYAML)
+	require.NoError(t, err)
+	require.NoError(t, chartConfig.PrepareConfig())
+
+	exampleConfigYAML, ok := divisorConfigsInConfigMaps(t, "../../examples/kubernetes/configmap.yaml")["divisor-config"]
+	require.True(t, ok, "examples/kubernetes/configmap.yaml has no divisor-config ConfigMap with a config.yaml key")
+	var exampleConfig map[string]any
+	require.NoError(t, yaml.Unmarshal([]byte(exampleConfigYAML), &exampleConfig))
+
+	assert.Equal(t, exampleConfig, chartValues.Config)
+}
+
+func divisorConfigsInConfigMaps(t *testing.T, manifestPath string) map[string]string {
+	t.Helper()
+	manifest, err := os.Open(manifestPath)
+	require.NoError(t, err)
+	defer manifest.Close()
+
+	configs := map[string]string{}
+	decoder := yaml.NewDecoder(manifest)
+	for {
+		var resource struct {
+			Kind     string `yaml:"kind"`
+			Metadata struct {
+				Name string `yaml:"name"`
+			} `yaml:"metadata"`
+			Data map[string]string `yaml:"data"`
+		}
+		err := decoder.Decode(&resource)
+		if errors.Is(err, io.EOF) {
+			return configs
+		}
+		require.NoError(t, err, manifestPath)
+		if configYAML, ok := resource.Data["config.yaml"]; resource.Kind == "ConfigMap" && ok {
+			configs[resource.Metadata.Name] = configYAML
+		}
 	}
 }
 

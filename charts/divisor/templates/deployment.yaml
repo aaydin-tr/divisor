@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "divisor.fullname" . }}
+  labels:
+    {{- include "divisor.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "divisor.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "divisor.labels" . | nindent 8 }}
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      # divisor never calls the Kubernetes API.
+      automountServiceAccountToken: false
+      securityContext:
+        # The image runs as distroless's nonroot user.
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: divisor
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          args: ["--config", "/etc/divisor/config.yaml"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.config.port }}
+            - name: monitoring
+              containerPort: {{ .Values.config.monitoring.port }}
+          # /healthz: the process runs; /ready: listeners bound, not draining. Neither depends
+          # on Backend health, so all Backends Down never restarts divisor or pulls it from the Service.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: monitoring
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: monitoring
+            periodSeconds: 5
+          # SIGTERM stops accepting at once; the sleep lets the Service drop this pod's endpoint first.
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            # A directory mount, never subPath: kubelet only updates a
+            # ConfigMap volume mounted whole, and that update is the Reload.
+            - name: config
+              mountPath: /etc/divisor
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "divisor.fullname" . }}-config

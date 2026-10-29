@@ -11,4 +11,4 @@ The integration suite (`integration-test/`) tests divisor fully black-box: the d
 
 - No Go coverage data from integration tests; debugging happens via `docker logs` (zap already writes to stdout).
 - ip-hash distribution tests need auxiliary client containers, since all host-originated requests share one source IP.
-- The repo gains a root `Dockerfile` (multi-stage), which doubles as the distributable image.
+- The suite builds divisor from its own multi-stage Alpine `integration-test/divisor.Dockerfile` (scenarios use `/bin/sh` inside the container). It first doubled as the distributable image; since 1.0 the root `Dockerfile` is the separate distroless, nonroot release image goreleaser builds, which has no shell. (Amended 2026-10-29, Tier 4 distribution.)

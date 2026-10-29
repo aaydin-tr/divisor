@@ -23,6 +23,6 @@ dist/
 *.log
 
 # Project binary
-divisor
+/divisor
 .serena/
 .scratch/

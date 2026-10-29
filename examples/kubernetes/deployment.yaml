@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: divisor
+  labels:
+    app.kubernetes.io/name: divisor
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: divisor
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: divisor
+    spec:
+      # Must exceed the 5s preStop sleep plus server.graceful_shutdown_timeout (default 30s),
+      # or kubelet SIGKILLs divisor mid-drain.
+      terminationGracePeriodSeconds: 40
+      # divisor never calls the Kubernetes API.
+      automountServiceAccountToken: false
+      securityContext:
+        # The image runs as distroless's nonroot user.
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: divisor
+          image: ghcr.io/aaydin-tr/divisor:latest
+          args: ["--config", "/etc/divisor/config.yaml"]
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: monitoring
+              containerPort: 8001
+          # /healthz: the process runs; /ready: listeners bound, not draining. Neither depends
+          # on Backend health, so all Backends Down never restarts divisor or pulls it from the Service.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: monitoring
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: monitoring
+            periodSeconds: 5
+          # SIGTERM stops accepting at once; the sleep lets the Service drop this pod's endpoint first.
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            # A directory mount, never subPath: kubelet only updates a
+            # ConfigMap volume mounted whole, and that update is the Reload.
+            - name: config
+              mountPath: /etc/divisor
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: divisor-config
