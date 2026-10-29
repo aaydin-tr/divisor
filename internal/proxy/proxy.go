@@ -3,7 +3,6 @@ package proxy
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"math"
 	"net"
@@ -53,10 +52,6 @@ var hopHeaders = [][]byte{
 var XForwardedFor = []byte("X-Forwarded-For")
 var httpB = []byte("http")
 
-type errorMessage struct {
-	Message string `json:"message"`
-}
-
 // Weight of the newest sample in the response-time moving average. Low enough
 // that one slow response cannot steer traffic away from a Backend for long,
 // high enough that a Backend turning slow is noticed within a few requests.
@@ -74,9 +69,10 @@ const microsPerMilli = float64(1000)
 const timeHeaderLayout = "2006-01-02T15:04:05.000Z07:00"
 
 const (
-	badGatewayMessage      = `{"message":"bad gateway"}`
-	gatewayTimeoutMessage  = `{"message":"gateway timeout"}`
-	noAliveBackendsMessage = `{"message":"no backends available"}`
+	badGatewayMessage          = `{"message":"bad gateway"}`
+	gatewayTimeoutMessage      = `{"message":"gateway timeout"}`
+	noAliveBackendsMessage     = `{"message":"no backends available"}`
+	internalServerErrorMessage = `{"message":"internal server error"}`
 )
 
 type ProxyClient struct {
@@ -111,7 +107,7 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 		accessLog := logger.AccessLogEntry{
 			ClientIP:        helper.B2S(clientIP),
 			Method:          string(ctx.Method()),
-			Path:            string(ctx.Path()),
+			Path:            string(ctx.URI().PathOriginal()),
 			Backend:         h.Addr,
 			RequestSequence: requestSequenceNumber,
 		}
@@ -357,22 +353,14 @@ func isConnectionOption(token []byte) bool {
 // middlewareError answers a Middleware failure. Whatever the response held —
 // a Backend's reply, an earlier Middleware's edits — is discarded: a failed
 // Middleware's response cannot be trusted, and an untouched pooled response
-// would otherwise go out as an empty 200 OK.
+// would otherwise go out as an empty 200 OK. The error text stays in the
+// Application log: it may name internals the client must not see.
 func middlewareError(res *fasthttp.Response, err error) {
-	zap.S().Infof("middleware returned an error: %s", err)
+	zap.S().Errorf("Middleware returned an error, answering 500: %s", err)
 	res.Reset()
 	res.SetStatusCode(fasthttp.StatusInternalServerError)
 	res.Header.Set("Content-Type", "application/json")
-	res.SetBody(errorMessageBody(err))
-}
-
-func errorMessageBody(err error) []byte {
-	body, marshalErr := json.Marshal(errorMessage{Message: err.Error()})
-	if marshalErr != nil {
-		return helper.S2B(`{"message":"internal error"}`)
-	}
-
-	return body
+	res.SetBodyString(internalServerErrorMessage)
 }
 
 // NoAliveBackends answers a request that arrived while every Backend is Down:
@@ -389,7 +377,7 @@ func NoAliveBackends(ctx *fasthttp.RequestCtx) {
 		logger.LogAccess(&logger.AccessLogEntry{
 			ClientIP: ctx.RemoteIP().String(),
 			Method:   helper.B2S(ctx.Method()),
-			Path:     helper.B2S(ctx.Path()),
+			Path:     string(ctx.URI().PathOriginal()),
 			Status:   fasthttp.StatusServiceUnavailable,
 			BytesOut: len(noAliveBackendsMessage),
 		})

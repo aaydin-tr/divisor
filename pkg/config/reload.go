@@ -13,7 +13,7 @@ import (
 var ErrReloadInvalidConfig = errors.New("reload rejected, the new config is invalid")
 
 // RestartRequiredError rejects a Reload whose new config changes keys outside
-// the Backend set and Probe settings (docs/adr/0006-reload-scope.md).
+// the Backend set and Probe settings (development/adr/0006-reload-scope.md).
 type RestartRequiredError struct {
 	ChangedKeys []string
 }

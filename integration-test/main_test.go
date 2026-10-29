@@ -1,7 +1,7 @@
 // Package integration is the black-box integration suite for divisor.
 //
 // Divisor and its Backends each run as Docker containers (see
-// docs/adr/0001-black-box-integration-suite.md); tests drive real HTTP
+// development/adr/0001-black-box-integration-suite.md); tests drive real HTTP
 // traffic from outside. The suite is opt-in: set DIVISOR_INTEGRATION=1.
 //
 //	DIVISOR_INTEGRATION=1 go test -v -timeout 20m .
@@ -28,7 +28,7 @@ func TestMain(m *testing.M) {
 }
 
 // specRed marks a test asserting agreed 1.0 spec behavior that has not
-// shipped yet (docs/adr/0002-spec-red-gating.md). The set is currently empty;
+// shipped yet (development/adr/0002-spec-red-gating.md). The set is currently empty;
 // this stays dormant for the next spec-red test.
 //
 //nolint:unused

@@ -1,0 +1,46 @@
+# divisor with its Access log and Application logs shipped to Loki by Grafana
+# Alloy, as two separate streams, and its metrics scraped by Prometheus
+# (docs/observability.md). Run from this directory: docker compose up -d
+services:
+  divisor:
+    image: ghcr.io/aaydin-tr/divisor:latest
+    ports:
+      - "8080:8080"
+      - "127.0.0.1:8001:8001"
+    volumes:
+      - ../observability.config.yaml:/etc/divisor/config.yaml:ro
+    depends_on:
+      - whoami-1
+      - whoami-2
+
+  whoami-1:
+    image: traefik/whoami:v1.11.0
+    hostname: whoami-1
+
+  whoami-2:
+    image: traefik/whoami:v1.11.0
+    hostname: whoami-2
+
+  loki:
+    image: grafana/loki:3.5.0
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "127.0.0.1:3100:3100"
+
+  alloy:
+    image: grafana/alloy:v1.9.1
+    command: run --server.http.listen-addr=0.0.0.0:12345 /etc/alloy/config.alloy
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "127.0.0.1:12345:12345"
+    depends_on:
+      - loki
+
+  prometheus:
+    image: prom/prometheus:v3.4.1
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:9090:9090"

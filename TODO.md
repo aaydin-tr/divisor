@@ -8,7 +8,7 @@ a discussion. Items marked **[born-red]** have an integration test in
 until it ships. ADRs are written at implementation time (the repo's pattern);
 items that need one say so. Each open item below points to its spec
 (`.scratch/<feature>/spec.md`) and its ready-for-agent tickets
-(`.scratch/<feature>/issues/`); conventions in `docs/agents/issue-tracker.md`.
+(`.scratch/<feature>/issues/`); conventions in `development/agents/issue-tracker.md`.
 
 ## Observability
 
@@ -36,6 +36,13 @@ Spec: `.scratch/logging/spec.md` — tickets in `.scratch/logging/issues/`.
   A/B-measured like H5 (results in the spec's Comments): 3.3 ns/request when
   off, ~1 µs emit when on. Ticket: `02-access-log.md` (done). Integration:
   `TestAccessLogOneJSONLinePerRequestOnStdout`.
+- [ ] `open_conn_count` on the HTTP/2 listener — filed 2026-10-29 from the
+  docs restructure. `/stats` and its Prometheus gauge count open client
+  connections only on the fasthttp listener; under `server.http_version:
+  http2` the stub in `internal/server/server.go` (it carries a `TODO`)
+  answers `0` forever. Fix: an `http.Server.ConnState` hook. Documented as
+  is in `docs/observability.md` until it ships. Ticket:
+  `.scratch/monitoring/issues/01-http2-open-connection-count.md`.
 
 ## Distribution
 
@@ -118,7 +125,7 @@ Spec: `.scratch/kubernetes/spec.md` — tickets in `.scratch/kubernetes/issues/`
   Join if Alive) before removed ones Leave. Triggers: SIGHUP and a debounced (1s) fsnotify
   watch of the config file's directory that catches kubelet's ConfigMap
   `..data` swap; both call `reload.Reloader.Reload`. Recorded in
-  `docs/adr/0006-reload-scope.md`. Tickets: `04-reload-via-sighup.md`,
+  `development/adr/0006-reload-scope.md`. Tickets: `04-reload-via-sighup.md`,
   `05-reload-file-watch.md` (done). Integration: `TestReloadViaSIGHUP`,
   `TestReloadOnConfigMapUpdate` (born red).
 - [ ] Concurrent Probe rounds — **deferred from the PR #49 review
@@ -137,7 +144,7 @@ Spec: `.scratch/streaming/spec.md` — tickets in `.scratch/streaming/issues/`.
 
 Reopened review.md L8 (declared unsupported 2026-08-23; superseded) —
 response streaming shipped in 1.0. The model is recorded in
-`docs/adr/0007-opt-in-response-streaming.md`, which amends ADR 0003 (bounded
+`development/adr/0007-opt-in-response-streaming.md`, which amends ADR 0003 (bounded
 proxy timeout) twice: the timeout model and the L6 cancellation note.
 
 - [x] Opt-in knob — shipped: `server.streaming` (default **false**; candidate
@@ -216,7 +223,7 @@ hardcoded or silently left at library defaults):
   `TestProxyMatrix/BodyOverLimit413`, `TestHTTP2/BodyOverLimit413` **— now
   green]**
 - [x] `server.proxy_timeout` — shipped: global knob, default 60s, no
-  "unlimited" setting (see `docs/adr/0003-bounded-proxy-timeout.md`);
+  "unlimited" setting (see `development/adr/0003-bounded-proxy-timeout.md`);
   `internal/proxy` now calls `DoTimeout` and surfaces expiry as **504** (502
   stays reserved for refused/reset connections), no retry on another Backend.
   A per-backend `backends[].proxy_timeout` override is deferred (additive,
@@ -309,16 +316,21 @@ hardcoded or silently left at library defaults):
 
 Spec: `.scratch/docs/spec.md` — tickets in `.scratch/docs/issues/`.
 
-- [ ] Restructure — README slims to overview + quickstart; `docs/` gains:
-  config reference (every key, its default, since-version), middleware
-  guide, deployment guides (Docker, k8s + Helm, systemd), observability
-  guide (access logs, Prometheus, a Loki pipeline example). Plain Markdown,
-  browsable on GitHub — no site tooling in 1.0; a published site
-  (mkdocs-material on GitHub Pages) is the immediate post-1.0 follow-up,
-  and the content transfers unchanged. Tickets:
-  `01-docs-tree-and-readme-slim.md` through `06-migration-notes.md`
-  (docs tree + README, middleware guide, config reference, deployment
-  guides, observability guide, migration notes).
+- [x] Restructure — shipped: README slimmed to overview, feature summary,
+  Docker quickstart and a link table; `docs/` gains getting started, the
+  config reference (`configuration.md`: every key with type, default,
+  since-version, reloadability), middleware guide, deployment guides
+  (`deployment/`: Docker, Kubernetes + Helm, systemd), observability guide
+  (Access log field table, `/stats`, every Prometheus metric, a runnable
+  Loki/Alloy/Prometheus stack in `examples/observability/`) and
+  `migration-1.0.md` (every break since v0.6.0, linked from the release
+  notes header). Docs can't silently rot: `config_reference_test.go` pins
+  the reference to the parser's keys both ways (it caught two untagged
+  internal fields, now `yaml:"-"`), `access_docs_test.go` pins the Access
+  log field table, `pkg/middleware/examples_test.go` compiles every inline
+  Middleware under yaegi and checks the guide's chain, and the quickstart and
+  systemd configs pass full validation. Plain Markdown; the mkdocs-material
+  site is the immediate post-1.0 follow-up. Tickets `01`–`06` (done).
 
 ## Suite / CI follow-ups
 
@@ -330,7 +342,7 @@ Spec: `.scratch/docs/spec.md` — tickets in `.scratch/docs/issues/`.
   shared across PRs. Local runs are unchanged.
 - [x] `t.Parallel` across scenarios — every top-level test calls
   `t.Parallel()`; scenarios were already isolated by container/network names.
-- [x] Spec-red gating decided (see `docs/adr/0002-spec-red-gating.md`):
+- [x] Spec-red gating decided (see `development/adr/0002-spec-red-gating.md`):
   spec-red tests call `specRed(t, ...)` and skip unless
   `DIVISOR_INTEGRATION_SPEC_RED=1`; the blocking Integration job stays green
   while an advisory `continue-on-error` job runs just the spec-red set.
@@ -429,7 +441,7 @@ flexible → docs last).
 16. Example k8s manifests (`06-example-manifests.md`) — verify against the
     real published image; DNS knob from tier 1 available to set short.
 
-### Tier 5 — docs, last by design
+### Tier 5 — docs, last by design — **shipped 2026-10-29**
 
 17. Docs restructure (`01-docs-tree-and-readme-slim.md` …
     `06-migration-notes.md`) — big in writing effort, zero technical risk;

@@ -1,0 +1,86 @@
+// Ships divisor's two log streams to Loki as separate streams:
+// stdout (the Access log) as {log="access"}, stderr (Application logs) as {log="app"}.
+
+discovery.docker "divisor" {
+  host = "unix:///var/run/docker.sock"
+
+  filter {
+    name   = "label"
+    values = ["com.docker.compose.service=divisor"]
+  }
+}
+
+// loki.source.docker sets __meta_docker_container_log_stream to stdout or stderr on every line.
+discovery.relabel "divisor_log_streams" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_log_stream"]
+    regex         = "stdout"
+    target_label  = "log"
+    replacement   = "access"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_log_stream"]
+    regex         = "stderr"
+    target_label  = "log"
+    replacement   = "app"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+}
+
+loki.source.docker "divisor" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.divisor.targets
+  labels        = {"service" = "divisor"}
+  relabel_rules = discovery.relabel.divisor_log_streams.rules
+  forward_to    = [loki.process.divisor.receiver]
+}
+
+loki.process "divisor" {
+  forward_to = [loki.write.local.receiver]
+
+  // Access log lines are always JSON; time is RFC 3339 UTC with milliseconds.
+  stage.match {
+    selector = "{log=\"access\"}"
+
+    stage.json {
+      expressions = {time = ""}
+    }
+
+    stage.timestamp {
+      source = "time"
+      format = "RFC3339"
+    }
+  }
+
+  // Application logs are JSON unless logging.format is console; level is low-cardinality, so it is a label.
+  stage.match {
+    selector = "{log=\"app\"}"
+
+    stage.json {
+      expressions = {time = "", level = ""}
+    }
+
+    stage.timestamp {
+      source = "time"
+      format = "2006-01-02T15:04:05.000Z0700"
+    }
+
+    stage.labels {
+      values = {level = ""}
+    }
+  }
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

@@ -1,12 +1,18 @@
 package monitoring
 
 import (
+	"strconv"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-const backendAddressLabel = "address"
+const (
+	backendAddressLabel = "address"
+	backendIndexLabel   = "index"
+)
+
+var backendLabels = []string{backendAddressLabel, backendIndexLabel}
 
 var (
 	processMemoryPercent = prometheus.NewGauge(prometheus.GaugeOpts{
@@ -41,23 +47,23 @@ var (
 	backendTotalReqCount = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "backend_total_request_count",
 		Help: "Total request count for each backend",
-	}, []string{backendAddressLabel})
+	}, backendLabels)
 	backendAvgResTime = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "backend_average_response_time",
 		Help: "Average response time for each backend",
-	}, []string{backendAddressLabel})
+	}, backendLabels)
 	backendConnsCount = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "backend_connection_count",
 		Help: "Number of connections for each backend",
-	}, []string{backendAddressLabel})
+	}, backendLabels)
 	backendAlive = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "backend_alive",
 		Help: "Whether the backend is alive or not",
-	}, []string{backendAddressLabel})
+	}, backendLabels)
 )
 
-// backendGauges are the series labeled by Backend address; each is registered
-// and, once no Backend has its address, deleted.
+// backendGauges are the series labeled by Backend address and Index; each is
+// registered and, once no Backend has that address and Index, deleted.
 var backendGauges = []*prometheus.GaugeVec{backendTotalReqCount, backendAvgResTime, backendConnsCount, backendAlive}
 
 var registerPrometheusMetricsOnce sync.Once
@@ -81,9 +87,16 @@ func registerAllPrometheusMetrics() {
 	}
 }
 
-// Handing back the addresses reported last time drops the series of an address
-// a Reload removed every Backend from.
-func updatePrometheusMetrics(m *Monitoring, previouslyReportedAddresses map[string]bool) map[string]bool {
+// backendSeriesLabels identifies one Backend's series: the Index keeps two
+// Backends sharing an address apart.
+type backendSeriesLabels struct {
+	address string
+	index   string
+}
+
+// Handing back the series reported last time drops those of a Backend a
+// Reload removed.
+func updatePrometheusMetrics(m *Monitoring, previouslyReportedBackends map[backendSeriesLabels]bool) map[backendSeriesLabels]bool {
 	processMemoryPercent.Set(float64(m.Memory.ProcessPercent))
 	totalMemoryPercent.Set(float64(m.Memory.TotalPercent))
 	processMemoryMB.Set(m.Memory.ProcessMB)
@@ -92,13 +105,14 @@ func updatePrometheusMetrics(m *Monitoring, previouslyReportedAddresses map[stri
 	totalGoroutine.Set(float64(m.TotalGoroutine))
 	openConnCount.Set(float64(m.OpenConnectionCount))
 
-	reportedAddresses := make(map[string]bool, len(m.Backends))
+	reportedBackends := make(map[backendSeriesLabels]bool, len(m.Backends))
 	for _, backend := range m.Backends {
-		reportedAddresses[backend.Addr] = true
-		backendTotalReqCount.WithLabelValues(backend.Addr).Set(float64(backend.TotalReqCount))
-		backendAvgResTime.WithLabelValues(backend.Addr).Set(backend.AvgResTime)
-		backendConnsCount.WithLabelValues(backend.Addr).Set(float64(backend.ConnsCount))
-		backendAlive.WithLabelValues(backend.Addr).Set(func() float64 {
+		labels := backendSeriesLabels{address: backend.Addr, index: strconv.FormatUint(uint64(backend.BackendHash), 10)}
+		reportedBackends[labels] = true
+		backendTotalReqCount.WithLabelValues(labels.address, labels.index).Set(float64(backend.TotalReqCount))
+		backendAvgResTime.WithLabelValues(labels.address, labels.index).Set(backend.AvgResTime)
+		backendConnsCount.WithLabelValues(labels.address, labels.index).Set(float64(backend.ConnsCount))
+		backendAlive.WithLabelValues(labels.address, labels.index).Set(func() float64 {
 			if backend.IsHostAlive {
 				return 1
 			}
@@ -106,13 +120,13 @@ func updatePrometheusMetrics(m *Monitoring, previouslyReportedAddresses map[stri
 		}())
 	}
 
-	for address := range previouslyReportedAddresses {
-		if reportedAddresses[address] {
+	for labels := range previouslyReportedBackends {
+		if reportedBackends[labels] {
 			continue
 		}
 		for _, gauge := range backendGauges {
-			gauge.DeleteLabelValues(address)
+			gauge.DeleteLabelValues(labels.address, labels.index)
 		}
 	}
-	return reportedAddresses
+	return reportedBackends
 }

@@ -222,10 +222,10 @@ func (s *Server) pollPrometheus(collector *statsCollector) {
 	defer close(s.pollingDone)
 	ticker := time.NewTicker(prometheusUpdateInterval)
 	defer ticker.Stop()
-	var reportedBackendAddresses map[string]bool
+	var reportedBackends map[backendSeriesLabels]bool
 	for {
 		snapshot := collector.Snapshot()
-		reportedBackendAddresses = updatePrometheusMetrics(&snapshot, reportedBackendAddresses)
+		reportedBackends = updatePrometheusMetrics(&snapshot, reportedBackends)
 		select {
 		case <-s.stopPolling:
 			return

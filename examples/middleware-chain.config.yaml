@@ -1,0 +1,120 @@
+# Middleware chain walked through in docs/middleware.md
+# OnRequest hooks run top to bottom, OnResponse hooks bottom to top.
+
+type: round-robin
+port: 8000
+host: localhost
+
+backends:
+  - url: localhost:8080
+  - url: localhost:7070
+
+monitoring:
+  port: 8001
+  host: localhost
+
+middlewares:
+  # Listed first, so its OnResponse runs last: its Short-circuit skips no
+  # other Middleware's OnResponse.
+  - name: fallback
+    config:
+      retry_after_seconds: 5
+    code: |
+      package middleware
+
+      import (
+          "strconv"
+
+          "github.com/aaydin-tr/divisor/middleware"
+      )
+
+      type Fallback struct{ retryAfter string }
+
+      func New(config map[string]any) middleware.Middleware {
+          seconds, _ := config["retry_after_seconds"].(int)
+          return &Fallback{retryAfter: strconv.Itoa(seconds)}
+      }
+
+      func (f *Fallback) OnRequest(ctx *middleware.Context) error { return nil }
+
+      // err is non-nil only when the Backend gave no complete response; a
+      // Backend's own 500 arrives with err == nil and passes through.
+      func (f *Fallback) OnResponse(ctx *middleware.Context, err error) error {
+          if err == nil {
+              return nil
+          }
+          ctx.Response.Reset() // drop whatever a Backend that failed mid-read left behind
+          ctx.SetStatusCode(503)
+          ctx.Response.Header.Set("Retry-After", f.retryAfter)
+          ctx.SetContentType("application/json")
+          ctx.SetBodyString(`{"message":"service temporarily unavailable"}`)
+          return middleware.ErrShortCircuit
+      }
+
+  - name: api-key
+    config:
+      key: change-me
+    code: |
+      package middleware
+
+      import (
+          "crypto/subtle"
+
+          "github.com/aaydin-tr/divisor/middleware"
+      )
+
+      type APIKey struct{ key []byte }
+
+      func New(config map[string]any) middleware.Middleware {
+          key, _ := config["key"].(string)
+          return &APIKey{key: []byte(key)}
+      }
+
+      func (a *APIKey) OnRequest(ctx *middleware.Context) error {
+          sent := ctx.Request.Header.Peek("X-Api-Key")
+          if len(a.key) == 0 || subtle.ConstantTimeCompare(sent, a.key) != 1 {
+              ctx.SetStatusCode(401)
+              ctx.SetContentType("application/json")
+              ctx.SetBodyString(`{"message":"missing or wrong api key"}`)
+              return middleware.ErrShortCircuit
+          }
+          ctx.Request.Header.Del("X-Api-Key") // the Backend never sees the key
+          return nil
+      }
+
+      func (a *APIKey) OnResponse(ctx *middleware.Context, err error) error { return nil }
+
+  # Keeps a client-sent X-Request-Id; custom_headers' $uuid would overwrite it.
+  - name: request-id
+    config:
+      prefix: divisor
+    code: |
+      package middleware
+
+      import (
+          "strconv"
+          "sync/atomic"
+
+          "github.com/aaydin-tr/divisor/middleware"
+      )
+
+      // One instance serves every request concurrently: the counter is atomic.
+      type RequestID struct {
+          prefix string
+          issued atomic.Uint64
+      }
+
+      func New(config map[string]any) middleware.Middleware {
+          prefix, _ := config["prefix"].(string)
+          return &RequestID{prefix: prefix}
+      }
+
+      func (r *RequestID) OnRequest(ctx *middleware.Context) error {
+          if len(ctx.Request.Header.Peek("X-Request-Id")) == 0 {
+              id := r.prefix + "-" + strconv.FormatUint(r.issued.Add(1), 10)
+              ctx.Request.Header.Set("X-Request-Id", id)
+          }
+          return nil
+      }
+
+      func (r *RequestID) OnResponse(ctx *middleware.Context, err error) error { return nil }

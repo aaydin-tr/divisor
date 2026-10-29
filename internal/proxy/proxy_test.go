@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"bufio"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -26,6 +25,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/valyala/fasthttp"
+	"go.uber.org/zap/zapcore"
 )
 
 type mockServer struct {
@@ -1140,7 +1140,7 @@ func TestMiddlewareErrorReachesClient(t *testing.T) {
 		assert.Error(t, err)
 		assert.Equal(t, fasthttp.StatusInternalServerError, ctx.Response.StatusCode())
 		assert.Equal(t, "application/json", string(ctx.Response.Header.Peek("Content-Type")))
-		assert.JSONEq(t, `{"message":"unauthorized"}`, string(ctx.Response.Body()))
+		assert.JSONEq(t, `{"message":"internal server error"}`, string(ctx.Response.Body()))
 	})
 
 	t.Run("OnRequest error discards a response the middleware wrote itself", func(t *testing.T) {
@@ -1159,7 +1159,7 @@ func TestMiddlewareErrorReachesClient(t *testing.T) {
 		assert.Error(t, p.ReverseProxyHandler(ctx))
 		assert.Equal(t, fasthttp.StatusInternalServerError, ctx.Response.StatusCode())
 		assert.Empty(t, ctx.Response.Header.Peek("X-Crafted"))
-		assert.JSONEq(t, `{"message":"unauthorized"}`, string(ctx.Response.Body()))
+		assert.JSONEq(t, `{"message":"internal server error"}`, string(ctx.Response.Body()))
 	})
 
 	t.Run("OnResponse error after a Backend failure answers 500, not 502", func(t *testing.T) {
@@ -1175,7 +1175,7 @@ func TestMiddlewareErrorReachesClient(t *testing.T) {
 		err := p.ReverseProxyHandler(ctx)
 		assert.Error(t, err)
 		assert.Equal(t, fasthttp.StatusInternalServerError, ctx.Response.StatusCode())
-		assert.JSONEq(t, `{"message":"rejected by middleware"}`, string(ctx.Response.Body()))
+		assert.JSONEq(t, `{"message":"internal server error"}`, string(ctx.Response.Body()))
 	})
 
 	t.Run("OnResponse error after a Backend success discards the Backend response", func(t *testing.T) {
@@ -1193,13 +1193,14 @@ func TestMiddlewareErrorReachesClient(t *testing.T) {
 		assert.Error(t, err)
 		assert.Equal(t, fasthttp.StatusInternalServerError, ctx.Response.StatusCode())
 		assert.Empty(t, ctx.Response.Header.Peek("X-Backend-Stamp"), "Backend headers must not leak past a failed middleware")
-		assert.JSONEq(t, `{"message":"response failed validation"}`, string(ctx.Response.Body()))
+		assert.JSONEq(t, `{"message":"internal server error"}`, string(ctx.Response.Body()))
 	})
 
-	t.Run("error message with quotes stays valid JSON", func(t *testing.T) {
+	t.Run("the Middleware's error goes to the Application log, never to the client", func(t *testing.T) {
+		observed := observeDebugLog(t)
 		mw := &mockMiddleware{
 			onRequestFunc: func(ctx *middleware.Context) error {
-				return errors.New(`token "abc" is \invalid`)
+				return errors.New("dial tcp 10.0.0.7:6379: connection refused")
 			},
 		}
 
@@ -1207,12 +1208,9 @@ func TestMiddlewareErrorReachesClient(t *testing.T) {
 		ctx := newTestRequestCtx()
 
 		assert.Error(t, p.ReverseProxyHandler(ctx))
-
-		var body struct {
-			Message string `json:"message"`
-		}
-		assert.NoError(t, json.Unmarshal(ctx.Response.Body(), &body))
-		assert.Equal(t, `token "abc" is \invalid`, body.Message)
+		assert.NotContains(t, string(ctx.Response.Body()), "10.0.0.7")
+		errorLines := observed.FilterLevelExact(zapcore.ErrorLevel).FilterMessageSnippet("10.0.0.7:6379: connection refused").All()
+		assert.Len(t, errorLines, 1, "the Middleware's error must be logged once at error level")
 	})
 }
 

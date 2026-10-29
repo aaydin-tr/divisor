@@ -72,10 +72,10 @@ const (
 	DefaultHealthCheckerTime    = time.Second * 30
 	DefaultHealthCheckerTimeout = time.Second * 5
 
-	// No "unlimited" setting exists; see docs/adr/0003-bounded-proxy-timeout.md.
+	// No "unlimited" setting exists; see development/adr/0003-bounded-proxy-timeout.md.
 	DefaultProxyTimeout = time.Second * 60
 
-	// No "unlimited" setting exists either; see docs/adr/0007-opt-in-response-streaming.md.
+	// No "unlimited" setting exists either; see development/adr/0007-opt-in-response-streaming.md.
 	DefaultStreamIdleTimeout = time.Minute * 5
 
 	DefaultMaxRequestBodySize = fasthttp.DefaultMaxRequestBodySize
@@ -202,18 +202,18 @@ func (s *Server) TLSMinVersionValue() uint16 {
 
 type Config struct {
 	CustomHeaders        map[string]string `yaml:"custom_headers"`
-	HealthCheckerFunc    types.IsHostAlive
-	HashFunc             types.HashFunc
-	Monitoring           Monitoring    `yaml:"monitoring"`
-	Type                 string        `yaml:"type"`
-	Host                 string        `yaml:"host"`
-	Port                 string        `yaml:"port"`
-	Backends             []Backend     `yaml:"backends"`
-	Server               Server        `yaml:"server"`
-	Middlewares          []Middleware  `yaml:"middlewares"`
-	Logging              Logging       `yaml:"logging"`
-	HealthCheckerTime    time.Duration `yaml:"health_checker_time"`
-	HealthCheckerTimeout time.Duration `yaml:"health_checker_timeout"`
+	HealthCheckerFunc    types.IsHostAlive `yaml:"-"`
+	HashFunc             types.HashFunc    `yaml:"-"`
+	Monitoring           Monitoring        `yaml:"monitoring"`
+	Type                 string            `yaml:"type"`
+	Host                 string            `yaml:"host"`
+	Port                 string            `yaml:"port"`
+	Backends             []Backend         `yaml:"backends"`
+	Server               Server            `yaml:"server"`
+	Middlewares          []Middleware      `yaml:"middlewares"`
+	Logging              Logging           `yaml:"logging"`
+	HealthCheckerTime    time.Duration     `yaml:"health_checker_time"`
+	HealthCheckerTimeout time.Duration     `yaml:"health_checker_timeout"`
 }
 
 func (c *Config) GetAddr() string {
@@ -392,7 +392,7 @@ func isFinalHTTPStatus(status int) bool {
 // from the config url: an optional http:// scheme and a bare trailing slash
 // are stripped, a missing port defaults to 80. Anything divisor cannot honor
 // (path, query, userinfo) is rejected, as is https://
-// (docs/adr/0004-plaintext-only-backends.md).
+// (development/adr/0004-plaintext-only-backends.md).
 func normalizeBackendAddress(raw string) (string, error) {
 	if strings.TrimSpace(raw) == "" {
 		return "", ErrBackendUrlEmpty

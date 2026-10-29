@@ -85,6 +85,10 @@ func proxyThroughNetHttpFrontend(t *testing.T, p *ProxyClient, rawRequest string
 	require.NoError(t, proxyErr)
 }
 
+func reverseProxyThrough(p *ProxyClient) fasthttp.RequestHandler {
+	return func(ctx *fasthttp.RequestCtx) { _ = p.ReverseProxyHandler(ctx) }
+}
+
 // newHTTP2Frontend serves the adapter over TLS and HTTP/2, like the net/http
 // listener, proxying every request through p.
 func newHTTP2Frontend(t *testing.T, p *ProxyClient) *httptest.Server {
@@ -94,9 +98,12 @@ func newHTTP2Frontend(t *testing.T, p *ProxyClient) *httptest.Server {
 
 func newHTTP2FrontendWithWriteTimeout(t *testing.T, p *ProxyClient, writeTimeout time.Duration) *httptest.Server {
 	t.Helper()
-	server := httptest.NewUnstartedServer(NewNetHttpAdapter(&stubBalancer{handler: func(ctx *fasthttp.RequestCtx) {
-		_ = p.ReverseProxyHandler(ctx)
-	}}, 0))
+	return newHTTP2FrontendServing(t, reverseProxyThrough(p), writeTimeout)
+}
+
+func newHTTP2FrontendServing(t *testing.T, serve fasthttp.RequestHandler, writeTimeout time.Duration) *httptest.Server {
+	t.Helper()
+	server := httptest.NewUnstartedServer(NewNetHttpAdapter(&stubBalancer{handler: serve}, 0))
 	server.Config.WriteTimeout = writeTimeout
 	server.EnableHTTP2 = true
 	server.StartTLS()

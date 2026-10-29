@@ -1,0 +1,12 @@
+# The README quickstart: divisor in Docker balancing two traefik/whoami
+# Backends on the same Docker network (docs/getting-started.md).
+port: 8080
+backends:
+  - url: whoami-1:80
+  - url: whoami-2:80
+health_checker_time: 5s
+monitoring:
+  # Inside a container the Monitoring server must bind 0.0.0.0 to be reachable
+  # through a published port; publish it on 127.0.0.1 only.
+  host: 0.0.0.0
+  port: 8001

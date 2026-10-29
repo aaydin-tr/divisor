@@ -298,8 +298,8 @@ func TestMiddlewareResponseAbortAndPanic(t *testing.T) {
 		if res.StatusCode != http.StatusInternalServerError {
 			t.Errorf("failing middleware got status %d, want 500", res.StatusCode)
 		}
-		if string(res.Body) != `{"message":"rejected"}` {
-			t.Errorf("failing middleware body %q, want divisor's {\"message\":\"rejected\"}", res.Body)
+		if string(res.Body) != `{"message":"internal server error"}` {
+			t.Errorf("failing middleware body %q, want divisor's generic {\"message\":\"internal server error\"}", res.Body)
 		}
 		if res.Header.Get("X-Backend-Id") != "" {
 			t.Errorf("request reached backend %s although a middleware failed", res.Header.Get("X-Backend-Id"))

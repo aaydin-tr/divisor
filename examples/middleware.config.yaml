@@ -13,7 +13,7 @@ monitoring:
   port: 8001
   host: localhost
 
-# Custom middleware chain (executed in order)
+# Custom middleware chain: OnRequest in this order, OnResponse in reverse (docs/middleware.md)
 middlewares:
   # Example 1: Rate limiting middleware
   - name: rate-limiter
@@ -62,7 +62,7 @@ middlewares:
       }
 
   # Example 4: Maintenance switch (inline code) — a short-circuit answers the
-  # client itself; see "Short-circuiting" in the README
+  # client itself; see "Short-circuiting" in docs/middleware.md
   - name: maintenance
     disabled: false
     code: |
