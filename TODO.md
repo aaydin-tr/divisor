@@ -199,14 +199,21 @@ hardcoded or silently left at library defaults):
   30s in `performGracefulShutdown` (default stays 30s; zero means the
   default, negative rejected naming the key). Ticket:
   `04-graceful-shutdown-timeout.md` (done).
-- [ ] HTTP/2 server tuning (existing `TODO` at `main.go:158`) — set a
-  configured `http.HTTP2Config` on `http.Server.HTTP2` (e.g.
-  `max_concurrent_streams`) instead of the defaults. Ticket:
-  `05-http2-server-tuning.md`.
-- [ ] Health Probe tuning — probe timeout and expected-status are hardcoded
-  (GET, only 200 counts as Alive, client defaults in `pkg/http`); consider
-  `health_checker_timeout` and per-backend expected status. Ticket:
-  `06-probe-tuning.md`.
+- [x] HTTP/2 server tuning — shipped: nested `server.http2.max_concurrent_streams`
+  (the `server.http2:` section mirrors `http.Server.HTTP2`, room for later
+  `http.HTTP2Config` knobs) reaches the net/http server. Unset or `<= 0` means
+  250, Go's own default; above `math.MaxInt32` (which Go 1.27 would silently
+  default) fails startup naming the key. Inert on `http1.1`. The old
+  entrypoint TODO was already gone with PR #46. Ticket:
+  `05-http2-server-tuning.md` (done).
+- [x] Health Probe tuning — shipped: top-level `health_checker_timeout`
+  (default 5s, one deadline over dial + write + read via `DoTimeout`; zero
+  means the default, negative rejected naming the key) and
+  `backends[].health_check_status` (unset keeps the 2xx/3xx rule; set, only
+  that exact status is a successful Probe; outside 200-599 fails startup
+  naming the key and backend index). The rule lives in
+  `types.ExpectedProbeStatus.IsSatisfiedBy`; CONTEXT.md **Probe** updated.
+  Ticket: `06-probe-tuning.md` (done).
 - [x] TLS tuning — shipped: `server.tls_min_version` accepts `"1.2"` and
   `"1.3"` (anything else fails startup naming the key; unset keeps the
   runtime default), mapped onto the TLS config of both stacks. Cipher suites
@@ -290,26 +297,25 @@ Spec: `.scratch/docs/spec.md` — tickets in `.scratch/docs/issues/`.
   re-add the job when the next spec-red test lands
   (zero-alive-Backends-at-boot was planned as one, but landed together with
   its fix, born green).
-- [ ] Dependency upgrade pass — `go get -u ./...` + `go mod tidy` in both
-  modules (the root module and `integration-test/`, which pins its own
-  dependency set — keep shared pins like fasthttp in sync between them),
-  then the full suite (`go test -race ./...` plus the integration suite).
-  Natural companion to the toolchain bump below — land them in one pass or
-  back to back.
-- [ ] Go toolchain update to 1.27 (latest) — currently on 1.26 (fasthttp
-  ≥ v1.75.0 requires it): `go 1.26.0` in `go.mod` and
-  `integration-test/go.mod` and `run.go` in `.golangci.yml`, `1.26.10` in all
-  five workflow files under `.github/workflows/` (`go-version:`), and the
-  Dockerfile builder stage (`golang:1.26-alpine`). golangci-lint must be built
-  with the targeted Go version or newer (v2.13.0+ for 1.27; `linter.yml` pins
-  v2.9.0). Bump everywhere in one pass and run the full suite
-  (`go test -race ./...` plus the integration suite).
-- [ ] Monitoring server coverage (explicitly out of scope for the first
-  suite) — **now unblocked**: the readiness/liveness endpoints shipped
-  (ticket `.scratch/kubernetes/issues/02-probe-endpoints.md`), de-conflating
-  divisor liveness from Backend health, so `/metrics` can be tested with
-  zero Alive Backends. The harness's `ExposeMonitoring` scenario knob
-  already publishes the monitoring port.
+- [x] Dependency upgrade pass — shipped together with the toolchain bump:
+  `go get -u` + `go mod tidy` in both modules (prometheus client_golang 1.25,
+  gopsutil 4.26.9, zap 1.28, testify 1.12.1; fasthttp, yaegi, router already
+  latest; the integration module's docker/cli v27 → v29), shared pins
+  identical, fasthttp recheck list rerun. Ticket:
+  `.scratch/suite-ci/issues/01-toolchain-and-deps.md` (done).
+- [x] Go toolchain update to 1.27 — shipped: `go 1.27.0` in the root,
+  `integration-test/` and `integration-test/echobackend/` go.mod files and
+  `.golangci.yml`, `1.27.3` in the five workflows, `golang:1.27-alpine` in
+  the root and echobackend Dockerfiles, golangci-lint v2.9.0 → v2.15.0 (new
+  goconst/gosec/nolintlint findings cleared). `benchmark/` stays on 1.25
+  (separate tooling module). Ticket: `01-toolchain-and-deps.md` (done).
+- [x] Monitoring server coverage — shipped:
+  `TestMonitoringReportsBackendLivenessAcrossRejoin` (`backend_alive` 0 → 1
+  across zero-Alive-at-boot and Rejoin, `/stats` liveness in config order)
+  and `TestMonitoringReportsPerBackendRequestCounts`
+  (`backend_total_request_count` and `/stats` counts per Backend), on the
+  `ExposeMonitoring` knob; landed green. Ticket:
+  `.scratch/suite-ci/issues/02-monitoring-coverage.md` (done).
 
 ## Suggested order
 
@@ -349,7 +355,7 @@ flexible → docs last).
 7. Backend DNS re-resolution (`03-dns-cache-duration.md`) — expose fasthttp's
    `DNSCacheDuration`; **unblocks the example manifests** (they set it short).
 
-### Tier 2 — mechanical but wide
+### Tier 2 — mechanical but wide — **all four shipped 2026-10-28**
 
 8. Go toolchain bump to 1.27 + dependency upgrade pass — one combined pass
    (both go.mod files, five workflows, Dockerfile), full suite after; doing it

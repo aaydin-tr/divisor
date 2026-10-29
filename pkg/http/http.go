@@ -3,21 +3,32 @@ package http
 import (
 	"time"
 
+	"github.com/aaydin-tr/divisor/core/types"
 	"github.com/valyala/fasthttp"
 )
 
 type HttpClient struct {
-	client *fasthttp.Client
+	client       *fasthttp.Client
+	probeTimeout time.Duration
 }
 
-func NewHttpClient(dnsCacheDuration time.Duration) *HttpClient {
-	return &HttpClient{client: &fasthttp.Client{
-		ReadTimeout:         5 * time.Second,
-		WriteTimeout:        5 * time.Second,
-		MaxIdleConnDuration: 5 * time.Second,
-		MaxConnWaitTimeout:  30 * time.Second,
-		Dial:                newProbeDialer(dnsCacheDuration).Dial,
-	}}
+// NewHttpClient's probeTimeout bounds each whole Probe (dial, write and read)
+// with one deadline.
+func NewHttpClient(dnsCacheDuration, probeTimeout time.Duration) *HttpClient {
+	return newProbeClient(newProbeDialer(dnsCacheDuration).DialTimeout, probeTimeout)
+}
+
+func newProbeClient(dialBackend fasthttp.DialFuncWithTimeout, probeTimeout time.Duration) *HttpClient {
+	return &HttpClient{
+		client: &fasthttp.Client{
+			MaxIdleConnDuration: 5 * time.Second,
+			MaxConnWaitTimeout:  30 * time.Second,
+			// DialTimeout, not Dial: fasthttp hands it what is left of the
+			// DoTimeout deadline, so dialing counts against probeTimeout.
+			DialTimeout: dialBackend,
+		},
+		probeTimeout: probeTimeout,
+	}
 }
 
 func newProbeDialer(dnsCacheDuration time.Duration) *fasthttp.TCPDialer {
@@ -27,12 +38,13 @@ func newProbeDialer(dnsCacheDuration time.Duration) *fasthttp.TCPDialer {
 	}
 }
 
-func (h *HttpClient) IsHostAlive(url string) bool {
+// IsHostAlive runs one Probe; a redirect answer is judged as is, not followed.
+func (h *HttpClient) IsHostAlive(url string, expectedStatus types.ExpectedProbeStatus) bool {
 	req := fasthttp.AcquireRequest()
 	req.SetRequestURI(url)
 	req.Header.SetMethod(fasthttp.MethodGet)
 	resp := fasthttp.AcquireResponse()
-	err := h.client.Do(req, resp)
+	err := h.client.DoTimeout(req, resp, h.probeTimeout)
 
 	defer fasthttp.ReleaseRequest(req)
 	defer fasthttp.ReleaseResponse(resp)
@@ -40,12 +52,5 @@ func (h *HttpClient) IsHostAlive(url string) bool {
 	if err != nil {
 		return false
 	}
-	return isProbeSuccess(resp.StatusCode())
-}
-
-// A Probe succeeds on any 2xx or 3xx answer (CONTEXT.md, Probe): a health
-// path that answers 204, or redirects, marks the Backend Alive; redirects
-// are not followed.
-func isProbeSuccess(statusCode int) bool {
-	return statusCode >= fasthttp.StatusOK && statusCode < fasthttp.StatusBadRequest
+	return expectedStatus.IsSatisfiedBy(resp.StatusCode())
 }

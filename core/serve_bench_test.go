@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aaydin-tr/divisor/core/types"
 	"github.com/aaydin-tr/divisor/mocks"
 	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/aaydin-tr/divisor/pkg/helper"
@@ -13,7 +14,7 @@ import (
 
 func benchConfig(t string) *config.Config {
 	cfg := &config.Config{Type: t, HealthCheckerTime: time.Hour, HashFunc: helper.HashFunc,
-		HealthCheckerFunc: func(string) bool { return true }}
+		HealthCheckerFunc: func(string, types.ExpectedProbeStatus) bool { return true }}
 	for _, a := range []string{"localhost:8080", "localhost:8081", "localhost:8082"} {
 		cfg.Backends = append(cfg.Backends, config.Backend{Url: a, Weight: 2})
 	}

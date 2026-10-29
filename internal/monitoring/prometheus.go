@@ -6,6 +6,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+const backendAddressLabel = "address"
+
 var (
 	processMemoryPercent = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "process_memory_percent",
@@ -39,19 +41,19 @@ var (
 	backendTotalReqCount = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "backend_total_request_count",
 		Help: "Total request count for each backend",
-	}, []string{"address"})
+	}, []string{backendAddressLabel})
 	backendAvgResTime = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "backend_average_response_time",
 		Help: "Average response time for each backend",
-	}, []string{"address"})
+	}, []string{backendAddressLabel})
 	backendConnsCount = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "backend_connection_count",
 		Help: "Number of connections for each backend",
-	}, []string{"address"})
+	}, []string{backendAddressLabel})
 	backendAlive = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "backend_alive",
 		Help: "Whether the backend is alive or not",
-	}, []string{"address"})
+	}, []string{backendAddressLabel})
 )
 
 var registerPrometheusMetricsOnce sync.Once

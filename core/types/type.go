@@ -11,7 +11,21 @@ import (
 // budget or deadlock a balancer whose checker never started.
 const HealthCheckerStopTimeout = 5 * time.Second
 
-type IsHostAlive func(string) bool
+type IsHostAlive func(url string, expectedStatus ExpectedProbeStatus) bool
+
+// ExpectedProbeStatus is a Backend's health_check_status: the one status that
+// makes its Probe succeed, or AnySuccessOrRedirect when it is unset.
+type ExpectedProbeStatus int
+
+const AnySuccessOrRedirect ExpectedProbeStatus = 0
+
+// IsSatisfiedBy is the Probe rule (CONTEXT.md, Probe).
+func (e ExpectedProbeStatus) IsSatisfiedBy(answeredStatus int) bool {
+	if e == AnySuccessOrRedirect {
+		return answeredStatus >= fasthttp.StatusOK && answeredStatus < fasthttp.StatusBadRequest
+	}
+	return answeredStatus == int(e)
+}
 
 type HashFunc func([]byte) uint32
 

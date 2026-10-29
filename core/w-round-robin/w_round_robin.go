@@ -27,7 +27,7 @@ func (w *wRoundRobin) Join(b *pool.Backend) {
 	for range int(b.Weight) {
 		next = append(next, b)
 	}
-	rand.Shuffle(len(next), func(i, j int) { next[i], next[j] = next[j], next[i] })
+	rand.Shuffle(len(next), func(i, j int) { next[i], next[j] = next[j], next[i] }) //nolint:gosec
 	w.SetAliveBackends(next)
 }
 

@@ -2,18 +2,26 @@ package config
 
 import (
 	"crypto/tls"
+	"fmt"
+	"math"
+	"strconv"
 	"testing"
 	"time"
 
+	"github.com/aaydin-tr/divisor/core/types"
 	"github.com/stretchr/testify/assert"
 )
+
+func oneBackendConfig() Config {
+	return Config{Backends: []Backend{{Url: "localhost:8080"}}, Port: "8000"}
+}
 
 // The client server accepts outside traffic, so its host defaults to 0.0.0.0;
 // monitoring exposure stays opt-in behind the localhost default.
 func TestDefaultBindAddresses(t *testing.T) {
 	t.Parallel()
 
-	config := Config{Backends: []Backend{{Url: "localhost:8080"}}, Port: "8000"}
+	config := oneBackendConfig()
 	assert.NoError(t, config.PrepareConfig())
 	assert.Equal(t, "0.0.0.0", config.Host)
 	assert.Equal(t, "localhost", config.Monitoring.Host)
@@ -121,6 +129,52 @@ func TestTLSMinVersion(t *testing.T) {
 	})
 }
 
+func TestHTTP2MaxConcurrentStreams(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unset or negative means Go's own default", func(t *testing.T) {
+		for _, streams := range []int{0, -1} {
+			server := Server{HTTP2: HTTP2Config{MaxConcurrentStreams: streams}}
+			assert.NoError(t, server.prepareServer())
+			assert.Equal(t, 250, server.HTTP2.MaxConcurrentStreams)
+		}
+	})
+
+	t.Run("set values pass unchanged up to the largest Go honors", func(t *testing.T) {
+		for _, streams := range []int{1, 1000, math.MaxInt32} {
+			server := Server{HTTP2: HTTP2Config{MaxConcurrentStreams: streams}}
+			assert.NoError(t, server.prepareServer())
+			assert.Equal(t, streams, server.HTTP2.MaxConcurrentStreams)
+		}
+	})
+
+	t.Run("a value Go would silently replace fails naming the key", func(t *testing.T) {
+		if strconv.IntSize == 32 {
+			t.Skip("no int exceeds math.MaxInt32 on a 32-bit target")
+		}
+		aboveLargestHonored := math.MaxInt32
+		aboveLargestHonored++
+		server := Server{HTTP2: HTTP2Config{MaxConcurrentStreams: aboveLargestHonored}}
+		err := server.prepareServer()
+		assert.ErrorIs(t, err, ErrInvalidHTTP2MaxConcurrentStreams)
+		assert.Contains(t, err.Error(), "server.http2.max_concurrent_streams")
+	})
+
+	t.Run("parses from the nested server.http2 section", func(t *testing.T) {
+		path := writeConfig(t, "port: \"8000\"\nbackends:\n  - url: localhost:8080\nserver:\n  http2:\n    max_concurrent_streams: 500\n")
+		config, err := ParseConfigFile(path)
+		assert.NoError(t, err)
+		assert.NoError(t, config.PrepareConfig())
+		assert.Equal(t, 500, config.Server.HTTP2.MaxConcurrentStreams)
+	})
+
+	t.Run("a non-integer value fails at parse", func(t *testing.T) {
+		path := writeConfig(t, "port: \"8000\"\nbackends:\n  - url: localhost:8080\nserver:\n  http2:\n    max_concurrent_streams: lots\n")
+		_, err := ParseConfigFile(path)
+		assert.ErrorContains(t, err, "line 6")
+	})
+}
+
 func TestDNSCacheDuration(t *testing.T) {
 	t.Parallel()
 
@@ -153,5 +207,70 @@ func TestDNSCacheDuration(t *testing.T) {
 		for _, b := range config.Backends {
 			assert.Equal(t, 2*time.Second, b.DNSCacheDuration)
 		}
+	})
+}
+
+func TestHealthCheckerTimeout(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unset means the default", func(t *testing.T) {
+		config := oneBackendConfig()
+		assert.NoError(t, config.PrepareConfig())
+		assert.Equal(t, 5*time.Second, config.HealthCheckerTimeout)
+	})
+
+	t.Run("a set value passes unchanged", func(t *testing.T) {
+		config := oneBackendConfig()
+		config.HealthCheckerTimeout = 12 * time.Second
+		assert.NoError(t, config.PrepareConfig())
+		assert.Equal(t, 12*time.Second, config.HealthCheckerTimeout)
+	})
+
+	t.Run("a negative value fails naming the key", func(t *testing.T) {
+		config := oneBackendConfig()
+		config.HealthCheckerTimeout = -time.Second
+		err := config.PrepareConfig()
+		assert.ErrorIs(t, err, ErrInvalidHealthCheckerTimeout)
+		assert.Contains(t, err.Error(), "health_checker_timeout")
+	})
+}
+
+func TestHealthCheckStatus(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unset accepts any 2xx or 3xx", func(t *testing.T) {
+		config := oneBackendConfig()
+		assert.NoError(t, config.PrepareConfig())
+		assert.Equal(t, types.AnySuccessOrRedirect, config.Backends[0].HealthCheckStatus)
+	})
+
+	for _, accepted := range []types.ExpectedProbeStatus{200, 204, 302, 599} {
+		t.Run(fmt.Sprintf("accepts %d", accepted), func(t *testing.T) {
+			config := oneBackendConfig()
+			config.Backends[0].HealthCheckStatus = accepted
+			assert.NoError(t, config.PrepareConfig())
+			assert.Equal(t, accepted, config.Backends[0].HealthCheckStatus)
+		})
+	}
+
+	for _, rejected := range []types.ExpectedProbeStatus{-1, 100, 199, 600, 999} {
+		t.Run(fmt.Sprintf("rejects %d naming the key and the backend index", rejected), func(t *testing.T) {
+			config := oneBackendConfig()
+			config.Backends = append(config.Backends, Backend{Url: "localhost:8081", HealthCheckStatus: rejected})
+			err := config.PrepareConfig()
+			assert.ErrorIs(t, err, ErrInvalidHealthCheckStatus)
+			assert.Contains(t, err.Error(), "health_check_status")
+			assert.Contains(t, err.Error(), "index 1")
+			assert.Contains(t, err.Error(), fmt.Sprintf("got %d", rejected))
+		})
+	}
+
+	t.Run("parses from YAML", func(t *testing.T) {
+		path := writeConfig(t, "port: \"8000\"\nhealth_checker_timeout: 10s\nbackends:\n  - url: localhost:8080\n    health_check_status: 204\n")
+		config, err := ParseConfigFile(path)
+		assert.NoError(t, err)
+		assert.NoError(t, config.PrepareConfig())
+		assert.Equal(t, 10*time.Second, config.HealthCheckerTimeout)
+		assert.Equal(t, types.ExpectedProbeStatus(204), config.Backends[0].HealthCheckStatus)
 	})
 }

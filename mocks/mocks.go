@@ -148,24 +148,37 @@ func (r *RecordingBalancer) Transitions() (joins, leaves []*pool.Backend) {
 	return append([]*pool.Backend(nil), r.joins...), append([]*pool.Backend(nil), r.leaves...)
 }
 
-// ProbeTable answers Probes per Backend; Backends it was not told about are
-// Alive.
+// ProbeTable answers Probes per Backend with the status its health endpoint
+// would send, judged by the real Probe rule; Backends it was not told about
+// answer 200.
 type ProbeTable struct {
-	mu   sync.Mutex
-	down map[string]bool
+	mu               sync.Mutex
+	answeredStatuses map[string]int
 }
 
 func (p *ProbeTable) SetAlive(b *pool.Backend, alive bool) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.down == nil {
-		p.down = map[string]bool{}
+	if alive {
+		p.SetAnsweredStatus(b, fasthttp.StatusOK)
+		return
 	}
-	p.down[b.ProbeURL] = !alive
+	p.SetAnsweredStatus(b, fasthttp.StatusServiceUnavailable)
 }
 
-func (p *ProbeTable) Probe(url string) bool {
+func (p *ProbeTable) SetAnsweredStatus(b *pool.Backend, status int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return !p.down[url]
+	if p.answeredStatuses == nil {
+		p.answeredStatuses = map[string]int{}
+	}
+	p.answeredStatuses[b.ProbeURL] = status
+}
+
+func (p *ProbeTable) Probe(url string, expectedStatus types.ExpectedProbeStatus) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	answeredStatus, ok := p.answeredStatuses[url]
+	if !ok {
+		answeredStatus = fasthttp.StatusOK
+	}
+	return expectedStatus.IsSatisfiedBy(answeredStatus)
 }

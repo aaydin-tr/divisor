@@ -22,3 +22,5 @@ server:
   http_version: http2
   cert_file: /path/to/server.crt
   key_file: /path/to/server.key
+  http2:
+    max_concurrent_streams: 250
