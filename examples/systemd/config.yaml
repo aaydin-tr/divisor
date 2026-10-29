@@ -1,0 +1,23 @@
+# divisor on a traditional host, run by examples/systemd/divisor.service
+# (docs/deployment/systemd.md). Install it as /etc/divisor/config.yaml.
+type: round-robin
+port: 8080
+
+backends:
+  - url: 10.0.0.11:8080
+    health_check_path: /health
+  - url: 10.0.0.12:8080
+    health_check_path: /health
+
+health_checker_time: 10s
+
+# Reachable on the host only; put a reverse proxy or firewall rule in front
+# before exposing it.
+monitoring:
+  host: 127.0.0.1
+  port: 8001
+
+# journald stores both streams: Application logs (stderr) and the Access log
+# (stdout).
+logging:
+  access_log: true
