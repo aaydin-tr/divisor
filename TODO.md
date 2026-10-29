@@ -100,11 +100,13 @@ Spec: `.scratch/kubernetes/spec.md` — tickets in `.scratch/kubernetes/issues/`
   `TestAllBackendsDownAtBootServes503ThenRejoins` (probes with zero Alive
   Backends).
 - [x] Example manifests — shipped: `examples/kubernetes/` (Deployment,
-  ConfigMap, headless Service). Probes hit `/healthz`/`/ready` on the
+  ConfigMap, Service; the Backends sit behind a headless Service). A preStop
+  sleep covers endpoint propagation. Probes hit `/healthz`/`/ready` on the
   monitoring port. `monitoring.host: 0.0.0.0` and `dns_cache_duration: 5s`
   are set in the example only. The ConfigMap is mounted as a directory (no
   subPath), so an edit Reloads. The pod runs as nonroot with a read-only
-  root. Kubeconform `-strict` passes on k8s 1.34–1.36. The embedded config is
+  root. Kubeconform `-strict` passed on k8s 1.34–1.36 locally (CI checks only
+  the rendered chart, on 1.36). The embedded config is
   strict-parsed by `TestKubernetesExampleConfigMapHoldsAValidConfig`. Ticket:
   `06-example-manifests.md` (done).
 - [x] Reload (see CONTEXT.md **Reload**) — shipped: `backends`,

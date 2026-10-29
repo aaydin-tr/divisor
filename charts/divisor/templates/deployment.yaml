@@ -14,9 +14,9 @@ spec:
       labels:
         {{- include "divisor.labels" . | nindent 8 }}
     spec:
-      # Longer than server.graceful_shutdown_timeout (default 30s), so the
-      # drain finishes before kubelet sends SIGKILL.
-      terminationGracePeriodSeconds: 40
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      # divisor never calls the Kubernetes API.
+      automountServiceAccountToken: false
       securityContext:
         # The image runs as distroless's nonroot user.
         runAsNonRoot: true
@@ -44,6 +44,11 @@ spec:
               path: /ready
               port: monitoring
             periodSeconds: 5
+          # SIGTERM stops accepting at once; the sleep lets the Service drop this pod's endpoint first.
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

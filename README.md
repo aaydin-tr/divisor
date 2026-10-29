@@ -75,7 +75,7 @@ go install github.com/aaydin-tr/divisor@latest
 This will install the divisor binary to your system's `$GOPATH/bin` directory. Make sure this directory is included in your system's `$PATH` variable to make the divisor accessible from anywhere.
 
 #### Using Docker
-Every release publishes a multi-arch (`linux/amd64`, `linux/arm64`) image to Docker Hub (`aaydintr/divisor`) and GHCR (`ghcr.io/aaydin-tr/divisor`), tagged `vX.Y.Z`, `vX.Y` and `latest`. The image is distroless, runs as nonroot and has no shell. It reads its config from `/etc/divisor/config.yaml`, so mount yours there:
+Every release publishes a multi-arch (`linux/amd64`, `linux/arm64`) image to Docker Hub (`aaydintr/divisor`) and GHCR (`ghcr.io/aaydin-tr/divisor`), tagged `vX.Y.Z` (plus `vX.Y` and `latest` for non-prereleases). The image is distroless, runs as nonroot and has no shell. It reads its config from `/etc/divisor/config.yaml`, so mount yours there:
 
 ```bash
 docker run -p 8080:8080 -v "$PWD/config.yaml:/etc/divisor/config.yaml:ro" ghcr.io/aaydin-tr/divisor:latest

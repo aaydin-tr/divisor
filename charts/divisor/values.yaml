@@ -5,6 +5,10 @@ image:
   # Defaults to the chart's appVersion: the image of the chart's own release.
   tag: ""
 
+# Must exceed the 5s preStop sleep plus config.server.graceful_shutdown_timeout (default 30s),
+# or kubelet SIGKILLs divisor mid-drain.
+terminationGracePeriodSeconds: 40
+
 # A helm upgrade changing only backends or health_checker_* is a Reload, no restart; any other change waits for
 # `kubectl rollout restart deployment/<release>-divisor` (just <release> if the release name contains "divisor").
 config:
