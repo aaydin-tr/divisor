@@ -98,61 +98,85 @@ Spec: `.scratch/kubernetes/spec.md` — tickets in `.scratch/kubernetes/issues/`
   (kubelet probes hit the pod IP; the localhost default cannot serve them —
   the default itself stays localhost for non-k8s safety). Ticket:
   `06-example-manifests.md`.
-- [ ] Reload (see CONTEXT.md **Reload**) — apply an edited config file
-  without restart. Scope: **the Backend set and Probe settings only** (the
-  Pool already knows Join/Leave); an edit touching any other key is rejected
-  — divisor keeps serving with the old config and logs the offending key.
-  An invalid new config is handled the same way. Triggers: file watch
-  (fsnotify, debounced, following the ConfigMap symlink-swap pattern) plus
-  SIGHUP as the manual/scripted trigger. Record as an ADR when implemented.
-  Do it born-red: integration scenario edits the mounted config and asserts
-  the added Backend receives traffic without a container restart.
-  Tickets: `04-reload-via-sighup.md`, `05-reload-file-watch.md`.
+- [x] Reload (see CONTEXT.md **Reload**) — shipped: `backends`,
+  `health_checker_time` and `health_checker_timeout` are reloadable; any
+  other changed key, or an invalid new config, rejects the whole Reload
+  (logged naming every key) and divisor serves on with the running config.
+  Backends are diffed by entry: an unchanged entry keeps its Backend
+  (liveness, stats, Index) wherever it moved; added ones are Probed (and
+  Join if Alive) before removed ones Leave. Triggers: SIGHUP and a debounced (1s) fsnotify
+  watch of the config file's directory that catches kubelet's ConfigMap
+  `..data` swap; both call `reload.Reloader.Reload`. Recorded in
+  `docs/adr/0006-reload-scope.md`. Tickets: `04-reload-via-sighup.md`,
+  `05-reload-file-watch.md` (done). Integration: `TestReloadViaSIGHUP`,
+  `TestReloadOnConfigMapUpdate` (born red).
 
 ## Streaming
 
-Spec: `.scratch/streaming/spec.md` — tickets in `.scratch/streaming/issues/`
-(`04-streamed-access-log.md` there covers the Access-log interaction, which
-is specced but has no bullet below).
+Spec: `.scratch/streaming/spec.md` — tickets in `.scratch/streaming/issues/`.
 
-Reopens review.md L8 (declared unsupported 2026-08-23; superseded). Response
-streaming ships in 1.0. Record the model as an ADR when implemented; it
-amends ADR 0003 (bounded proxy timeout) twice — the timeout model and the L6
-cancellation note. Design, settled 2026-08-25:
+Reopened review.md L8 (declared unsupported 2026-08-23; superseded) —
+response streaming shipped in 1.0. The model is recorded in
+`docs/adr/0007-opt-in-response-streaming.md`, which amends ADR 0003 (bounded
+proxy timeout) twice: the timeout model and the L6 cancellation note.
 
-- [ ] Opt-in knob `server.streaming: true`, default off — the release cannot
-  regress anyone who doesn't opt in; candidate for default-on in 1.1, when
-  the knob can be deleted. When on, a response streams (see CONTEXT.md
-  **Streamed response**) when the Backend response has
-  `Content-Type: text/event-stream` **or** no `Content-Length` (chunked);
-  everything else buffers exactly as today, including `OnResponse` body
-  rewrites. Both stacks: fasthttp via `StreamResponseBody`; the net/http
-  adapter grows a real flusher path. Tickets: `01-fasthttp-streaming.md`,
-  `02-http2-streaming.md`.
-- [ ] Timeout model — for a Streamed response, `proxy_timeout` bounds
-  time-to-first-response-byte; a new `server.stream_idle_timeout` (default
-  5m, **no infinite setting**) kills a stream with no data flowing. Every
-  connection keeps *a* bound — ADR 0003's spirit, amend its Consequences.
-  Tickets: behavior in `01-fasthttp-streaming.md`/`02-http2-streaming.md`;
-  the ADR amendment in `05-streaming-adr-and-contract-docs.md`.
-- [ ] Client cancellation for streamed responses, both stacks — a client
-  disconnect aborts the Backend stream (fasthttp exposes the connection on
-  the streaming path; net/http has `r.Context()`). Without it, every
-  disconnected SSE client leaks a Backend connection for as long as the
-  Backend keeps sending — this is a requirement of shipping streaming, not
-  an option. Buffered requests keep the settled L6 position (no
-  cancellation, bounded by `proxy_timeout`); scope ADR 0003's L6 note to
-  buffered requests when amending. Ticket: `03-client-disconnect-aborts.md`.
-- [ ] Middleware contract — `OnResponse` runs on a Streamed response's
-  status and headers before the first body byte is forwarded; Short-circuit
-  still works there (replace the stream with a crafted response); the body
-  is never seen or rewritten. Document in the contract doc comment, README,
-  and CONTEXT.md. Tickets: behavior in the `01`/`02` streaming tickets;
-  documentation in `05-streaming-adr-and-contract-docs.md`.
+- [x] Opt-in knob — shipped: `server.streaming` (default **false**; candidate
+  for default-on in 1.1, when the knob can be deleted). When on, a response
+  streams (see CONTEXT.md **Streamed response**) when it is
+  `text/event-stream` or has no `Content-Length`; everything else buffers
+  exactly as before, `OnResponse` body rewrites included. Both stacks:
+  fasthttp per-response `StreamBody`, forwarded chunked and flushed per
+  read; the net/http adapter flushes the headers and every write. A stream
+  is scored by time to headers and stays a Pending request until it ends.
+  Tickets: `01-fasthttp-streaming.md`, `02-http2-streaming.md` (done).
+  Integration: `TestEventStreamFramesArriveIncrementally`,
+  `TestEventStreamWithStreamingOffGets504AtProxyTimeout` (h1 + h2).
+- [x] Timeout model — shipped: `proxy_timeout` bounds a stream until its
+  status and headers arrive (504 as before); `server.stream_idle_timeout`
+  (default 5m, `0` = the default, negative rejected, no unlimited setting)
+  ends a stream with no data flowing. A non-zero `server.write_timeout` caps
+  a whole stream on both stacks (documented). Tickets: `01`/`02` (done).
+  Integration: `TestSilentEventStreamEndsAtIdleTimeout` (h1 + h2).
+- [x] Client cancellation for streamed responses — shipped: a client
+  disconnect aborts the Backend stream on both stacks (fasthttp: a read
+  watch on the client connection via `proxy.NewFasthttpHandler`; net/http:
+  `context.AfterFunc(r.Context())`); every stream end is logged at debug
+  with its cause. Buffered requests keep the settled L6 position (no
+  cancellation, bounded by `proxy_timeout`). Ticket:
+  `03-client-disconnect-aborts.md` (done). Integration:
+  `TestClientDisconnectClosesBackendStream` (h1 + h2).
+- [x] Access log for streams — shipped: a streamed request's line is written
+  at stream end, `duration_ms` covering the whole stream and `bytes_out` the
+  body bytes forwarded, for every end cause. Ticket:
+  `04-streamed-access-log.md` (done). Integration:
+  `TestStreamedRequestIsAccessLoggedAtStreamEnd` (h1 + h2).
+- [x] Middleware contract — shipped: `OnResponse` runs on a Streamed
+  response's status and headers before the first body byte; a Short-circuit
+  replaces the stream; the body is never seen or rewritten. Documented in
+  the `middleware.Middleware` doc comment, README (**Streamed responses**)
+  and CONTEXT.md. Tickets: behavior in `01`/`02`, documentation in
+  `05-streaming-adr-and-contract-docs.md` (done).
 - [ ] Request streaming: **deliberately post-1.0** — uploads stay buffered
   and capped by `max_request_body_size` (rejecting an oversized body up
   front needs the buffer); streamed uploads reopen that 413-enforcement
   design and are additive later.
+- [ ] End open streams when the drain begins — **post-1.0**. Today nothing
+  ends a Streamed response on shutdown, so one still open at
+  `graceful_shutdown_timeout` makes divisor exit 1, skipping the monitoring
+  and balancer shutdown steps, and that stream gets no Access log line; a
+  k8s rollout with live SSE clients logs a failure every time (documented
+  for 1.0 in ADR 0007, decided 2026-10-29). Fix: once shutdown begins, end
+  every open stream (EventSource clients reconnect on their own) so the
+  drain finishes and exits 0 (needs a way to reach every open
+  `streamedBody` from `performGracefulShutdown`).
+- [ ] `server.write_timeout` no longer capping streams — **post-1.0,
+  optional**. Today a non-zero `write_timeout` caps a Streamed response's
+  whole lifetime on both stacks (one fixed write deadline per response;
+  documented in ADR 0007, kept 2026-10-29). Alternative: push the client
+  write deadline forward after every chunk, so `write_timeout` bounds each
+  write rather than the stream, leaving `stream_idle_timeout` as the
+  stream's only bound. A behavior change for anyone who set
+  `write_timeout`, so it needs its own decision.
 
 ## Config surface additions
 
@@ -367,12 +391,13 @@ flexible → docs last).
 11. Monitoring server coverage in the integration suite — already unblocked;
     new scenarios on the existing `ExposeMonitoring` knob.
 
-### Tier 3 — the engineering rocks (suggested-order positions 3 and 4)
+### Tier 3 — the engineering rocks (suggested-order positions 3 and 4) — **both shipped 2026-10-29**
 
 12. Reload (`04-reload-via-sighup.md`, then `05-reload-file-watch.md`) — the
     last k8s engineering piece; born-red integration test + ADR.
 13. Streaming (`01-fasthttp-streaming.md`, `02-http2-streaming.md`,
-    `03-client-disconnect-aborts.md`, `05-streaming-adr-and-contract-docs.md`)
+    `03-client-disconnect-aborts.md`, `04-streamed-access-log.md`,
+    `05-streaming-adr-and-contract-docs.md`)
     — the long pole. If the tag date pressures, start it in parallel with
     reload; it must not be what gates the release.
 

@@ -210,3 +210,107 @@ func TestStatsConcurrentWithProbeRound(t *testing.T) {
 		}
 	}
 }
+
+func TestReplaceBackendsProbesAddedBackendsAndJoinsTheAliveOnes(t *testing.T) {
+	backends := mocks.NewBackends(2)
+	probes := &mocks.ProbeTable{}
+	balancer := &mocks.RecordingBalancer{}
+	p := pool.NewPool(backends, probes.Probe, time.Hour, balancer)
+	defer p.Shutdown() //nolint:errcheck
+	addedAlive, addedDown := mocks.NewBackend("localhost:9000"), mocks.NewBackend("localhost:9001")
+	probes.SetAlive(addedDown, false)
+
+	p.ReplaceBackends([]*pool.Backend{backends[0], addedAlive, backends[1], addedDown})
+
+	joins, leaves := balancer.Transitions()
+	assert.Equal(t, []*pool.Backend{backends[0], backends[1], addedAlive}, joins, "only the added Backend that passed its Probe Joins")
+	assert.Empty(t, leaves)
+	assert.True(t, addedAlive.IsAlive())
+	assert.False(t, addedDown.IsAlive(), "an added Backend failing its Probe is registered Down")
+	assert.Equal(t, 3, p.AliveBackendCount())
+	assert.Equal(t, []*pool.Backend{backends[0], addedAlive, backends[1], addedDown}, p.Backends(), "the Pool keeps the new config order")
+
+	probes.SetAlive(addedDown, true)
+	p.ProbeAllBackends()
+	assert.True(t, addedDown.IsAlive(), "an added Backend Rejoins like any other")
+}
+
+func TestReplaceBackendsGivesAddedBackendsUnusedIndexes(t *testing.T) {
+	backends := mocks.NewBackends(2)
+	p := pool.NewPool(backends, (&mocks.ProbeTable{}).Probe, time.Hour, &mocks.RecordingBalancer{})
+	defer p.Shutdown() //nolint:errcheck
+	first := mocks.NewBackend("localhost:9000")
+	p.ReplaceBackends([]*pool.Backend{backends[1], first})
+	second := mocks.NewBackend("localhost:9001")
+	p.ReplaceBackends([]*pool.Backend{second, first})
+
+	assert.Equal(t, 2, first.Index)
+	assert.Equal(t, 3, second.Index, "an Index is never reused, not even a removed Backend's")
+	stats := p.Stats()
+	assert.Equal(t, uint32(3), stats[0].BackendHash, "BackendHash is the Backend's Index")
+	assert.Equal(t, uint32(2), stats[1].BackendHash)
+}
+
+func TestReplaceBackendsRemovedBackendsLeaveAndClose(t *testing.T) {
+	backends := mocks.NewBackends(3)
+	probes := &mocks.ProbeTable{}
+	probes.SetAlive(backends[1], false)
+	balancer := &mocks.RecordingBalancer{}
+	p := pool.NewPool(backends, probes.Probe, time.Hour, balancer)
+	defer p.Shutdown() //nolint:errcheck
+
+	p.ReplaceBackends([]*pool.Backend{backends[2]})
+
+	_, leaves := balancer.Transitions()
+	assert.Equal(t, []*pool.Backend{backends[0]}, leaves, "a removed Alive Backend Leaves; a removed Down one already has")
+	assert.True(t, mocks.MockProxyOf(backends[0]).CloseCalled)
+	assert.True(t, mocks.MockProxyOf(backends[1]).CloseCalled)
+	assert.False(t, mocks.MockProxyOf(backends[2]).CloseCalled)
+	assert.False(t, backends[0].IsAlive())
+	assert.Equal(t, 1, p.AliveBackendCount())
+	assert.Same(t, backends[2], balancer.Pick(nil))
+	assert.Len(t, p.Stats(), 1, "a removed Backend has no stats row")
+
+	probes.SetAlive(backends[0], true)
+	probes.SetAlive(backends[1], true)
+	p.ProbeAllBackends()
+	joins, _ := balancer.Transitions()
+	assert.Equal(t, []*pool.Backend{backends[0], backends[2]}, joins, "a removed Backend is no longer Probed, so it never Rejoins")
+}
+
+func TestReplaceBackendsSurvivorsKeepLivenessAndStats(t *testing.T) {
+	backends := mocks.NewBackends(2)
+	probes := &mocks.ProbeTable{}
+	probes.SetAlive(backends[1], false)
+	balancer := &mocks.RecordingBalancer{}
+	p := pool.NewPool(backends, probes.Probe, time.Hour, balancer)
+	defer p.Shutdown() //nolint:errcheck
+	mocks.MockProxyOf(backends[0]).ResTime = 42
+	probes.SetAlive(backends[1], true)
+
+	added := mocks.NewBackend("localhost:9000")
+
+	p.ReplaceBackends([]*pool.Backend{backends[1], backends[0], added})
+
+	joins, leaves := balancer.Transitions()
+	assert.Equal(t, []*pool.Backend{backends[0], added}, joins, "an Alive survivor is not Joined again; a Down one waits for the next Probe round")
+	assert.Empty(t, leaves)
+	assert.True(t, backends[0].IsAlive())
+	assert.False(t, backends[1].IsAlive())
+	assert.Equal(t, float64(42), mocks.MockProxyOf(backends[0]).ResTime, "a survivor keeps its response-time score")
+	assert.Equal(t, []int{1, 0}, []int{backends[1].Index, backends[0].Index}, "a survivor keeps its Index")
+	assert.False(t, mocks.MockProxyOf(backends[0]).CloseCalled)
+}
+
+func TestSetProbeSettingsAppliesToTheNextRoundAndRestartsTheLoopTimer(t *testing.T) {
+	backends := mocks.NewBackends(1)
+	p := pool.NewPool(backends, (&mocks.ProbeTable{}).Probe, time.Hour, &mocks.RecordingBalancer{})
+	defer p.Shutdown() //nolint:errcheck
+	p.StartHealthChecker()
+
+	var checks atomic.Int64
+	p.SetProbeSettings(func(string, types.ExpectedProbeStatus) bool { checks.Add(1); return true }, 5*time.Millisecond)
+
+	assert.Eventually(t, func() bool { return checks.Load() > 2 },
+		time.Second, time.Millisecond, "the new interval replaces the old one without waiting out the hour")
+}

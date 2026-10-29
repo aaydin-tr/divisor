@@ -100,3 +100,36 @@ func TestIPHashSpreadsClientsEvenly(t *testing.T) {
 		assert.InDelta(t, ideal, got, float64(ideal)*0.25, "Backend %s share %d is more than 25%% off the ideal %d", b.Addr, got, ideal)
 	}
 }
+
+// A Reload hands the Balancer Backends it was not constructed with, under an
+// Index past the boot-time ones; only the clients they take over move.
+func TestIPHashBackendAddedAfterConstructionTakesOverSomeClients(t *testing.T) {
+	backends := mocks.NewBackends(2)
+	ih := New(ipHashConfig(2), backends)
+	mocks.JoinAll(ih, backends)
+	before := make([]*pool.Backend, clientSamples)
+	for i := range before {
+		before[i] = ih.Pick(mocks.RequestFrom(clientIP(i)))
+	}
+
+	added := mocks.NewBackend("localhost:9000")
+	added.Index = 7
+	ih.Join(added)
+
+	movedToAdded := 0
+	for i := 0; i < clientSamples; i++ {
+		picked := ih.Pick(mocks.RequestFrom(clientIP(i)))
+		if picked == added {
+			movedToAdded++
+			continue
+		}
+		assert.Same(t, before[i], picked, "client %d moved between the Backends that were already there", i)
+	}
+	assert.NotZero(t, movedToAdded, "the added Backend takes over some clients")
+
+	ih.Leave(added)
+	ih.Leave(backends[0])
+	for i := 0; i < clientSamples; i++ {
+		assert.Same(t, backends[1], ih.Pick(mocks.RequestFrom(clientIP(i))))
+	}
+}

@@ -78,7 +78,9 @@ func registerAllPrometheusMetrics() {
 	prometheus.MustRegister(backendAlive)
 }
 
-func updatePrometheusMetrics(m *Monitoring) {
+// Handing back the addresses reported last time drops the series of an address
+// a Reload removed every Backend from.
+func updatePrometheusMetrics(m *Monitoring, previouslyReportedAddrs map[string]bool) map[string]bool {
 	processMemoryPercent.Set(float64(m.Memory.ProcessPercent))
 	totalMemoryPercent.Set(float64(m.Memory.TotalPercent))
 	processMemoryMB.Set(m.Memory.ProcessMB)
@@ -87,7 +89,9 @@ func updatePrometheusMetrics(m *Monitoring) {
 	totalGoroutine.Set(float64(m.TotalGoroutine))
 	openConnCount.Set(float64(m.OpenConnectionCount))
 
+	reportedAddrs := make(map[string]bool, len(m.Backends))
 	for _, backend := range m.Backends {
+		reportedAddrs[backend.Addr] = true
 		backendTotalReqCount.WithLabelValues(backend.Addr).Set(float64(backend.TotalReqCount))
 		backendAvgResTime.WithLabelValues(backend.Addr).Set(backend.AvgResTime)
 		backendConnsCount.WithLabelValues(backend.Addr).Set(float64(backend.ConnsCount))
@@ -98,4 +102,14 @@ func updatePrometheusMetrics(m *Monitoring) {
 			return 0
 		}())
 	}
+
+	for addr := range previouslyReportedAddrs {
+		if !reportedAddrs[addr] {
+			backendTotalReqCount.DeleteLabelValues(addr)
+			backendAvgResTime.DeleteLabelValues(addr)
+			backendConnsCount.DeleteLabelValues(addr)
+			backendAlive.DeleteLabelValues(addr)
+		}
+	}
+	return reportedAddrs
 }

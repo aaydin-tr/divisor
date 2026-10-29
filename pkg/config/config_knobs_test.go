@@ -274,3 +274,58 @@ func TestHealthCheckStatus(t *testing.T) {
 		assert.Equal(t, types.ExpectedProbeStatus(204), config.Backends[0].HealthCheckStatus)
 	})
 }
+
+func TestStreaming(t *testing.T) {
+	t.Parallel()
+
+	t.Run("is off unless enabled", func(t *testing.T) {
+		config := oneBackendConfig()
+		assert.NoError(t, config.PrepareConfig())
+		assert.False(t, config.Server.Streaming)
+		assert.False(t, config.Backends[0].Streaming)
+	})
+
+	t.Run("parses from the server section and reaches every backend", func(t *testing.T) {
+		path := writeConfig(t, "port: \"8000\"\nbackends:\n  - url: localhost:2000\n  - url: localhost:3000\nserver:\n  streaming: true\n")
+		config, err := ParseConfigFile(path)
+		assert.NoError(t, err)
+		assert.NoError(t, config.PrepareConfig())
+		assert.True(t, config.Server.Streaming)
+		for _, b := range config.Backends {
+			assert.True(t, b.Streaming)
+		}
+	})
+}
+
+func TestStreamIdleTimeout(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unset means the default, never unlimited", func(t *testing.T) {
+		server := Server{}
+		assert.NoError(t, server.prepareServer())
+		assert.Equal(t, 5*time.Minute, server.StreamIdleTimeout)
+	})
+
+	t.Run("a set value passes unchanged", func(t *testing.T) {
+		server := Server{StreamIdleTimeout: 30 * time.Second}
+		assert.NoError(t, server.prepareServer())
+		assert.Equal(t, 30*time.Second, server.StreamIdleTimeout)
+	})
+
+	t.Run("a negative value fails naming the key", func(t *testing.T) {
+		server := Server{StreamIdleTimeout: -time.Second}
+		err := server.prepareServer()
+		assert.ErrorIs(t, err, ErrInvalidStreamIdleTimeout)
+		assert.Contains(t, err.Error(), "server.stream_idle_timeout")
+	})
+
+	t.Run("parses from the server section and reaches every backend", func(t *testing.T) {
+		path := writeConfig(t, "port: \"8000\"\nbackends:\n  - url: localhost:2000\n  - url: localhost:3000\nserver:\n  stream_idle_timeout: 45s\n")
+		config, err := ParseConfigFile(path)
+		assert.NoError(t, err)
+		assert.NoError(t, config.PrepareConfig())
+		for _, b := range config.Backends {
+			assert.Equal(t, 45*time.Second, b.StreamIdleTimeout)
+		}
+	})
+}

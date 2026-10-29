@@ -16,10 +16,10 @@ import (
 )
 
 const (
-	divisorImage  = "divisor-it"
-	echoImage     = "divisor-echo-it"
-	imageTag      = "latest"
-	networkName   = "divisor-it"
+	divisorImage   = "divisor-it"
+	echoImage      = "divisor-echo-it"
+	imageTag       = "latest"
+	networkName    = "divisor-it"
 	namePrefix     = "div-it-"
 	containerPort  = "8080"
 	monitoringPort = "8001"
@@ -33,7 +33,8 @@ const (
 // execs divisor so it runs as PID 1 and receives container signals (SIGTERM
 // graceful-shutdown tests depend on the exec).
 const startScript = `mkdir -p /etc/divisor && ` +
-	`printf '%s' "$DIVISOR_CONFIG" > /etc/divisor/config.yaml && ` +
+	`if [ -n "$DIVISOR_CONFIGMAP_PUBLISH" ]; then sh -c "$DIVISOR_CONFIGMAP_PUBLISH" publish ..boot "$DIVISOR_CONFIG"; ` +
+	`else printf '%s' "$DIVISOR_CONFIG" > /etc/divisor/config.yaml; fi && ` +
 	`{ [ -z "$DIVISOR_CERT" ] || printf '%s' "$DIVISOR_CERT" > ` + certPath + `; } && ` +
 	`{ [ -z "$DIVISOR_KEY" ] || printf '%s' "$DIVISOR_KEY" > ` + keyPath + `; } && ` +
 	`{ [ -z "$DIVISOR_MW" ] || printf '%s' "$DIVISOR_MW" > ` + mwPath + `; } && ` +
@@ -48,6 +49,9 @@ type BackendSpec struct {
 	// ResponseDelay makes this Echo backend intrinsically slow (applies to
 	// echo responses, never to /health probes).
 	ResponseDelay time.Duration
+	// HealthCheckPath replaces /health as divisor's Probe target, e.g. an
+	// echo path with delay= for a Probe that hangs.
+	HealthCheckPath string
 }
 
 type MiddlewareSpec struct {
@@ -71,13 +75,16 @@ type ScenarioSpec struct {
 	Backends []BackendSpec
 	// HealthCheckerTime defaults to 10m: effectively "no probing" so
 	// non-failover tests are immune to probe-driven rotation changes.
-	HealthCheckerTime time.Duration
-	CustomHeaders     map[string]string
-	Middlewares       []MiddlewareSpec
-	ReadTimeout       time.Duration
-	WriteTimeout      time.Duration
+	HealthCheckerTime  time.Duration
+	CustomHeaders      map[string]string
+	Middlewares        []MiddlewareSpec
+	ReadTimeout        time.Duration
+	WriteTimeout       time.Duration
 	ProxyTimeout       time.Duration
 	MaxRequestBodySize int
+	// Streaming renders server.streaming: true (CONTEXT.md, Streamed response).
+	Streaming         bool
+	StreamIdleTimeout time.Duration
 	// ReadBufferSize renders server.read_buffer_size, which bounds request
 	// header size on the HTTP/1.1 path.
 	ReadBufferSize int
@@ -93,6 +100,9 @@ type ScenarioSpec struct {
 	// ExposeMonitoring binds the monitoring server on 0.0.0.0 and publishes
 	// its port, so tests can probe /healthz and /ready the way a kubelet does.
 	ExposeMonitoring bool
+	// ConfigMapVolume lays the config out the way kubelet mounts a ConfigMap
+	// volume (see configMapPublishScript); publishConfigMapUpdate edits it.
+	ConfigMapVolume bool
 }
 
 type Echo struct {
@@ -198,6 +208,9 @@ func startScenario(t *testing.T, spec ScenarioSpec) *Scenario {
 	}
 	cfgYAML, mwFile := renderConfig(t, s)
 	env = append(env, "DIVISOR_CONFIG="+cfgYAML)
+	if spec.ConfigMapVolume {
+		env = append(env, "DIVISOR_CONFIGMAP_PUBLISH="+configMapPublishScript)
+	}
 	if mwFile != "" {
 		env = append(env, "DIVISOR_MW="+mwFile)
 	}
@@ -380,6 +393,9 @@ func renderConfig(t *testing.T, s *Scenario) (string, string) {
 			"url":               e.Name + ":" + containerPort,
 			"health_check_path": "/health",
 		}
+		if path := s.Spec.Backends[i].HealthCheckPath; path != "" {
+			b["health_check_path"] = path
+		}
 		if w := s.Spec.Backends[i].Weight; w > 0 {
 			b["weight"] = w
 		}
@@ -410,6 +426,12 @@ func renderConfig(t *testing.T, s *Scenario) (string, string) {
 	}
 	if s.Spec.MaxRequestBodySize > 0 {
 		server["max_request_body_size"] = s.Spec.MaxRequestBodySize
+	}
+	if s.Spec.Streaming {
+		server["streaming"] = true
+	}
+	if s.Spec.StreamIdleTimeout > 0 {
+		server["stream_idle_timeout"] = s.Spec.StreamIdleTimeout.String()
 	}
 	if s.Spec.ReadBufferSize > 0 {
 		server["read_buffer_size"] = s.Spec.ReadBufferSize

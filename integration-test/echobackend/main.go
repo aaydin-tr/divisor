@@ -13,7 +13,13 @@
 //
 //	GET  /health           -> 200 "ok" when healthy, 503 otherwise (divisor's Probe target)
 //	POST /health?ok=bool   -> toggle health state
-//	GET  /counters?key=K   -> {"count": N} attempts seen for fail_key K
+//	GET  /counters?key=K   -> {"count": N} attempts seen for fail_key K, or
+//	                          streams closed early for client_gone_key K
+//	GET  /stream           -> text/event-stream, length-less: frames=N frames
+//	                          "data: <i>\n\n" (default 3), each flushed, one
+//	                          every interval=<dur> (default 1s);
+//	                          client_gone_key=K counts the stream under K when
+//	                          its client (divisor) closes it before the last frame
 //	*    /*                -> echo JSON, with query knobs:
 //	     delay=<dur>            sleep before responding
 //	     status=<code>          respond with this status code
@@ -96,6 +102,48 @@ func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleCounters(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]uint64{"count": s.count(r.URL.Query().Get("key"))})
+}
+
+func (s *server) handleStream(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	frames := 3
+	if n := q.Get("frames"); n != "" {
+		parsed, err := strconv.Atoi(n)
+		if err != nil || parsed < 0 {
+			http.Error(w, "frames must be a non-negative integer", http.StatusBadRequest)
+			return
+		}
+		frames = parsed
+	}
+	interval := time.Second
+	if d := q.Get("interval"); d != "" {
+		parsed, err := time.ParseDuration(d)
+		if err != nil {
+			http.Error(w, "bad interval", http.StatusBadRequest)
+			return
+		}
+		interval = parsed
+	}
+
+	flusher := w.(http.Flusher)
+	w.Header().Set("X-Backend-Id", s.id)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+	for i := range frames {
+		if i > 0 {
+			select {
+			case <-time.After(interval):
+			case <-r.Context().Done():
+				if key := q.Get("client_gone_key"); key != "" {
+					s.attempt(key)
+				}
+				return
+			}
+		}
+		io.WriteString(w, "data: "+strconv.Itoa(i)+"\n\n")
+		flusher.Flush()
+	}
 }
 
 func (s *server) handleEcho(w http.ResponseWriter, r *http.Request) {
@@ -197,6 +245,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/counters", s.handleCounters)
+	mux.HandleFunc("/stream", s.handleStream)
 	mux.HandleFunc("/", s.handleEcho)
 
 	// Port 8080 is the harness's fixed contract (containerPort); a knob here

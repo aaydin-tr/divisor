@@ -1,9 +1,13 @@
 package proxy
 
 import (
+	"bufio"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aaydin-tr/divisor/middleware"
 	"github.com/aaydin-tr/divisor/pkg/config"
@@ -170,4 +174,137 @@ func TestAccessLogOnZeroAliveBackends(t *testing.T) {
 	assert.NotContains(t, fields, "short_circuit")
 	assert.Equal(t, ctx.RemoteIP().String(), fields["client_ip"])
 	assert.Equal(t, int64(len(ctx.Response.Body())), fields["bytes_out"])
+}
+
+// accessLogLinesFor keeps a test's lines apart from those of streams other
+// tests left ending in the background: every test's Backend has its own address.
+func accessLogLinesFor(observed *observer.ObservedLogs, backendAddr string) []observer.LoggedEntry {
+	return observed.FilterField(zap.String("backend", backendAddr)).All()
+}
+
+func requireAccessLoggedOnce(t *testing.T, observed *observer.ObservedLogs, backendAddr string) map[string]any {
+	t.Helper()
+	require.Eventually(t, func() bool { return len(accessLogLinesFor(observed, backendAddr)) > 0 }, waitLimit, 10*time.Millisecond, "no Access log line")
+	lines := accessLogLinesFor(observed, backendAddr)
+	require.Len(t, lines, 1, "expected exactly one Access log line")
+	return lines[0].ContextMap()
+}
+
+// A Streamed response is answered only when its stream ends, so that is when
+// its line is written, covering the whole stream.
+func TestStreamedResponseIsAccessLoggedAtStreamEnd(t *testing.T) {
+	const openFor = 200 * time.Millisecond
+	onEveryListenerStack(t, func(t *testing.T, startFrontend func(*testing.T, *ProxyClient) frontend) {
+		observed := observeAccessLog(t)
+		releaseLastFrame := make(chan struct{})
+		backendAddr := newBackend(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			writeFrame(w, "data: 0\n")
+			if waitFor(r, releaseLastFrame) {
+				writeFrame(w, "data: 1\n")
+			}
+		})
+		f := startFrontend(t, newStreamingProxyClient(backendAddr))
+		f.url += "/events?topic=a"
+
+		body := bufio.NewReader(getWithin(t, f).Body)
+		assert.Equal(t, "data: 0\n", readFrameWithin(t, body))
+		time.Sleep(openFor)
+		assert.Empty(t, accessLogLinesFor(observed, backendAddr), "an open stream has no line yet")
+
+		close(releaseLastFrame)
+		_, err := within(t, waitLimit, func() ([]byte, error) { return io.ReadAll(body) })
+		require.NoError(t, err)
+
+		fields := requireAccessLoggedOnce(t, observed, backendAddr)
+		assert.Equal(t, "127.0.0.1", fields["client_ip"])
+		assert.Equal(t, "GET", fields["method"])
+		assert.Equal(t, "/events", fields["path"])
+		assert.Equal(t, int64(http.StatusOK), fields["status"])
+		assert.Equal(t, uint64(1), fields["request_seq"])
+		assert.GreaterOrEqual(t, fields["duration_ms"], float64(openFor.Milliseconds()))
+		assert.Equal(t, int64(len("data: 0\ndata: 1\n")), fields["bytes_out"])
+		assert.NotContains(t, fields, "short_circuit")
+	})
+}
+
+func TestStreamCutShortIsAccessLoggedWithTheBytesForwarded(t *testing.T) {
+	const forwardedFrame = "data: 0\n"
+
+	t.Run("idle timeout", func(t *testing.T) {
+		const idleTimeout = 150 * time.Millisecond
+		onEveryListenerStack(t, func(t *testing.T, startFrontend func(*testing.T, *ProxyClient) frontend) {
+			observed := observeAccessLog(t)
+			backendAddr, _ := newOpenEventStreamBackend(t)
+			p := newStreamingProxyClient(backendAddr)
+			p.streamIdleTimeout = idleTimeout
+
+			res := getWithin(t, startFrontend(t, p))
+			_, err := within(t, waitLimit, func() ([]byte, error) { return io.ReadAll(res.Body) })
+			require.Error(t, err)
+
+			fields := requireAccessLoggedOnce(t, observed, backendAddr)
+			assert.Equal(t, int64(http.StatusOK), fields["status"])
+			assert.GreaterOrEqual(t, fields["duration_ms"], float64(idleTimeout.Milliseconds()))
+			assert.Equal(t, int64(len(forwardedFrame)), fields["bytes_out"])
+		})
+	})
+
+	t.Run("client disconnected", func(t *testing.T) {
+		const connectedFor = 150 * time.Millisecond
+		onEveryListenerStack(t, func(t *testing.T, startFrontend func(*testing.T, *ProxyClient) frontend) {
+			observed := observeAccessLog(t)
+			backendAddr, _ := newOpenEventStreamBackend(t)
+
+			res, disconnect := openStreamWithin(t, startFrontend(t, newStreamingProxyClient(backendAddr)))
+			assert.Equal(t, forwardedFrame, readFrameWithin(t, bufio.NewReader(res.Body)))
+			time.Sleep(connectedFor)
+			disconnect()
+
+			fields := requireAccessLoggedOnce(t, observed, backendAddr)
+			assert.Equal(t, int64(http.StatusOK), fields["status"])
+			assert.GreaterOrEqual(t, fields["duration_ms"], float64(connectedFor.Milliseconds()))
+			assert.Equal(t, int64(len(forwardedFrame)), fields["bytes_out"])
+		})
+	})
+
+	t.Run("client stopped reading", func(t *testing.T) {
+		onEveryListenerStack(t, func(t *testing.T, startFrontend func(*testing.T, *ProxyClient) frontend) {
+			observed := observeAccessLog(t)
+			backendAddr, _ := newFloodingBackend(t)
+			p := newStreamingProxyClient(backendAddr)
+			p.streamIdleTimeout = 300 * time.Millisecond
+
+			res := getWithin(t, startFrontend(t, p))
+			fields := requireAccessLoggedOnce(t, observed, backendAddr)
+			received, _ := within(t, waitLimit, func() ([]byte, error) { return io.ReadAll(res.Body) })
+
+			assert.Positive(t, fields["bytes_out"])
+			assert.LessOrEqual(t, fields["bytes_out"], int64(len(received)), "the chunk whose write timed out never reached the client")
+		})
+	})
+}
+
+// A Middleware replacing a stream answers the request itself: one line, for
+// the Short-circuit, and none for the Backend stream it closed.
+func TestStreamReplacedByMiddlewareIsAccessLoggedOnce(t *testing.T) {
+	onEveryListenerStack(t, func(t *testing.T, startFrontend func(*testing.T, *ProxyClient) frontend) {
+		observed := observeAccessLog(t)
+		backendAddr, backendStreamClosed := newOpenEventStreamBackend(t)
+		mw := &mockMiddleware{onResponseFunc: func(ctx *middleware.Context, err error) error {
+			ctx.Response.SetStatusCode(http.StatusTeapot)
+			ctx.Response.SetBodyString("crafted")
+			return middleware.ErrShortCircuit
+		}}
+
+		res := getWithin(t, startFrontend(t, newStreamingProxyClient(backendAddr, mw)))
+		_, err := within(t, waitLimit, func() ([]byte, error) { return io.ReadAll(res.Body) })
+		require.NoError(t, err)
+		requireClosedWithin(t, backendStreamClosed, "the replaced Backend stream")
+
+		fields := requireAccessLoggedOnce(t, observed, backendAddr)
+		assert.Equal(t, true, fields["short_circuit"])
+		assert.Equal(t, int64(http.StatusTeapot), fields["status"])
+		assert.Equal(t, int64(len("crafted")), fields["bytes_out"])
+	})
 }
