@@ -56,6 +56,10 @@ var (
 	}, []string{backendAddressLabel})
 )
 
+// backendGauges are the series labeled by Backend address; each is registered
+// and, once no Backend has its address, deleted.
+var backendGauges = []*prometheus.GaugeVec{backendTotalReqCount, backendAvgResTime, backendConnsCount, backendAlive}
+
 var registerPrometheusMetricsOnce sync.Once
 
 // registerPrometheusMetrics registers once per process: MustRegister panics
@@ -72,15 +76,14 @@ func registerAllPrometheusMetrics() {
 	prometheus.MustRegister(totalCPUPercent)
 	prometheus.MustRegister(totalGoroutine)
 	prometheus.MustRegister(openConnCount)
-	prometheus.MustRegister(backendTotalReqCount)
-	prometheus.MustRegister(backendAvgResTime)
-	prometheus.MustRegister(backendConnsCount)
-	prometheus.MustRegister(backendAlive)
+	for _, gauge := range backendGauges {
+		prometheus.MustRegister(gauge)
+	}
 }
 
 // Handing back the addresses reported last time drops the series of an address
 // a Reload removed every Backend from.
-func updatePrometheusMetrics(m *Monitoring, previouslyReportedAddrs map[string]bool) map[string]bool {
+func updatePrometheusMetrics(m *Monitoring, previouslyReportedAddresses map[string]bool) map[string]bool {
 	processMemoryPercent.Set(float64(m.Memory.ProcessPercent))
 	totalMemoryPercent.Set(float64(m.Memory.TotalPercent))
 	processMemoryMB.Set(m.Memory.ProcessMB)
@@ -89,9 +92,9 @@ func updatePrometheusMetrics(m *Monitoring, previouslyReportedAddrs map[string]b
 	totalGoroutine.Set(float64(m.TotalGoroutine))
 	openConnCount.Set(float64(m.OpenConnectionCount))
 
-	reportedAddrs := make(map[string]bool, len(m.Backends))
+	reportedAddresses := make(map[string]bool, len(m.Backends))
 	for _, backend := range m.Backends {
-		reportedAddrs[backend.Addr] = true
+		reportedAddresses[backend.Addr] = true
 		backendTotalReqCount.WithLabelValues(backend.Addr).Set(float64(backend.TotalReqCount))
 		backendAvgResTime.WithLabelValues(backend.Addr).Set(backend.AvgResTime)
 		backendConnsCount.WithLabelValues(backend.Addr).Set(float64(backend.ConnsCount))
@@ -103,13 +106,13 @@ func updatePrometheusMetrics(m *Monitoring, previouslyReportedAddrs map[string]b
 		}())
 	}
 
-	for addr := range previouslyReportedAddrs {
-		if !reportedAddrs[addr] {
-			backendTotalReqCount.DeleteLabelValues(addr)
-			backendAvgResTime.DeleteLabelValues(addr)
-			backendConnsCount.DeleteLabelValues(addr)
-			backendAlive.DeleteLabelValues(addr)
+	for address := range previouslyReportedAddresses {
+		if reportedAddresses[address] {
+			continue
+		}
+		for _, gauge := range backendGauges {
+			gauge.DeleteLabelValues(address)
 		}
 	}
-	return reportedAddrs
+	return reportedAddresses
 }

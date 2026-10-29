@@ -8,25 +8,25 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-var backendGauges = map[string]*prometheus.GaugeVec{
-	"backend_total_request_count":   backendTotalReqCount,
-	"backend_average_response_time": backendAvgResTime,
-	"backend_connection_count":      backendConnsCount,
-	"backend_alive":                 backendAlive,
-}
-
 func TestBackendSeriesOfARemovedBackendDisappear(t *testing.T) {
-	const keptAddr, removedAddr = "reload-kept:80", "reload-removed:80"
+	const keptAddress, removedAddress = "reload-kept:80", "reload-removed:80"
 	reported := updatePrometheusMetrics(&Monitoring{Backends: []types.ProxyStat{
-		{Addr: keptAddr, IsHostAlive: true},
-		{Addr: removedAddr, IsHostAlive: true},
+		{Addr: keptAddress, IsHostAlive: true},
+		{Addr: removedAddress, IsHostAlive: true},
 	}}, nil)
 
-	updatePrometheusMetrics(&Monitoring{Backends: []types.ProxyStat{{Addr: keptAddr, IsHostAlive: true}}}, reported)
+	updatePrometheusMetrics(&Monitoring{Backends: []types.ProxyStat{{Addr: keptAddress, IsHostAlive: true}}}, reported)
 
 	// DeleteLabelValues reports whether the series existed (and removes it).
-	for name, gauge := range backendGauges {
-		assert.False(t, gauge.DeleteLabelValues(removedAddr), "%s still reports a Backend a Reload removed", name)
-		assert.True(t, gauge.DeleteLabelValues(keptAddr), "%s lost a Backend still configured", name)
+	for _, gauge := range backendGauges {
+		name := gaugeName(gauge)
+		assert.False(t, gauge.DeleteLabelValues(removedAddress), "%s still reports a Backend a Reload removed", name)
+		assert.True(t, gauge.DeleteLabelValues(keptAddress), "%s lost a Backend still configured", name)
 	}
+}
+
+func gaugeName(gauge *prometheus.GaugeVec) string {
+	descriptions := make(chan *prometheus.Desc, 1)
+	gauge.Describe(descriptions)
+	return (<-descriptions).String()
 }

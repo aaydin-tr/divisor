@@ -69,7 +69,7 @@ go install github.com/aaydin-tr/divisor@latest
   loop; `StartHealthChecker()` does. `ProbeAllBackends()` is the one Probe
   round, shared by the loop and by tests, so unit tests never race a
   goroutine. A Reload goes through `SetProbeSettings()` (only when it changes them: it restarts the loop timer) and
-  `ReplaceBackends()` (added Backends Probed and Joined, removed ones Leave
+  `ReplaceBackends()` (added Backends Probed concurrently and Joined, removed ones Leave
   and close, survivors untouched); `transitionsMu` makes Probe rounds and
   Reloads the Balancer's one writer. It never imports a balancer package.
 - **Balancers** (one package each: `core/round-robin`, `core/w-round-robin`,

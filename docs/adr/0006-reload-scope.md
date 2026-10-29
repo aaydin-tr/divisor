@@ -20,7 +20,8 @@ Two triggers call the one entry point, `reload.Reloader.Reload`, which serialize
 
 - `backend_hash` equals the config index only until the first Reload that adds a Backend.
 - `w-round-robin` with a single Backend runs as `round-robin` (`PrepareConfig`); a Reload that crosses one Backend in either direction would change the running Balancer, so it is rejected naming `type`.
-- An added Backend's first Probe runs inside the Reload, so a Reload adding unreachable Backends takes up to `health_checker_timeout` per such Backend, during which Probe rounds wait.
+- An added Backend's first Probe runs inside the Reload, all added Backends at once, so a Reload adding unreachable Backends takes up to one `health_checker_timeout` however many there are; Probe rounds, and a shutdown that begins meanwhile, wait for it.
+- A Reload is judged on the config alone, never on whether its Backends answer: one that leaves no Backend Alive (every entry replaced by an unreachable host) is applied, and divisor answers 503 until a Probe succeeds or the file is fixed — the same served state as zero Alive Backends at boot.
 - The ip-hash Balancer keeps a reference to every Backend it ever Joined (a `Pick` may resolve a ring snapshot from before a `Leave`); a removed Backend costs one small struct for the life of the process.
 - A config file edit takes effect about a second after the last write, and a continuous stream of writes to the config file postpones its Reload until the stream stops.
 - Some edits raise no event in the watched directory and need SIGHUP: writing through a symlink into another directory (e.g. into `..data/config.yaml` in place), and a host-side edit of a single file bind-mounted into a container. A ConfigMap mounted with `subPath` is never updated by kubelet at all; mount the volume as a directory.

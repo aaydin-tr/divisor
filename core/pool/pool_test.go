@@ -235,6 +235,27 @@ func TestReplaceBackendsProbesAddedBackendsAndJoinsTheAliveOnes(t *testing.T) {
 	assert.True(t, addedDown.IsAlive(), "an added Backend Rejoins like any other")
 }
 
+func TestReplaceBackendsProbesAddedBackendsConcurrently(t *testing.T) {
+	const probeDuration = 200 * time.Millisecond
+	slowProbe := func(string, types.ExpectedProbeStatus) bool {
+		time.Sleep(probeDuration)
+		return true
+	}
+	backends := mocks.NewBackends(1)
+	p := pool.NewPool(backends, slowProbe, time.Hour, &mocks.RecordingBalancer{})
+	defer p.Shutdown() //nolint:errcheck
+	added := []*pool.Backend{
+		mocks.NewBackend("localhost:9000"), mocks.NewBackend("localhost:9001"), mocks.NewBackend("localhost:9002"),
+		mocks.NewBackend("localhost:9003"), mocks.NewBackend("localhost:9004"),
+	}
+
+	replaceStarted := time.Now()
+	p.ReplaceBackends(append([]*pool.Backend{backends[0]}, added...))
+
+	assert.Less(t, time.Since(replaceStarted), 3*probeDuration, "a Reload waits for one Probe timeout, not one per added Backend")
+	assert.Equal(t, 6, p.AliveBackendCount())
+}
+
 func TestReplaceBackendsGivesAddedBackendsUnusedIndexes(t *testing.T) {
 	backends := mocks.NewBackends(2)
 	p := pool.NewPool(backends, (&mocks.ProbeTable{}).Probe, time.Hour, &mocks.RecordingBalancer{})

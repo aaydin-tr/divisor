@@ -12,8 +12,9 @@ import (
 	"go.uber.org/zap"
 )
 
-// Balancer picks a Backend for each request from the ones the Pool handed it. Join and Leave come from one writer at a
-// time (a Probe round or a Reload); Pick runs on every request goroutine and returns nil when nothing is Alive.
+// Balancer picks a Backend for each request from the ones the Pool handed it.
+// Join and Leave come from one writer at a time (a Probe round or a Reload);
+// Pick runs on every request goroutine and returns nil when nothing is Alive.
 type Balancer interface {
 	Join(*Backend)
 	Leave(*Backend)
@@ -57,7 +58,7 @@ func NewPool(backends []*Backend, probe types.IsHostAlive, healthCheckInterval t
 	pool.healthCheckInterval.Store(int64(healthCheckInterval))
 
 	for _, backend := range backends {
-		pool.probeAndJoinNewBackend(backend)
+		pool.registerNewBackend(backend, probe(backend.ProbeURL, backend.ExpectedProbeStatus))
 	}
 
 	return pool
@@ -130,8 +131,10 @@ func (p *Pool) SetProbeSettings(probe types.IsHostAlive, healthCheckInterval tim
 	}
 }
 
-// ReplaceBackends makes backendsInConfigOrder the registered set (a Reload): survivors keep their Index, liveness
-// and stats, added Backends get a never-used Index and a Probe, removed ones Leave and close. A no-op after Shutdown.
+// ReplaceBackends makes backendsInConfigOrder the registered set (a Reload):
+// survivors keep their Index, liveness and stats, added Backends get a
+// never-used Index and a Probe, removed ones Leave and close. A no-op after
+// Shutdown.
 func (p *Pool) ReplaceBackends(backendsInConfigOrder []*Backend) {
 	p.transitionsMu.Lock()
 	defer p.transitionsMu.Unlock()
@@ -140,13 +143,17 @@ func (p *Pool) ReplaceBackends(backendsInConfigOrder []*Backend) {
 	}
 
 	runningBackends := p.Backends()
+	var addedBackends []*Backend
 	for _, backend := range backendsInConfigOrder {
 		if slices.Contains(runningBackends, backend) {
 			continue
 		}
 		backend.Index = p.nextBackendIndex
 		p.nextBackendIndex++
-		p.probeAndJoinNewBackend(backend)
+		addedBackends = append(addedBackends, backend)
+	}
+	for addedPosition, isAlive := range p.probeConcurrently(addedBackends) {
+		p.registerNewBackend(addedBackends[addedPosition], isAlive)
 	}
 
 	// Removed Backends Leave only after the added ones Joined, so replacing
@@ -160,8 +167,22 @@ func (p *Pool) ReplaceBackends(backendsInConfigOrder []*Backend) {
 	}
 }
 
-func (p *Pool) probeAndJoinNewBackend(backend *Backend) {
-	if !p.probe(backend.ProbeURL, backend.ExpectedProbeStatus) {
+// probeConcurrently bounds a Reload adding many unreachable Backends to one
+// Probe timeout, not one per Backend; it holds up Probe rounds and shutdown.
+func (p *Pool) probeConcurrently(backends []*Backend) []bool {
+	isAlive := make([]bool, len(backends))
+	var probes sync.WaitGroup
+	for position, backend := range backends {
+		probes.Go(func() {
+			isAlive[position] = p.probe(backend.ProbeURL, backend.ExpectedProbeStatus)
+		})
+	}
+	probes.Wait()
+	return isAlive
+}
+
+func (p *Pool) registerNewBackend(backend *Backend, isAlive bool) {
+	if !isAlive {
 		zap.S().Warnf("Backend is Down, it will join the rotation once a Probe succeeds, Addr: %s", backend.Addr)
 		return
 	}

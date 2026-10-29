@@ -110,6 +110,15 @@ Spec: `.scratch/kubernetes/spec.md` — tickets in `.scratch/kubernetes/issues/`
   `docs/adr/0006-reload-scope.md`. Tickets: `04-reload-via-sighup.md`,
   `05-reload-file-watch.md` (done). Integration: `TestReloadViaSIGHUP`,
   `TestReloadOnConfigMapUpdate` (born red).
+- [ ] Concurrent Probe rounds — **deferred from the PR #49 review
+  (2026-10-29), predates Tier 3**. `Pool.ProbeAllBackends` and `NewPool`'s
+  first round Probe one Backend after another, so N unreachable Backends
+  make a round take N × `health_checker_timeout` (10 × 5s outruns the 30s
+  default `health_checker_time`), delaying liveness changes and holding
+  `transitionsMu` — a Reload waits behind it, and so does boot before the
+  listener binds. A Reload's added Backends are already Probed concurrently
+  (`Pool.probeConcurrently`); reuse it, keeping the transitions applied one
+  at a time in config order.
 
 ## Streaming
 

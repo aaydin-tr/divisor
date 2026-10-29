@@ -47,8 +47,9 @@ type ReloadPlan struct {
 	ProbeSettingsChanged           bool
 }
 
-// PlanReload decides whether nextConfigYAML can replace the running (prepared) config without a restart. A changed
-// backends entry is a new Backend: its old entry is removed and the new one added.
+// PlanReload decides whether nextConfigYAML can replace the running (prepared)
+// config without a restart. A changed backends entry is a new Backend: its old
+// entry is removed and the new one added.
 func PlanReload(running *Config, nextConfigYAML []byte) (*ReloadPlan, error) {
 	next, err := ParseConfig(nextConfigYAML)
 	if err != nil {

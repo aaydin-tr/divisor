@@ -28,9 +28,8 @@ func NewFasthttpHandler(balancer types.IBalancer, writeTimeout time.Duration) fa
 // the watch consumed the client's bytes, so it cannot serve another request.
 var errClientSentDataMidStream = errors.New("client sent data before its Streamed response ended; closing the connection")
 
-// A deadline in the past ends a Read in flight, as net/http aborts its own
-// background read.
-var longAgo = time.Unix(1, 0)
+// net/http aborts its own background read the same way.
+var pastDeadlineToInterruptRead = time.Unix(1, 0)
 
 // watchClientConn ends s when its client disconnects: an HTTP/1.1 client sends
 // nothing while its response arrives, so a read returns only once it leaves (or pipelines).
@@ -63,7 +62,7 @@ func (w *clientConnWatch) readUntilClientLeaves(onClientGone func()) {
 // runs first); it reports whether the watch consumed bytes fasthttp will never see.
 func (w *clientConnWatch) stop() (clientSentData bool) {
 	w.stopping.Store(true)
-	w.conn.SetReadDeadline(longAgo) //nolint:errcheck
+	w.conn.SetReadDeadline(pastDeadlineToInterruptRead) //nolint:errcheck
 	<-w.watchEnded
 	w.conn.SetReadDeadline(time.Time{}) //nolint:errcheck
 	return w.clientSentData

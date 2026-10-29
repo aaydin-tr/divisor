@@ -35,11 +35,9 @@ type LoadBalancer interface {
 }
 
 type loadBalancer struct {
-	pool               *pool.Pool
-	balancer           pool.Balancer
-	newBackendProxy    proxy.ProxyFunc
-	customHeaders      map[string]string
-	middlewareExecutor *middleware.Executor
+	pool            *pool.Pool
+	balancer        pool.Balancer
+	newBackendProxy func(*config.Backend) proxy.IProxyClient
 }
 
 // NewBalancer wires the config into Backends, a Balancer and a Pool. It
@@ -53,7 +51,9 @@ func NewBalancer(cfg *config.Config, middlewareExecutor *middleware.Executor, pr
 		return nil
 	}
 
-	poolAndBalancer := &loadBalancer{newBackendProxy: proxyFunc, customHeaders: cfg.CustomHeaders, middlewareExecutor: middlewareExecutor}
+	poolAndBalancer := &loadBalancer{newBackendProxy: func(backendConfig *config.Backend) proxy.IProxyClient {
+		return proxyFunc(backendConfig, cfg.CustomHeaders, middlewareExecutor)
+	}}
 	backends := make([]*pool.Backend, 0, len(cfg.Backends))
 	for i := range cfg.Backends {
 		backend := poolAndBalancer.newBackend(&cfg.Backends[i])
@@ -77,7 +77,7 @@ func (l *loadBalancer) newBackend(backendConfig *config.Backend) *pool.Backend {
 		Weight:              backendConfig.Weight,
 		ProbeURL:            backendConfig.GetHealthCheckURL(),
 		ExpectedProbeStatus: backendConfig.HealthCheckStatus,
-		Proxy:               l.newBackendProxy(backendConfig, l.customHeaders, l.middlewareExecutor),
+		Proxy:               l.newBackendProxy(backendConfig),
 	}
 }
 
