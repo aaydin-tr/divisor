@@ -110,8 +110,8 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 		// response's line may be written after fasthttp has reused ctx.
 		accessLog := logger.AccessLogEntry{
 			ClientIP:        helper.B2S(clientIP),
-			Method:          helper.B2S(ctx.Method()),
-			Path:            helper.B2S(ctx.Path()),
+			Method:          string(ctx.Method()),
+			Path:            string(ctx.Path()),
 			Backend:         h.Addr,
 			RequestSequence: requestSequenceNumber,
 		}
