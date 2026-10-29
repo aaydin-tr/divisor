@@ -3,493 +3,108 @@
   <h3 align="center">Divisor</h3>
 
   <p align="center">
-    A fast and easy-to-configure load balancer
+    A fast and easy-to-configure HTTP load balancer
     <br />
-    <br />
+    <a href="docs/getting-started.md"><strong>Getting started</strong></a>
+    ·
+    <a href="docs/README.md"><strong>Documentation</strong></a>
+    ·
+    <a href="examples/"><strong>Examples</strong></a>
   </p>
 </div>
 
-<details>
-  <summary>Table of Contents</summary>
-  <ol>
-    <li><a href="#about-the-project">About The Project</a></li>
-    <li><a href="#features">Features</a></li>
-    <li><a href="#installation">Installation</a></li>
-    <li><a href="#usage">Usage</a></li>
-    <li><a href="#configuration">Configuration</a></li>
-    <li><a href="#custom-middleware">Custom Middleware</a></li>
-    <li><a href="#limitations">Limitations</a></li>
-    <li><a href="#benchmark">Benchmark</a></li>
-    <li><a href="#todo">TODO</a></li>
-    <li><a href="#contributors">Contributors</a></li>
-    <li><a href="#license">License</a></li>
-  </ol>
-</details>
+## What divisor is
 
-## About The Project
-This project is designed to provide a fast and easy-to-configure load balancer in Go language. It currently includes **round-robin**, **weighted round-robin**, **least-connection**, **least-response-time**, **ip-hash** and **random** algorithms, but we have more to add to our [TODO](#todo) list.
+Divisor is a layer-7 HTTP load balancer written in Go. Clients send requests to
+divisor; divisor picks a Backend with the Balancer you configure and forwards
+the request to it. It Probes every Backend, stops sending traffic to one that
+goes Down and lets it Rejoin when it recovers, all from one YAML file.
 
-The project is developed using the [fasthttp](https://github.com/valyala/fasthttp) library for HTTP/1.1, which ensures high performance. For HTTP/2 support, it uses the native Go `net/http` package with HTTP/2 configuration. Its purpose is to distribute the load evenly among multiple servers by routing incoming requests.
-
-The project aims to simplify the configuration process for users while performing the essential functions of load balancers. Therefore, it offers several configuration options that can be adjusted to meet the users needs.
-
-This project is particularly suitable for large-scale applications and websites. It can be used for any application that requires a load balancer, thanks to its high performance, ease of configuration, and support for different algorithms.
-
+It serves HTTP/1.1 through [fasthttp](https://github.com/valyala/fasthttp) and
+HTTP/2 through Go's `net/http`, terminates TLS itself, and always speaks plain
+HTTP/1.1 to Backends. It does not balance TCP or UDP, and does not support
+HTTP/3, WebSockets or other connection upgrades.
 
 ## Features
-- Fast and easy-to-configure load balancer.
-- Supports round-robin, weighted round-robin, least-connection, least-response-time, IP hash, and random algorithms.
-- Supports TLS and HTTP/2 for the frontend server.
-- Support for custom middleware written in Go.
-- Opt-in response streaming (Server-Sent Events, chunked downloads) on HTTP/1.1 and HTTP/2.
-- Uses the fasthttp library for HTTP/1.1 and native Go `net/http` package for HTTP/2, ensuring high performance and scalability.
-- Offers multiple configuration options to suit user needs.
-- Can handle large-scale applications and websites.
-- Includes a built-in monitoring system that displays real-time information on the system's CPU usage, RAM usage, number of Goroutines, and open connections.
-- Prometheus support for monitoring. (`http://monitoring-host:monitoring-port/metrics` can be used to get prometheus metrics)
-- Provides information on each server's average response time, total request count, and last time used.
-- Lightweight and efficient implementation for minimal resource usage.
 
-## Installation
+- **Six Balancers**: `round-robin`, `w-round-robin`, `least-connection`,
+  `least-response-time`, `ip-hash` and `random`
+- **Health checking**: a Probe per Backend on an interval; Down Backends leave
+  the rotation and Rejoin on their first successful Probe. Divisor starts and
+  answers `503` even before any Backend is Alive
+- **TLS termination and HTTP/2** for clients
+- **Reload without restart**: edit the Backend list or Probe settings and send
+  `SIGHUP`, or let divisor notice the config file change (Kubernetes ConfigMap
+  updates included)
+- **Streamed responses** (opt-in): Server-Sent Events and large downloads are
+  forwarded as their bytes arrive, on HTTP/1.1 and HTTP/2
+- **Middleware in Go**, interpreted at startup: rewrite requests and
+  responses, or Short-circuit a request with a response of your own
+- **Bounded failure**: `502` for an unreachable Backend, `504` past
+  `server.proxy_timeout`, `413` for an oversized request body
+- **Observability**: JSON Application logs on stderr, an opt-in Access log on
+  stdout, a monitoring dashboard with per-Backend stats, a Prometheus
+  `/metrics` endpoint, and `/healthz` and `/ready` for orchestrators
+- **Ready to deploy**: a multi-arch distroless Docker image, a Helm chart and
+  plain Kubernetes manifests
 
-#### Downloading the Release
-The latest release of Divisor can be downloaded from the [releases](https://github.com/aaydin-tr/divisor/releases) page. Choose the suitable binary for your system, download and extract the archive, and then move the binary to a directory in your system's $PATH variable (e.g. /usr/local/bin).
+## Quickstart
 
-#### Building from Source
-Alternatively, you can build Divisor from source by cloning this repository to your local machine and running the following commands:
-
-```bash
-git clone https://github.com/aaydin-tr/divisor.git &&
-cd divisor &&
-go build -o divisor &&
-./divisor
-```
-
-#### Using go install
-You can also install Divisor using the `go install` command:
+With Docker running, this starts two [whoami](https://github.com/traefik/whoami)
+Backends and divisor in front of them:
 
 ```bash
-go install github.com/aaydin-tr/divisor@latest
+docker network create divisor-quickstart
+docker run -d --name whoami-1 --hostname whoami-1 --network divisor-quickstart traefik/whoami
+docker run -d --name whoami-2 --hostname whoami-2 --network divisor-quickstart traefik/whoami
+
+curl -fsSLo divisor.yaml https://raw.githubusercontent.com/aaydin-tr/divisor/main/examples/quickstart.config.yaml
+docker run -d --name divisor --network divisor-quickstart \
+  -p 8080:8080 -p 127.0.0.1:8001:8001 \
+  -v "$PWD/divisor.yaml:/etc/divisor/config.yaml:ro" \
+  ghcr.io/aaydin-tr/divisor:latest
 ```
 
-This will install the divisor binary to your system's `$GOPATH/bin` directory. Make sure this directory is included in your system's `$PATH` variable to make the divisor accessible from anywhere.
-
-#### Using Docker
-Every release publishes a multi-arch (`linux/amd64`, `linux/arm64`) image to Docker Hub (`aaydintr/divisor`) and GHCR (`ghcr.io/aaydin-tr/divisor`), tagged `vX.Y.Z` (plus `vX.Y` and `latest` for non-prereleases). The image is distroless, runs as nonroot and has no shell. It reads its config from `/etc/divisor/config.yaml`, so mount yours there:
+Send a few requests and watch them alternate between the two Backends:
 
 ```bash
-docker run -p 8080:8080 -v "$PWD/config.yaml:/etc/divisor/config.yaml:ro" ghcr.io/aaydin-tr/divisor:latest
+for i in 1 2 3 4; do curl -s localhost:8080 | grep Hostname; done
 ```
 
-#### Using Helm
-Every release also publishes a Helm chart to GHCR, versioned with the release (`X.Y.Z`) and pulling that release's image. Put your divisor config under `config:` in a values file (see [`charts/divisor/values.yaml`](charts/divisor/values.yaml)):
-
-```bash
-helm install divisor oci://ghcr.io/aaydin-tr/charts/divisor -f values.yaml
-```
-
-That's it! You're now ready to use Divisor in your project.
-
-## Usage
-
-You need a `config.yaml` file to use Divisor, you can give this file to Divisor to use with the `--config` flag, by default it will try to use a `config.yaml` file in the directory it is in. [Example config files](https://github.com/aaydin-tr/divisor/tree/main/examples)
-> :warning: Please use absolute path for "config.yaml" while using "--config" flag
-
-## Configuration
-
-### Minimal Example
-```yaml
-port: 8000  # Required
-backends:
-  - url: localhost:8080
-  - url: localhost:7070
-```
-
-### Core Settings
-
-| Name | Description | Type | Default | Required |
-| --- | --- | --- | --- | --- |
-| port | Server port | string | - | ⚠️ **Yes** |
-| host | Server host | string | `0.0.0.0` | No |
-| type | Load balancing algorithm | string | `round-robin` | No |
-| health_checker_time | Health check interval for backends | duration | `30s` | No |
-| health_checker_timeout | Bound on each health check as a whole (connect, send, answer); a slower answer marks the backend Down. `0` means the default; negative is a startup error | duration | `5s` | No |
-
-**Valid algorithm types**: `round-robin`, `w-round-robin`, `ip-hash`, `random`, `least-connection`, `least-response-time`
-
-### Backend Settings
-
-| Name | Description | Type | Default | Required |
-| --- | --- | --- | --- | --- |
-| backends | List of backend servers | array | - | ⚠️ **Yes** (min: 1) |
-| backends.url | Backend URL (without protocol) | string | - | ⚠️ **Yes** |
-| backends.health_check_path | Health check endpoint; a `GET` answered with any 2xx or 3xx status (within `health_checker_timeout`, redirects not followed) keeps the backend Alive | string | `/` | No |
-| backends.health_check_status | Exact status the health check must answer (e.g. `204`); when set, only that status keeps the backend Alive. Must be 200-599 | int | any 2xx/3xx | No |
-| backends.weight | Backend weight (w-round-robin only) | int | - | ⚠️ **w-round-robin** |
-| backends.max_conn | Max connections per backend | int | `512` | No |
-| backends.max_conn_timeout | Max wait time for free connection | duration | `30s` | No |
-| backends.max_conn_duration | Connection keep-alive duration | duration | `10s` | No |
-| backends.max_idle_conn_duration | Idle connection timeout | duration | `10s` | No |
-| backends.max_idemponent_call_attempts | Retry attempts for idempotent calls | int | `5` | No |
-
-### Monitoring Settings
-
-| Name | Description | Type | Default |
-| --- | --- | --- | --- |
-| monitoring.host | Metrics server host | string | `localhost` |
-| monitoring.port | Metrics server port | string | `8001` |
-
-### Server Settings
-
-| Name | Description | Type | Default |
-| --- | --- | --- | --- |
-| server.http_version | HTTP protocol version: `http1` or `http2` (any other value is a startup error) | string | `http1` |
-| server.cert_file | TLS certificate file path | string | - |
-| server.key_file | TLS private key file path | string | - |
-| server.max_idle_worker_duration | Worker pool idle timeout | duration | `10s` |
-| server.tcp_keepalive_period | TCP keep-alive idle period for accepted client connections, on both HTTP/1.1 and HTTP/2 (Go's 15s default if unset) | duration | - |
-| server.concurrency | Max concurrent connections | int | `262144` |
-| server.read_timeout | Request read timeout | duration | unlimited |
-| server.write_timeout | Response write timeout; a non-zero value also caps a whole [streamed response](#streaming) | duration | unlimited |
-| server.idle_timeout | Keep-alive idle timeout | duration | unlimited |
-| server.proxy_timeout | Bound on each upstream attempt; expiry returns 504. `0` means the default, not unlimited. For a streamed response it bounds the time to the first response byte | duration | `60s` |
-| server.streaming | Forward a backend response as its bytes arrive when it is `text/event-stream` or has no `Content-Length`; every other response is buffered as before | bool | `false` |
-| server.stream_idle_timeout | Ends a streamed response after this long with no data from the backend, or with a write to the client blocked (a client that stopped reading). `0` means the default; there is no unlimited setting | duration | `5m` |
-| server.max_request_body_size | Max request body size in bytes; larger bodies get 413 and never reach a backend. `0` means the default | int | `4194304` (4MB) |
-| server.read_buffer_size | Per-connection read buffer in bytes; bounds request header size (raise for large cookies/JWTs). HTTP/1.1 path only. Unset or `<= 0` means the default | int | `4096` |
-| server.write_buffer_size | Per-connection write buffer in bytes. HTTP/1.1 path only. Unset or `<= 0` means the default | int | `4096` |
-| server.max_conns_per_ip | Max concurrent connections per client IP. Unset or `<= 0` means unlimited | int | unlimited |
-| server.max_requests_per_conn | Max requests served per keep-alive connection. Unset or `<= 0` means unlimited | int | unlimited |
-| server.graceful_shutdown_timeout | Budget for draining in-flight requests on shutdown | duration | `30s` |
-| server.tls_min_version | Minimum accepted TLS version: `"1.2"` or `"1.3"` (any other value is a startup error); empty keeps the runtime default. Only takes effect when `cert_file`/`key_file` are set | string | - |
-| server.dns_cache_duration | How long resolved backend IPs are cached before re-resolving (proxy dialer and health probes); set to a few seconds when backend IPs churn, e.g. Kubernetes pods | duration | `60s` |
-| server.disable_keepalive | Force connection close after response | bool | `false` |
-| server.http2.max_concurrent_streams | Max concurrent streams a client may open per HTTP/2 connection. HTTP/2 path only. Unset or `<= 0` means the default; above `2147483647` is a startup error | int | `250` |
-
-Header names are always normalized to canonical form (`x-api-key` → `X-Api-Key`) on both the request and the response, as RFC 9110 §5.1 makes them case-insensitive; middleware lookups such as `ctx.Request.Header.Peek("X-Api-Key")` therefore match whatever case the client sent.
-
-### Custom Headers
-
-| Name | Description | Type |
-| --- | --- | --- |
-| custom_headers | Headers injected into backend requests | map |
-| custom_headers.`<name>` | Header value (special variables supported) | string |
-
-**Special variables**: `$remote_addr` (client IP — the TCP peer that connected to divisor), `$time` (request timestamp, always UTC in RFC 3339 with milliseconds, e.g. `2026-08-23T09:41:07.123Z`), `$uuid` (request UUID), `$incremental` (per-Backend request sequence number — unique and increasing per Backend for the life of the process; see CONTEXT.md)
-
-Divisor always forwards `X-Forwarded-For`: the client IP is appended to any chain the client sent (`client-sent, peer-ip`), so a Backend reads the rightmost entry as the address divisor actually saw. Client-sent chains are passed through, never trusted — behind another proxy, divisor's notion of the client IP (and the ip-hash key) is that proxy.
-
-**Example**:
-```yaml
-custom_headers:
-  x-client-ip: $remote_addr
-  x-request-id: $uuid
-```
-
-### Middlewares
-
-| Name | Description | Type | Default | Required |
-| --- | --- | --- | --- | --- |
-| middlewares | List of custom middleware | array | - | No |
-| middlewares.name | Middleware identifier | string | - | ⚠️ **Yes** |
-| middlewares.disabled | Skip middleware execution | bool | `false` | No |
-| middlewares.code | Inline Go code | string | - | ⚠️ **Yes** (or file) |
-| middlewares.file | Path to Go code file | string | - | ⚠️ **Yes** (or code) |
-| middlewares.config | Config passed to middleware constructor | map | - | No |
-
-### Important Notes
-
-- **Backend address**: `backends[].url` must be a dialable `host:port`. An optional `http://` scheme and a bare trailing slash are accepted and stripped, and a missing port defaults to `80`. A path, query, or userinfo is rejected at startup, and so is `https://` — divisor terminates TLS itself and always speaks plain HTTP to backends
-- **Unknown keys are errors**: a misspelled or removed key anywhere in the config (`proxy_timout`, `disable_header_names_normalizing`, …) fails startup with the offending key and line, instead of being silently ignored. `middlewares[].config` stays free-form
-- **HTTP/2 requirement**: `server.http_version: http2` requires both `cert_file` and `key_file`
-- **Weighted round-robin**: Single backend auto-converts to regular round-robin
-- **Middleware validation**: Must specify either `code` OR `file` (not both), unless `disabled: true`
-- **Custom header validation**: Only accepts the 4 special variables listed above
-- **Default algorithm**: If `type` is omitted or invalid, defaults to `round-robin`
-
-### Streaming
-
-With `server.streaming: true`, a backend response whose `Content-Type` is `text/event-stream` or that has no `Content-Length` (a chunked body) is forwarded as its bytes arrive, on HTTP/1.1 and HTTP/2 alike. Every other response is buffered exactly as with streaming off. A streamed response:
-
-- must deliver its status and headers within `server.proxy_timeout` (`504` otherwise), and ends once the backend sends nothing, or the client takes nothing, for `server.stream_idle_timeout`; while data flows it has no total time limit
-- is cut by a non-zero `server.write_timeout`, which bounds the whole response on both stacks: leave it unset, or set it above your longest stream
-- is aborted, backend connection included, the moment its client disconnects (an HTTP/1.1 client half-closing its connection counts as disconnecting)
-- never looks complete to the client when it ends any way but the backend finishing it (idle timeout, backend failure, write timeout): HTTP/2 resets the stream, HTTP/1.1 closes the connection without the final chunk
-- holds one backend connection while open, so `backends[].max_conn` caps concurrent streams per backend
-- drops the backend's trailers
-- keeps graceful shutdown waiting: a stream still open at `server.graceful_shutdown_timeout` makes divisor exit with status 1
-
-On HTTP/1.1, a request pipelined behind an open stream is not served: the connection closes after the stream and the client must resend it. What middleware sees of a streamed response is in [Streamed responses](#streamed-responses); the design is recorded in [ADR 0007](docs/adr/0007-opt-in-response-streaming.md).
-
-Please see [example config files](https://github.com/aaydin-tr/divisor/tree/main/examples)
-
-## Custom Middleware
-
-Divisor supports custom middleware written in Go. You can define middleware to intercept requests and responses, allowing you to implement custom logic such as authentication, logging, header manipulation, etc.
-
-The middleware is executed using the [Yaegi](https://github.com/traefik/yaegi) interpreter.
-
-### Usage
-
-Your middleware must implement the `Middleware` interface and provide a `New` function constructor.
-
-> :warning: Make sure you run `go get github.com/aaydin-tr/divisor/middleware` to import the middleware package. 
-
-```go
-package middleware
-
-import (
-    "github.com/aaydin-tr/divisor/middleware"
-    "fmt"
-)
-
-type MyMiddleware struct {
-    config map[string]any
-}
-
-func New(config map[string]any) middleware.Middleware {
-    return &MyMiddleware{config: config}
-}
-
-func (m *MyMiddleware) OnRequest(ctx *middleware.Context) error {
-    // Logic to execute before request reached to backend server
-    // e.g. ctx.Request.Header.Set("X-Custom-Header", "Value")
-    fmt.Println("OnRequest")
-    return nil
-}
-
-func (m *MyMiddleware) OnResponse(ctx *middleware.Context, err error) error {
-    // Logic to execute after response is received from backend server
-    fmt.Println("OnResponse")
-    return nil
-}
-```
-
-### Configuration
-
-You can configure middlewares in `config.yaml` using either inline code or a file path.
-
-**Using a file:**
-
-```yaml
-middlewares:
-  - name: "my-logger"
-    file: "./middleware/logger.go"
-    config:
-      prefix: "[LOG]"
-```
-
-**Using inline code:**
-
-```yaml
-middlewares:
-  - name: "simple-header"
-    code: |
-      package middleware
-      
-      import "github.com/aaydin-tr/divisor/middleware"
-
-      type HeaderMiddleware struct {}
-
-      func New(config map[string]any) middleware.Middleware {
-          return &HeaderMiddleware{}
-      }
-
-      func (h *HeaderMiddleware) OnRequest(ctx *middleware.Context) error {
-          ctx.Request.Header.Set("X-Divisor", "True")
-          return nil
-      }
-
-      func (h *HeaderMiddleware) OnResponse(ctx *middleware.Context, err error) error {
-          return nil
-      }
-```
-
-### Short-circuiting
-
-A middleware can answer the request itself — a **short-circuit**. Write the response to `ctx.Response` and return `middleware.ErrShortCircuit`: divisor sends that response exactly as you left it, asks no backend (from `OnRequest`) or skips its own 502/504 (from `OnResponse`), and runs no later middleware.
-
-```go
-package middleware
-
-import "github.com/aaydin-tr/divisor/middleware"
-
-type Guard struct{}
-
-func New(config map[string]any) middleware.Middleware { return &Guard{} }
-
-// Deny before the backend is asked.
-func (g *Guard) OnRequest(ctx *middleware.Context) error {
-    if len(ctx.Request.Header.Peek("X-Api-Key")) == 0 {
-        ctx.SetStatusCode(401)
-        ctx.SetBodyString("missing api key")
-        return middleware.ErrShortCircuit
-    }
-    return nil
-}
-
-// Serve a fallback when the backend failed.
-func (g *Guard) OnResponse(ctx *middleware.Context, err error) error {
-    if err != nil {
-        ctx.SetStatusCode(200)
-        ctx.SetBodyString("cached page")
-        return middleware.ErrShortCircuit
-    }
-    return nil
-}
-```
-
-Any *other* non-nil error means the middleware failed: divisor discards whatever the response holds (a backend reply, an earlier middleware's edits, anything you wrote) and answers `500` with `{"message": "<error>"}`. Returning `nil` never stops the chain. Wrapping the sentinel (`fmt.Errorf("…: %w", middleware.ErrShortCircuit)`) still counts; the match is `errors.Is`.
-
-### Streamed responses
-
-With `server.streaming` on, `OnResponse` runs on a [streamed response](#streaming) as soon as the backend's status and headers arrive, before the first body byte is forwarded:
-
-- `ctx.Response` holds the status and headers with an empty body; a middleware never sees a streamed body
-- status and header changes are forwarded with the stream; a body you set is dropped
-- `middleware.ErrShortCircuit` still works: the stream is closed and the response you wrote is sent instead; any other error is the usual `500`
-
-A response that is not streamed (it declares a `Content-Length` and is not `text/event-stream`) reaches `OnResponse` whole, as with streaming off, so body rewrites keep working on it.
-
-### Request/Response Lifecycle
-
-The middleware execution flow allows you to intercept and control the complete request/response lifecycle. Here's exactly what happens when a request is processed:
-
-#### Complete Request Flow
-
-1.  **Pre-Request Setup**
-    -   Internal request preprocessing occurs
-    -   Headers and request context are prepared
-
-2.  **OnRequest Middleware Execution**
-    -   Executed **before** the request is sent to the backend, one middleware after another **in config order**
-    -   Receives the middleware context with full access to request/response
-    -   **If `OnRequest` returns `middleware.ErrShortCircuit`:**
-        -   ⛔ The execution chain stops **immediately**
-        -   ⛔ The request is **NOT** sent to the backend
-        -   ⛔ `OnResponse` is **NOT** called
-        -   ⛔ Post-response cleanup occurs
-        -   ✅ The response the middleware wrote is sent to the client unchanged (any status, including 200)
-    -   **If `OnRequest` returns any other error:**
-        -   ⛔ Same chain stop; the backend is **NOT** asked, `OnResponse` is **NOT** called
-        -   ⛔ Whatever the middleware wrote is discarded; divisor answers `500` with `{"message": "<error>"}`
-    -   **If `OnRequest` succeeds (returns `nil`):**
-        -   ✅ Execution continues to backend proxy
-
-3.  **Backend Proxy**
-    -   The request is forwarded to the selected backend server
-    -   The response (or error) is captured and stored
-    -   A [streamed response](#streamed-responses) is captured at its status and headers; its body is forwarded after `OnResponse`
-    -   **Important:** Even if the backend fails, execution continues to `OnResponse`
-
-4.  **OnResponse Middleware Execution**
-    -   **Always** executed after the proxy attempt (success or failure), **in reverse config order** — the last middleware's `OnResponse` runs first, the first middleware's runs last and sees every later one's changes (an onion: first in, last out)
-    -   Receives **two arguments:**
-        1. The middleware context
-        2. The backend error (if any) - will be `nil` on success
-    -   You can inspect the backend error and decide how to handle it
-    -   **If `OnResponse` returns `middleware.ErrShortCircuit`:**
-        -   ✅ The response the middleware wrote is sent to the client unchanged — on a backend failure this replaces divisor's 502/504
-        -   ⚠️ No later middleware runs (in `OnResponse` that means the ones *before* it in config order); post-response cleanup occurs
-    -   **If `OnResponse` returns any other error:**
-        -   ⚠️ The middleware failed: the response (backend's or otherwise) is discarded and divisor answers `500` with `{"message": "<error>"}`
-        -   ⚠️ No later middleware runs (the ones before it in config order); post-response cleanup occurs
-    -   **If `OnResponse` returns `nil`:**
-        -   Execution continues normally
-        -   If a backend error exists, divisor's standard `502 {"message":"bad gateway"}` (or `504 {"message":"gateway timeout"}` on `proxy_timeout`) is generated; headers the middleware added are kept
-        -   If no error, the backend response (with any mutations the middleware made) is sent to the client
-
-5.  **Post-Response Cleanup**
-    -   Internal response postprocessing occurs
-    -   Always executed regardless of success or failure
-
-6.  **Response Sent**
-    -   Final response is sent to the client
-
-#### Rules Every Middleware Must Follow
-
--   **One instance, all requests.** `New` runs once at startup per config entry; that single instance serves every request concurrently. Any mutable field on your struct (counters, caches, maps) is raced by concurrent requests — guard it with a `sync.Mutex`/atomics, or keep per-request state on `ctx` instead of the struct.
--   **Never keep the context.** `ctx` wraps a pooled `*fasthttp.RequestCtx` that divisor recycles for another client's request the moment the handler returns. Do not store `ctx`, `ctx.Request`/`ctx.Response`, or any `[]byte` you read from them (`Peek`, `Body()`, …) beyond the hook, and never hand them to a goroutine you start — copy what you need (`string(b)`, `append([]byte(nil), b...)`) first. A retained context reads, or writes into, someone else's request.
--   **Order is deterministic.** `OnRequest` hooks run in config order; `OnResponse` hooks run in reverse config order.
-
-#### Key Takeaways
-
--   🎯 **OnRequest** acts as a gatekeeper - short-circuit to answer the client before the backend is asked
--   🔄 **OnResponse** always runs after the proxy attempt (in reverse order), giving you a chance to inspect backend errors
--   🛡️ **OnResponse** can short-circuit to replace a backend error with a response of its own
--   ⚠️ Any error other than `middleware.ErrShortCircuit` means "the middleware failed" and becomes a `500` — it never silently keeps or forwards a response
--   ⏱️ Both hooks have access to the full request/response context for inspection and modification
-
-### Request/Response Diagram
-
-```mermaid
-flowchart TD
-    Start([Client Request]) --> PreReq[Pre-Request Setup]
-    PreReq --> OnReq{OnRequest Middleware}
-
-    OnReq -->|ErrShortCircuit| PostRes1[Post-Response Cleanup]
-    PostRes1 --> ReturnShort1([Send middleware's response])
-
-    OnReq -->|Other error| PostRes4[Post-Response Cleanup]
-    PostRes4 --> Return500a([500 middleware error])
-
-    OnReq -->|Returns nil| Proxy[Forward to Backend Server]
-
-    Proxy --> CaptureErr[Capture Backend Response/Error]
-    CaptureErr --> OnRes{OnResponse Middleware}
-
-    OnRes -->|ErrShortCircuit| PostRes2[Post-Response Cleanup]
-    PostRes2 --> ReturnShort2([Send middleware's response<br/>Backend error replaced])
-
-    OnRes -->|Other error| PostRes5[Post-Response Cleanup]
-    PostRes5 --> Return500b([500 middleware error<br/>Backend response discarded])
-
-    OnRes -->|Returns nil| PostRes3[Post-Response Cleanup]
-    PostRes3 --> CheckBackendErr{Backend Error Exists?}
-
-    CheckBackendErr -->|Yes| GenerateErr[Generate 502/504 Error Response]
-    GenerateErr --> ReturnServerErr([Return Server Error])
-
-    CheckBackendErr -->|No| ReturnOK([Return Success Response])
-```
-
-## Limitations
-While Divisor has several features and benefits, it also has some limitations to be aware of:
-
-- Divisor currently operates at layer 7, meaning it is specifically designed for HTTP(S) load balancing. It does not support other protocols, such as TCP or UDP.
-- Divisor does not support HTTP/3, which may be important for some applications.
-- Divisor does not support HTTPS for backend servers. HTTPS only available for frontend server.
-- Response streaming is opt-in ([`server.streaming`](#streaming)). With it off (the default), the whole backend response is read before it is sent to the client, so Server-Sent Events and other never-ending bodies end with `504` when `server.proxy_timeout` expires. Long-polling (a response that does eventually end) works either way; set `proxy_timeout` above the poll time.
-- Request bodies are never streamed: an upload is buffered whole, up to `server.max_request_body_size`, before it is sent to the backend.
-- A client that disconnects does not cancel a buffered backend request; the attempt runs until the backend answers or `server.proxy_timeout` expires, and the result is dropped. A streamed response is aborted at once.
-- WebSockets and other connection upgrades are not supported.
-
-Please keep these limitations in mind when considering whether this load balancer is the right choice for your project.
+The monitoring dashboard is at <http://localhost:8001>. The config is
+[`examples/quickstart.config.yaml`](examples/quickstart.config.yaml);
+[Getting started](docs/getting-started.md) walks through it, runs divisor as a
+plain binary instead, and shows a Backend going Down and Rejoining.
+
+## Documentation
+
+| Guide | What it covers |
+| --- | --- |
+| [Getting started](docs/getting-started.md) | Installing, a first config, a first request |
+| [Configuration](docs/configuration.md) | Every config key with its default and constraints |
+| [Middleware](docs/middleware.md) | Writing a Middleware: hooks, Short-circuit, the rules it must follow |
+| [Docker](docs/deployment/docker.md), [Kubernetes and Helm](docs/deployment/kubernetes.md), [systemd](docs/deployment/systemd.md) | Running divisor in production |
+| [Observability](docs/observability.md) | Logs, the Access log, the Monitoring server and Prometheus |
+| [Migrating to 1.0](docs/migration-1.0.md) | Every breaking change and what to do about it |
+
+The full index is
+[`docs/README.md`](docs/README.md). Ready-made configs are in
+[`examples/`](examples/).
 
 ## Benchmark
-Please see the [benchmark folder](https://github.com/aaydin-tr/divisor/tree/main/benchmark) for detail explanation 
 
-## TODO
-While Divisor has several features, there are also some areas for improvement that are planned for future releases:
+See the [benchmark folder](benchmark/) for the setup and results.
 
-- [ ] Add support for other protocols, such as TCP or UDP.
-- [x] Add TLS support for frontend.
-- [x] Support HTTP/2 in frontend server.
-- [ ] Add more load balancing algorithms, such as,
-  - [x] least connection
-  - [x] least-response-time
-  - [ ] sticky round-robin
-- [ ] Improve performance and scalability for high-traffic applications.
-- [x] Expand monitoring capabilities to provide more detailed metrics and analytics.
+## Contributing
 
-By addressing these issues and adding new features, we aim to make Divisor an even more versatile and powerful tool for managing traffic in modern web applications.
+To build, test or change divisor, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Contributors
+
 <a href = "https://github.com/aaydin-tr/divisor/graphs/contributors">
   <img src = "https://contrib.rocks/image?repo=aaydin-tr/divisor"/>
 </a>
 
 ## License
-This project is licensed under the MIT License. See the LICENSE file for more information.
 
-The MIT License is a permissive open-source software license that allows users to modify and redistribute the code, as long as the original license and copyright notice are included. This means that you are free to use Divisor for any purpose, including commercial projects, without having to pay any licensing fees or royalties. However, it is provided "as is" and without warranty of any kind, so use it at your own risk.
+Divisor is licensed under the MIT License; see [LICENSE](LICENSE).

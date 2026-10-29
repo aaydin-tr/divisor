@@ -143,6 +143,48 @@ func TestAccessLogRecordsMethodAndPathAsClientSentThem(t *testing.T) {
 	assert.Equal(t, "/as-sent", fields["path"], "path is the one the client sent, not the Middleware rewrite")
 }
 
+// The client's request target, with the slashes, dot segments and
+// percent-encoding a normalized path would rewrite.
+const (
+	rawRequestTarget = "/a//b/../c%20d?q=1"
+	rawRequestPath   = "/a//b/../c%20d"
+)
+
+func TestAccessLogRecordsThePathAsTheClientSentIt(t *testing.T) {
+	t.Run("proxied", func(t *testing.T) {
+		onEveryListenerStack(t, func(t *testing.T, startFrontend func(*testing.T, *ProxyClient) frontend) {
+			observed := observeAccessLog(t)
+			backendAddr := newBackend(t, func(w http.ResponseWriter, r *http.Request) {})
+			f := startFrontend(t, createTestProxyWithMiddlewares(config.Backend{Url: backendAddr, ProxyTimeout: time.Second}, nil))
+			f.url += rawRequestTarget
+
+			res := getWithin(t, f)
+			_, err := within(t, waitLimit, func() ([]byte, error) { return io.ReadAll(res.Body) })
+			require.NoError(t, err)
+
+			assert.Equal(t, rawRequestPath, requireAccessLoggedOnce(t, observed, backendAddr)["path"])
+		})
+	})
+
+	t.Run("no Alive Backends", func(t *testing.T) {
+		onEveryListenerStackServing(t, NoAliveBackends, func(t *testing.T, f frontend) {
+			observed := observeAccessLog(t)
+			f.url += rawRequestTarget
+
+			res := getWithin(t, f)
+			_, err := within(t, waitLimit, func() ([]byte, error) { return io.ReadAll(res.Body) })
+			require.NoError(t, err)
+
+			unproxiedLines := observed.Filter(func(entry observer.LoggedEntry) bool {
+				_, proxied := entry.ContextMap()["backend"]
+				return !proxied
+			}).All()
+			require.Len(t, unproxiedLines, 1, "expected exactly one Access log line")
+			assert.Equal(t, rawRequestPath, unproxiedLines[0].ContextMap()["path"])
+		})
+	})
+}
+
 func TestAccessLogDoesNotBufferAStreamedBody(t *testing.T) {
 	streaming := &mockMiddleware{
 		onRequestFunc: func(mwCtx *middleware.Context) error {
@@ -205,7 +247,7 @@ func TestStreamedResponseIsAccessLoggedAtStreamEnd(t *testing.T) {
 			}
 		})
 		f := startFrontend(t, newStreamingProxyClient(backendAddr))
-		f.url += "/events?topic=a"
+		f.url += "/events//live/../a%20b?topic=a"
 
 		body := bufio.NewReader(getWithin(t, f).Body)
 		assert.Equal(t, "data: 0\n", readFrameWithin(t, body))
@@ -219,7 +261,7 @@ func TestStreamedResponseIsAccessLoggedAtStreamEnd(t *testing.T) {
 		fields := requireAccessLoggedOnce(t, observed, backendAddr)
 		assert.Equal(t, "127.0.0.1", fields["client_ip"])
 		assert.Equal(t, "GET", fields["method"])
-		assert.Equal(t, "/events", fields["path"])
+		assert.Equal(t, "/events//live/../a%20b", fields["path"], "path is logged as the client sent it, without the query")
 		assert.Equal(t, int64(http.StatusOK), fields["status"])
 		assert.Equal(t, uint64(1), fields["request_seq"])
 		assert.GreaterOrEqual(t, fields["duration_ms"], float64(openFor.Milliseconds()))

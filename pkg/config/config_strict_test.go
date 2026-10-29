@@ -26,6 +26,23 @@ func TestExamplesParseUnderStrictKeys(t *testing.T) {
 	}
 }
 
+// These examples are run as-is (the quickstarts, the config the systemd unit
+// starts on), so they must pass validation, not just parse.
+func TestExamplesRunAsIsPassValidation(t *testing.T) {
+	examplesRunAsIs := []string{
+		"quickstart.config.yaml",
+		"quickstart-local.config.yaml",
+		"systemd/config.yaml",
+	}
+	for _, example := range examplesRunAsIs {
+		t.Run(example, func(t *testing.T) {
+			cfg, err := ParseConfigFile(filepath.Join("../../examples", example))
+			require.NoError(t, err)
+			assert.NoError(t, cfg.PrepareConfig())
+		})
+	}
+}
+
 // The Kubernetes example embeds its divisor config in a ConfigMap; kubelet
 // probes reach the monitoring server on the pod IP, so it must not bind localhost.
 func TestKubernetesExampleConfigMapHoldsAValidConfig(t *testing.T) {
@@ -125,6 +142,12 @@ func TestParseConfigFileRejectsUnknownKeys(t *testing.T) {
 		_, err := ParseConfigFile(writeConfig(t, "port: 8000\nbackends:\n  - url: localhost:8080\nserver:\n  disable_header_names_normalizing: true\n"))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "disable_header_names_normalizing")
+	})
+
+	t.Run("internal field is not a key", func(t *testing.T) {
+		_, err := ParseConfigFile(writeConfig(t, "port: 8000\nbackends:\n  - url: localhost:8080\nhealthcheckerfunc: ~\n"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "healthcheckerfunc")
 	})
 
 	t.Run("middleware config map stays free-form", func(t *testing.T) {

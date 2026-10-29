@@ -1,0 +1,17 @@
+# The divisor config of the observability stack in examples/observability/
+# (docs/observability.md): two whoami Backends, the Access log on, and the
+# Monitoring server reachable by Prometheus on the compose network.
+port: 8080
+backends:
+  - url: whoami-1:80
+  - url: whoami-2:80
+health_checker_time: 5s
+logging:
+  format: json
+  level: info
+  access_log: true
+monitoring:
+  # Inside a container the Monitoring server must bind 0.0.0.0 to be reachable
+  # by Prometheus; the compose file publishes it on 127.0.0.1 only.
+  host: 0.0.0.0
+  port: 8001

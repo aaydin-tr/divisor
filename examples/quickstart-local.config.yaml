@@ -1,0 +1,7 @@
+# docs/getting-started.md, divisor as a binary on the host: the two whoami
+# Backends are published on localhost:9001 and localhost:9002.
+port: 8080
+backends:
+  - url: localhost:9001
+  - url: localhost:9002
+health_checker_time: 5s

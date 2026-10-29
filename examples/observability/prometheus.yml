@@ -1,0 +1,8 @@
+# divisor refreshes its gauges every 5s, so a shorter interval only repeats samples.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: divisor
+    static_configs:
+      - targets: ["divisor:8001"]

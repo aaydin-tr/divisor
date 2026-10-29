@@ -187,7 +187,7 @@ via `LoadBalancer.ApplyReload`, and logs `Reload applied` (added/removed
 Backend addresses) or `Reload rejected, divisor keeps serving the running
 config` (with the error naming the keys). Calls are serialized; `Close()`
 (graceful shutdown calls it right after `/ready` flips) waits for one in flight and refuses later
-ones. `/metrics` drops the series of addresses no Backend has any more.
+ones. `/metrics` labels each Backend's series by `address` and `index` (its Index) and drops a removed Backend's series.
 
 `reload.ConfigFileWatch` (fsnotify) watches the config file's directory, not
 the file: an event naming the config path (Chmod-only ignored), or the config
@@ -292,13 +292,13 @@ When `server.http_version: http2`, divisor serves via `net/http` (its built-in H
   Alpine `integration-test/divisor.Dockerfile`, since scenarios need
   `/bin/sh`; the root `Dockerfile` is the distroless release image goreleaser
   builds), driven over real HTTP/1.1,
-  HTTP/2, and TLS (see `docs/adr/0001-black-box-integration-suite.md` and
+  HTTP/2, and TLS (see `development/adr/0001-black-box-integration-suite.md` and
   `CONTEXT.md` for its vocabulary). Gated by `DIVISOR_INTEGRATION=1`; runs in
   CI via `.github/workflows/integration.yml`. Scenarios run with `t.Parallel()`,
   each on its own docker network — on a shared network a killed backend's
   freed IP could be claimed by another scenario's container while divisor's
   dialer still held the DNS-cached IP. Spec-red gating (see
-  `docs/adr/0002-spec-red-gating.md` and CONTEXT.md): a test asserting agreed
+  `development/adr/0002-spec-red-gating.md` and CONTEXT.md): a test asserting agreed
   1.0 spec behavior that has not shipped yet calls `specRed(t, ...)` and skips
   unless `DIVISOR_INTEGRATION_SPEC_RED=1`, so the blocking CI job stays green
   while an advisory job runs just the spec-red set. The set is currently
@@ -324,8 +324,14 @@ When `server.http_version: http2`, divisor serves via `net/http` (its built-in H
 
 ### Issue tracker
 
-Issues live as local markdown files under `.scratch/<feature>/` in this repo. See `docs/agents/issue-tracker.md`.
+Issues live as local markdown files under `.scratch/<feature>/` in this repo. See `development/agents/issue-tracker.md`.
 
 ### Domain docs
 
-Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Single-context: one `CONTEXT.md` at the repo root, ADRs in `development/adr/`. See `development/agents/domain.md`.
+
+### Docs by audience
+
+`docs/` (plus `README.md`, `examples/`) is for people who use divisor: it never links ADRs,
+`CONTEXT.md`, test names or CI internals, and explains a term where it first uses it.
+Development material lives in `development/` and `CONTRIBUTING.md`.

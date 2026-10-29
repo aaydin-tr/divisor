@@ -41,10 +41,10 @@ type frontend struct {
 }
 
 var listenerStacks = []struct {
-	name          string
-	startFrontend func(t *testing.T, p *ProxyClient, writeTimeout time.Duration) frontend
+	name                 string
+	startFrontendServing func(t *testing.T, serve fasthttp.RequestHandler, writeTimeout time.Duration) frontend
 }{
-	{"fasthttp", newFasthttpFrontend},
+	{"fasthttp", newFasthttpFrontendServing},
 	{"net/http HTTP/2", newStreamingHTTP2Frontend},
 	{"net/http HTTP/1.1", newStreamingHTTP2FrontendForHTTP1Client},
 }
@@ -61,8 +61,19 @@ func onEveryListenerStackWithWriteTimeout(t *testing.T, writeTimeout time.Durati
 	t.Helper()
 	for _, stack := range listenerStacks {
 		t.Run(stack.name, func(t *testing.T) {
-			test(t, func(t *testing.T, p *ProxyClient) frontend { return stack.startFrontend(t, p, writeTimeout) })
+			test(t, func(t *testing.T, p *ProxyClient) frontend {
+				return stack.startFrontendServing(t, reverseProxyThrough(p), writeTimeout)
+			})
 		})
+	}
+}
+
+// onEveryListenerStackServing runs test against a frontend serving serve on
+// each listener stack, for paths that answer without a ProxyClient.
+func onEveryListenerStackServing(t *testing.T, serve fasthttp.RequestHandler, test func(t *testing.T, f frontend)) {
+	t.Helper()
+	for _, stack := range listenerStacks {
+		t.Run(stack.name, func(t *testing.T) { test(t, stack.startFrontendServing(t, serve, noWriteTimeout)) })
 	}
 }
 
@@ -92,12 +103,15 @@ func newStreamingProxyClient(backendAddr string, middlewares ...middleware.Middl
 // newFasthttpFrontend serves p like divisor's HTTP/1.1 listener.
 func newFasthttpFrontend(t *testing.T, p *ProxyClient, writeTimeout time.Duration) frontend {
 	t.Helper()
+	return newFasthttpFrontendServing(t, reverseProxyThrough(p), writeTimeout)
+}
+
+func newFasthttpFrontendServing(t *testing.T, serve fasthttp.RequestHandler, writeTimeout time.Duration) frontend {
+	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	server := &fasthttp.Server{
-		Handler: NewFasthttpHandler(&stubBalancer{handler: func(ctx *fasthttp.RequestCtx) {
-			_ = p.ReverseProxyHandler(ctx)
-		}}, writeTimeout),
+		Handler:      NewFasthttpHandler(&stubBalancer{handler: serve}, writeTimeout),
 		WriteTimeout: writeTimeout,
 	}
 	go server.Serve(listener) //nolint:errcheck
@@ -109,18 +123,18 @@ func newFasthttpFrontend(t *testing.T, p *ProxyClient, writeTimeout time.Duratio
 	return frontend{url: "http://" + listener.Addr().String(), client: oneShotClient}
 }
 
-// newStreamingHTTP2Frontend serves p like divisor's HTTP/2 listener.
-func newStreamingHTTP2Frontend(t *testing.T, p *ProxyClient, writeTimeout time.Duration) frontend {
+// newStreamingHTTP2Frontend serves like divisor's HTTP/2 listener.
+func newStreamingHTTP2Frontend(t *testing.T, serve fasthttp.RequestHandler, writeTimeout time.Duration) frontend {
 	t.Helper()
-	server := newHTTP2FrontendWithWriteTimeout(t, p, writeTimeout)
+	server := newHTTP2FrontendServing(t, serve, writeTimeout)
 	return frontend{url: server.URL, client: server.Client()}
 }
 
 // newStreamingHTTP2FrontendForHTTP1Client is the HTTP/2 listener serving a
 // client that does not negotiate h2, which net/http answers over HTTP/1.1.
-func newStreamingHTTP2FrontendForHTTP1Client(t *testing.T, p *ProxyClient, writeTimeout time.Duration) frontend {
+func newStreamingHTTP2FrontendForHTTP1Client(t *testing.T, serve fasthttp.RequestHandler, writeTimeout time.Duration) frontend {
 	t.Helper()
-	http2Frontend := newStreamingHTTP2Frontend(t, p, writeTimeout)
+	http2Frontend := newStreamingHTTP2Frontend(t, serve, writeTimeout)
 	trustedRoots := http2Frontend.client.Transport.(*http.Transport).TLSClientConfig.RootCAs //nolint:forcetypeassert
 	return frontend{url: http2Frontend.url, client: &http.Client{Transport: &http.Transport{
 		TLSClientConfig:   &tls.Config{RootCAs: trustedRoots},
@@ -700,7 +714,7 @@ func TestOnResponseFailureOnStreamAnswers500(t *testing.T) {
 		body, err := within(t, waitLimit, func() ([]byte, error) { return io.ReadAll(res.Body) })
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusInternalServerError, res.StatusCode)
-		assert.JSONEq(t, `{"message":"broken middleware"}`, string(body))
+		assert.JSONEq(t, `{"message":"internal server error"}`, string(body))
 		requireClosedWithin(t, backendStreamClosed, "the abandoned Backend stream")
 	})
 }

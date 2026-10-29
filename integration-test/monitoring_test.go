@@ -62,7 +62,7 @@ func fetchBackendStats(s *Scenario) ([]backendStatsRow, error) {
 }
 
 // scrapeMetrics reads /metrics as a Prometheus scraper would and returns
-// every sample keyed by its series, e.g. `backend_alive{address="x:8080"}`.
+// every sample keyed by its series, e.g. `backend_alive{address="x:8080",index="0"}`.
 func scrapeMetrics(s *Scenario) (map[string]float64, error) {
 	resp, body, err := getMonitoringOK(s, "/metrics")
 	if err != nil {
@@ -97,16 +97,27 @@ func parsePrometheusText(body []byte) (map[string]float64, error) {
 	return samples, scanner.Err()
 }
 
-func backendSeries(metricName string, backend *Echo) string {
-	return fmt.Sprintf("%s{address=%q}", metricName, backendAddress(backend))
+// backendSeries names a Backend's series as promhttp writes it, labels sorted:
+// address, then Index, which is the Backend's config position at boot.
+func backendSeries(s *Scenario, metricName string, backend *Echo) string {
+	return fmt.Sprintf("%s{address=%q,index=\"%d\"}", metricName, backendAddress(backend), bootIndex(s, backend))
+}
+
+func bootIndex(s *Scenario, backend *Echo) int {
+	for i, configured := range s.Backends {
+		if configured == backend {
+			return i
+		}
+	}
+	return -1
 }
 
 // backendAddress is the Backend address divisor reports: the config url,
 // which the harness renders as host:port.
 func backendAddress(backend *Echo) string { return backend.Name + ":" + containerPort }
 
-func requireBackendGauge(samples map[string]float64, metricName string, backend *Echo, want float64) error {
-	series := backendSeries(metricName, backend)
+func requireBackendGauge(s *Scenario, samples map[string]float64, metricName string, backend *Echo, want float64) error {
+	series := backendSeries(s, metricName, backend)
 	got, ok := samples[series]
 	if !ok {
 		return fmt.Errorf("/metrics has no %s", series)
@@ -168,10 +179,10 @@ func TestMonitoringReportsBackendLivenessAcrossRejoin(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if err := requireBackendGauge(samples, "backend_alive", backendA, 0); err != nil {
+		if err := requireBackendGauge(s, samples, "backend_alive", backendA, 0); err != nil {
 			return err
 		}
-		return requireBackendGauge(samples, "backend_alive", backendB, 0)
+		return requireBackendGauge(s, samples, "backend_alive", backendB, 0)
 	})
 
 	rows := readStatsRowsInConfigOrder(t, s, "after a zero-Alive boot")
@@ -188,10 +199,10 @@ func TestMonitoringReportsBackendLivenessAcrossRejoin(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if err := requireBackendGauge(samples, "backend_alive", backendA, 1); err != nil {
+		if err := requireBackendGauge(s, samples, "backend_alive", backendA, 1); err != nil {
 			return err
 		}
-		return requireBackendGauge(samples, "backend_alive", backendB, 0)
+		return requireBackendGauge(s, samples, "backend_alive", backendB, 0)
 	})
 
 	rows = readStatsRowsInConfigOrder(t, s, "after a Rejoin")
@@ -251,7 +262,7 @@ func TestMonitoringReportsPerBackendRequestCounts(t *testing.T) {
 			return err
 		}
 		for _, backend := range s.Backends {
-			if err := requireBackendGauge(samples, "backend_total_request_count", backend, float64(wantTotal[backend.ID])); err != nil {
+			if err := requireBackendGauge(s, samples, "backend_total_request_count", backend, float64(wantTotal[backend.ID])); err != nil {
 				return err
 			}
 		}

@@ -4,8 +4,12 @@ This directory contains example configurations for different use cases and deplo
 
 ## Quick Start
 
-**Minimal setup** - Just getting started:
-- [`basic.config.yaml`](basic.config.yaml) - Simplest possible configuration (2 lines!)
+**Quickstart** - The [README quickstart](../README.md#quickstart) and [Getting started](../docs/getting-started.md):
+- [`quickstart.config.yaml`](quickstart.config.yaml) - divisor in Docker in front of two whoami Backends
+- [`quickstart-local.config.yaml`](quickstart-local.config.yaml) - the same, with divisor as a binary on the host
+
+**Minimal setup**:
+- [`basic.config.yaml`](basic.config.yaml) - Simplest possible configuration
 
 ## By Load Balancing Algorithm
 
@@ -35,6 +39,13 @@ This directory contains example configurations for different use cases and deplo
 **Kubernetes**:
 - [`kubernetes/`](kubernetes/) - Deployment, ConfigMap and Service for divisor fronting the pods of a headless Service; probes on `/healthz`/`/ready`, and a ConfigMap edit of the Backend list Reloads without a redeploy (`kubectl apply -f examples/kubernetes/`)
 
+**systemd**:
+- [`systemd/`](systemd/) - A hardened `divisor.service` unit and the `config.yaml` it starts on; installation and logs in [systemd](../docs/deployment/systemd.md)
+
+**Observability**:
+- [`observability.config.yaml`](observability.config.yaml) - Access log on, Monitoring server reachable by Prometheus
+- [`observability/`](observability/) - A Docker Compose stack (divisor, two Backends, Prometheus, Loki, Grafana Alloy) that runs that config; walked through in [Observability](../docs/observability.md)
+
 **HTTP/2 Setup**:
 - [`http2-tls.config.yaml`](http2-tls.config.yaml) - HTTP/2 with TLS configuration
 
@@ -59,61 +70,22 @@ This directory contains example configurations for different use cases and deplo
 
 ### Common Patterns
 
-**Development**:
-```yaml
-type: round-robin
-port: 8000
-backends:
-  - url: localhost:8080
-  - url: localhost:7070
-```
+Every divisor config here (each `*.config.yaml`, `systemd/config.yaml`, and
+the config inside `kubernetes/configmap.yaml`) uses only keys divisor's strict
+config parser accepts, so any of them is a safe starting point.
 
-**Staging**:
-```yaml
-type: least-connection
-port: 8000
-health_checker_time: 20s
-backends:
-  - url: staging-1.internal:8080
-    health_check_path: /health
-  - url: staging-2.internal:8080
-    health_check_path: /health
-monitoring:
-  port: 8001
-  host: localhost
-```
+- **Development**: [`basic.config.yaml`](basic.config.yaml) - round-robin over
+  local Backends, every other key at its default
+- **Staging**: [`least-connection.config.yaml`](least-connection.config.yaml) -
+  Probes on `/health` every 20s, tighter timeouts, monitoring on localhost
+- **Production**: [`production.config.yaml`](production.config.yaml) - TLS,
+  tuned Backend connection pools, Access log on, bounded proxy timeout
+- **Kubernetes**: [`kubernetes/configmap.yaml`](kubernetes/configmap.yaml) -
+  short `server.dns_cache_duration` for churning pod IPs, monitoring on
+  `0.0.0.0` for kubelet probes
 
-**Production**:
-```yaml
-type: least-response-time
-port: 443
-host: 0.0.0.0
-health_checker_time: 15s
-
-backends:
-  - url: prod-1.internal:8080
-    health_check_path: /health
-    max_conn: 1000
-    max_conn_timeout: 10s
-    max_conn_duration: 60s
-
-server:
-  http_version: http1
-  cert_file: /etc/divisor/certs/server.crt
-  key_file: /etc/divisor/certs/server.key
-  read_timeout: 30s
-  write_timeout: 30s
-  proxy_timeout: 30s
-  max_request_body_size: 4194304
-
-custom_headers:
-  x-forwarded-for: $remote_addr
-  x-request-id: $uuid
-
-monitoring:
-  port: 8001
-  host: 127.0.0.1
-```
+Swap `type:` in any of them to change the Balancer; the
+[configuration reference](../docs/configuration.md) lists every key.
 
 ## Running Examples
 
@@ -148,6 +120,7 @@ divisor
 
 ## Need Help?
 
-- See [main documentation](../README.md#configuration) for detailed field reference
-- Check [Custom Middleware guide](../README.md#custom-middleware) for middleware development
+- See the [configuration reference](../docs/configuration.md) for every field
+- Check the [Middleware guide](../docs/middleware.md) for middleware development
+- Deploying: [Docker](../docs/deployment/docker.md), [Kubernetes and Helm](../docs/deployment/kubernetes.md), [systemd](../docs/deployment/systemd.md)
 - Review algorithm implementations in [`core/`](../core/) directory

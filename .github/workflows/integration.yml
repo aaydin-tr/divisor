@@ -55,5 +55,5 @@ jobs:
         run: go -C integration-test test -v -timeout 20m .
 
   # The advisory "Integration (spec-red)" job lived here while the spec-red set
-  # was non-empty (see docs/adr/0002-spec-red-gating.md). Re-add it when the
+  # was non-empty (see development/adr/0002-spec-red-gating.md). Re-add it when the
   # next spec-red test lands.

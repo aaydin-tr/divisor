@@ -19,7 +19,7 @@ All configured Backends together with each one's liveness. The Pool runs the Pro
 _Avoid_: server list, server map, registry
 
 **Index**:
-A Backend's identity number for the life of the process: its config position at boot, and a number never used before for a Backend a Reload adds. It never changes when the list is reordered or shrinks, so after the first Reload that adds a Backend it no longer matches the config position. Shown as `backend_hash` in `/stats` and `/metrics`; ip-hash places a Backend's Virtual nodes by it.
+A Backend's identity number for the life of the process: its config position at boot, and a number never used before for a Backend a Reload adds. It never changes when the list is reordered or shrinks, so after the first Reload that adds a Backend it no longer matches the config position. Shown as `backend_hash` in `/stats` and as the `index` label, next to `address`, on every per-Backend `/metrics` series, so two Backends sharing an address keep separate series; ip-hash places a Backend's Virtual nodes by it.
 _Avoid_: backend hash, backend ID, position
 
 **Backend address**:
@@ -67,8 +67,16 @@ The position of a request among all requests divisor has routed to one Backend s
 _Avoid_: incremental counter, request counter, request ID
 
 **Access log**:
-One JSON line per request divisor answers, written to stdout, describing who asked and how it was served: Client IP, method and path as the client sent them (a Middleware rewrite is not logged), status, the Backend that served it (or that a Middleware short-circuited), duration, bytes out, and the Request sequence number. A Streamed response's line is written when its stream ends, so it covers the whole stream. Off by default. Application logs go to stderr; the access log is the only thing on stdout.
+One JSON line per request divisor answers, written to stdout, describing who asked and how it was served: Client IP, method and path as the client sent them (the path raw, without its query: not percent-decoded or normalized; a Middleware rewrite is not logged), status, the Backend that served it (or that a Middleware short-circuited), duration, bytes out, and the Request sequence number. A Streamed response's line is written when its stream ends, so it covers the whole stream. Off by default. Application logs go to stderr; the access log is the only thing on stdout.
 _Avoid_: request log, traffic log
+
+**Application log**:
+What divisor logs about itself — startup, Backends going Down and Rejoining, Reloads, shutdown — written to stderr only, JSON by default (`logging.format`, `logging.level`). Never mixed with the Access log, so each stream can be routed on its own.
+_Avoid_: app log, error log, system log
+
+**Monitoring server**:
+The separate HTTP listener (`monitoring.host`/`monitoring.port`, `localhost:8001` by default) serving the stats dashboard, `/stats`, Prometheus `/metrics`, and the `/healthz` and `/ready` probe endpoints. Neither probe endpoint depends on Backend liveness.
+_Avoid_: admin server, metrics server, stats server
 
 **Streamed response**:
 A Backend response divisor forwards to the client as bytes arrive instead of buffering it whole — what Server-Sent Events and large downloads need. Opt-in (`server.streaming`); once on, a response streams when it is an event stream (`text/event-stream`) or declares no length, and every other response is still buffered. `OnResponse` sees its status and headers, never its body, and can still Short-circuit before the first body byte; a client disconnect aborts the Backend stream.

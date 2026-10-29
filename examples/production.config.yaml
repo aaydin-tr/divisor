@@ -36,7 +36,7 @@ monitoring:
   port: 8001
   host: 127.0.0.1  # Only accessible from localhost for security
 
-# App logs are JSON on stderr by default; console format is for local runs.
+# Application logs are JSON on stderr by default; console format is for local runs.
 # The Access log (one JSON line per answered request) goes to stdout.
 logging:
   format: json
@@ -45,7 +45,6 @@ logging:
 
 # Custom headers for tracing and debugging
 custom_headers:
-  x-forwarded-for: $remote_addr
   x-request-id: $uuid
   x-request-time: $time
   x-backend-counter: $incremental
@@ -65,7 +64,7 @@ server:
   write_timeout: 30s
   idle_timeout: 120s
 
-  # Bound each upstream attempt (504 on expiry) and cap request bodies (413).
+  # Bound each attempt at a Backend (504 on expiry) and cap request bodies (413).
   proxy_timeout: 30s
   max_request_body_size: 4194304  # 4MB
 
