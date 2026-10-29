@@ -74,7 +74,7 @@ go install github.com/aaydin-tr/divisor@latest
   Reloads the Balancer's one writer. It never imports a balancer package.
 - **Balancers** (one package each: `core/round-robin`, `core/w-round-robin`,
   `core/random`, `core/least-connection`, `core/least-response-time`,
-  `core/ip-hash`) — selection only. Each exports `New(cfg, backends)
+  `core/ip-hash`) — selection only. Each exports `New(cfg)
   pool.Balancer`; `pool.Balancer` is `Join(*Backend)` / `Leave(*Backend)`,
   called by the Pool (single writer) on liveness transitions and Reloads, and
   `Pick(ctx)`, which runs on request goroutines and returns nil when nothing
@@ -235,7 +235,7 @@ at most two body lines when the change genuinely needs them.
 ### Balancer Selection
 All balancers are registered in `core/balancer.go`:
 ```go
-var balancers = map[string]func(*config.Config, []*pool.Backend) pool.Balancer{
+var balancers = map[string]func(*config.Config) pool.Balancer{
     "round-robin":   round_robin.New,
     "w-round-robin": w_round_robin.New,
     // ...

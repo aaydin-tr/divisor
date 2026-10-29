@@ -11,7 +11,7 @@ import (
 
 func TestRoundRobinTakesTurns(t *testing.T) {
 	backends := mocks.NewBackends(3)
-	rr := New(nil, backends)
+	rr := New(nil)
 	for _, b := range backends {
 		rr.Join(b)
 	}
@@ -25,7 +25,7 @@ func TestRoundRobinTakesTurns(t *testing.T) {
 
 func TestRoundRobinSkipsBackendsThatLeft(t *testing.T) {
 	backends := mocks.NewBackends(3)
-	rr := New(nil, backends)
+	rr := New(nil)
 	for _, b := range backends {
 		rr.Join(b)
 	}

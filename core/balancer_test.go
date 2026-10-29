@@ -141,7 +141,7 @@ func TestPickConcurrentWithProbeRound(t *testing.T) {
 			backends := mocks.NewBackends(3)
 			backends[0].Weight = 2
 			cfg := balancerConfig(balancerType, nil, "localhost:8080", "localhost:8081", "localhost:8082")
-			picker := newBalancer(cfg, backends)
+			picker := newBalancer(cfg)
 
 			var flapping atomic.Bool
 			alive := func(url string, _ types.ExpectedProbeStatus) bool {

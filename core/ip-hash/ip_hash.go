@@ -29,7 +29,7 @@ const virtualNodesPerBackend = 100
 
 // New needs no Backends up front: a Reload Joins Backends this Balancer was
 // not constructed with.
-func New(cfg *config.Config, _ []*pool.Backend) pool.Balancer {
+func New(cfg *config.Config) pool.Balancer {
 	return &ipHash{
 		ring:     consistent.NewConsistentHash(virtualNodesPerBackend, cfg.HashFunc),
 		hashFunc: cfg.HashFunc,

@@ -13,7 +13,7 @@ func TestWeightedRoundRobinSharesTrafficByWeight(t *testing.T) {
 	backends := mocks.NewBackends(2)
 	backends[0].Weight = 3
 	backends[1].Weight = 1
-	wrr := New(nil, backends)
+	wrr := New(nil)
 	for _, b := range backends {
 		wrr.Join(b)
 	}
@@ -29,7 +29,7 @@ func TestWeightedRoundRobinLeaveRemovesEveryShare(t *testing.T) {
 	backends := mocks.NewBackends(2)
 	backends[0].Weight = 3
 	backends[1].Weight = 2
-	wrr := New(nil, backends)
+	wrr := New(nil)
 	for _, b := range backends {
 		wrr.Join(b)
 	}

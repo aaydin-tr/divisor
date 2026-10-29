@@ -16,7 +16,7 @@ import (
 	"go.uber.org/zap"
 )
 
-var balancers = map[string]func(*config.Config, []*pool.Backend) pool.Balancer{
+var balancers = map[string]func(*config.Config) pool.Balancer{
 	config.RoundRobinType:         round_robin.New,
 	config.WeightedRoundRobinType: w_round_robin.New,
 	config.IPHashType:             ip_hash.New,
@@ -61,7 +61,7 @@ func NewBalancer(cfg *config.Config, middlewareExecutor *middleware.Executor, pr
 		backends = append(backends, backend)
 	}
 
-	poolAndBalancer.balancer = newBalancer(cfg, backends)
+	poolAndBalancer.balancer = newBalancer(cfg)
 	poolAndBalancer.pool = pool.NewPool(backends, cfg.HealthCheckerFunc, cfg.HealthCheckerTime, poolAndBalancer.balancer)
 	if poolAndBalancer.pool.AliveBackendCount() == 0 {
 		zap.S().Warn("No Backend is Alive at startup; serving 503 until a Probe succeeds")
