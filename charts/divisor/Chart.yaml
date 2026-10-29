@@ -1,0 +1,11 @@
+apiVersion: v2
+name: divisor
+description: divisor, a fast and simple L7 load balancer
+type: application
+home: https://github.com/aaydin-tr/divisor
+sources:
+  - https://github.com/aaydin-tr/divisor
+# The tag pipeline packages with version = the tag without its "v" and
+# appVersion = the tag, so a released chart pulls its own release's image.
+version: 0.0.0
+appVersion: latest

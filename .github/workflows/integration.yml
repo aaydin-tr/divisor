@@ -33,6 +33,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: integration-test/divisor.Dockerfile
           tags: divisor-it:latest
           load: true
           cache-from: type=gha,scope=divisor-it

@@ -50,6 +50,12 @@ DIVISOR_INTEGRATION=1 go -C integration-test test -v -timeout 20m .
 ### Install
 ```bash
 go install github.com/aaydin-tr/divisor@latest
+
+# Docker image (config read from /etc/divisor/config.yaml)
+docker run -p 8080:8080 -v "$PWD/config.yaml:/etc/divisor/config.yaml:ro" ghcr.io/aaydin-tr/divisor:latest
+
+# Helm chart (divisor config under `config:` in values.yaml)
+helm install divisor oci://ghcr.io/aaydin-tr/charts/divisor -f values.yaml
 ```
 
 ## Architecture
@@ -209,6 +215,28 @@ Implemented in `performGracefulShutdown()`:
   hitting it exits 1. Nothing ends an open Streamed response on shutdown, so
   one still open at the timeout does exactly that (ADR 0007)
 
+## Release / distribution
+
+A `v*` tag runs `.github/workflows/goreleaser.yml`:
+- goreleaser (`.goreleaser.yaml`) builds the binaries (ldflags set `main.version`/`main.commit`)
+  and, via `dockers_v2`, a `linux/amd64`+`linux/arm64` image pushed to `aaydintr/divisor` and
+  `ghcr.io/aaydin-tr/divisor`, tagged `vX.Y.Z`, plus `vX.Y` and `latest` unless a prerelease
+- The root `Dockerfile` is that release image: it copies goreleaser's prebuilt binary onto
+  distroless `static-debian13:nonroot` (no shell). The integration suite builds its own Alpine
+  image from `integration-test/divisor.Dockerfile`; never point the suite at the root one
+- `charts/divisor` is packaged by `.github/scripts/helm-package-chart.sh` (version = tag
+  without `v`, appVersion = tag, so it defaults to that release's image) and pushed to
+  `oci://ghcr.io/aaydin-tr/charts`
+- The chart and `examples/kubernetes` ship the same divisor config and manifests; change both.
+  `TestHelmChartConfigMatchesTheKubernetesExample` (`pkg/config/config_strict_test.go`)
+  guards the config
+
+PRs touching release files (`.goreleaser.yaml`, `Dockerfile`, `main.go`, `charts/`,
+`.github/scripts/`, the release workflows) run the "Release dry-run" job
+(`.github/workflows/release-dry-run.yml`): a goreleaser snapshot, the snapshot image's
+`--version` against `dist/metadata.json`, and `.github/scripts/helm-chart-smoke-test.sh`
+(helm lint, kubeconform `-strict`, the default image tag).
+
 ## Code style
 
 Code explains itself: put the meaning in names and structure. A comment earns
@@ -260,7 +288,10 @@ When `server.http_version: http2`, divisor serves via `net/http` (its built-in H
 - `internal/reload/reload_test.go` drives the Reloader against a temp config file with a recording Target and an observed zap logger; `watch_test.go` drives the config file watch through real file edits (in place, bursts, a ConfigMap `..data` swap — skipped where symlinks need privileges, e.g. Windows) with a short quiet period and a channel Target
 - Proxy behavior tested in `internal/proxy/proxy_test.go`; Streamed responses in `streaming_test.go` and `access_log_test.go`, each test run on every listener stack (`onEveryListenerStack`: fasthttp, net/http HTTP/2, net/http HTTP/1.1) against `httptest` Backends that emit delayed frames (or flood a client that stops reading), asserting what reaches the client and what the Backend sees
 - `integration-test/` is a black-box Docker suite (dockertest): divisor and
-  purpose-built echo backends run as containers, driven over real HTTP/1.1,
+  purpose-built echo backends run as containers (divisor from the suite's own
+  Alpine `integration-test/divisor.Dockerfile`, since scenarios need
+  `/bin/sh`; the root `Dockerfile` is the distroless release image goreleaser
+  builds), driven over real HTTP/1.1,
   HTTP/2, and TLS (see `docs/adr/0001-black-box-integration-suite.md` and
   `CONTEXT.md` for its vocabulary). Gated by `DIVISOR_INTEGRATION=1`; runs in
   CI via `.github/workflows/integration.yml`. Scenarios run with `t.Parallel()`,

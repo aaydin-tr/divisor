@@ -1,0 +1,26 @@
+replicaCount: 2
+
+image:
+  repository: ghcr.io/aaydin-tr/divisor
+  # Defaults to the chart's appVersion: the image of the chart's own release.
+  tag: ""
+
+# A helm upgrade changing only backends or health_checker_* is a Reload, no restart; any other change waits for
+# `kubectl rollout restart deployment/<release>-divisor` (just <release> if the release name contains "divisor").
+config:
+  type: round-robin
+  port: 8080
+  # One pod of a StatefulSet `app` behind a headless Service `app` per Backend: a stable DNS name
+  # per pod. Your `backends` list replaces this one whole (Helm merges maps, not lists).
+  backends:
+    - url: app-0.app:8080
+    - url: app-1.app:8080
+    - url: app-2.app:8080
+  server:
+    # Pod IPs churn; stop dialing a replaced pod's old IP within seconds.
+    dns_cache_duration: 5s
+  # kubelet probes /healthz and /ready on the pod IP, so the monitoring server
+  # must not bind localhost (its default).
+  monitoring:
+    host: 0.0.0.0
+    port: 8001
