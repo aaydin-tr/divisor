@@ -453,8 +453,9 @@ placed by its Backend address; an address listed twice gets a separate set for
 each entry. 0.x gave each Backend the square of the Backend count, with keys
 that collided when the same address appeared twice. As a result, most Client
 IPs map to a different Backend after the upgrade. The mapping is stable after
-that, across Reloads and restarts, and is the same on every divisor instance
-running the same config.
+that, across Reloads and restarts, and divisor instances running the same
+config send each Client IP to the same Backend while the same Backends are
+Alive on each.
 
 **Who is affected:** ip-hash setups whose Backends keep per-client state in
 memory, such as sessions or warm caches.

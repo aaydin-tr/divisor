@@ -26,6 +26,10 @@ _Avoid_: backend hash, backend ID, position
 The dialable `host:port` divisor connects to, derived from the config `url` key by validation: an optional `http://` scheme and a bare trailing slash are accepted and stripped, a missing port defaults to 80; a path, query, userinfo, or `https://` scheme is rejected at startup.
 _Avoid_: backend URL, upstream address
 
+**Address occurrence**:
+How many entries before a Backend in the current config share its Backend address: `0` for the first, `1` for the second. Unlike the Index it comes from the config alone, so a Reload can change it, and divisor instances running one config with the same Backends Alive route each ip-hash Client IP alike whatever their Reload history.
+_Avoid_: duplicate index, ordinal
+
 **Probe**:
 A single health-check request (GET on the Backend's `health_check_path`) sent to a Backend to decide whether it is Alive. A Probe succeeds when the Backend answers with a 2xx or 3xx status within the Probe timeout (`health_checker_timeout`, one deadline covering dial, write and read); a connection failure, a timeout, or any other status is a failed Probe. A Backend with a `health_check_status` overrides that rule: only that exact status is a successful Probe. Redirects are not followed.
 _Avoid_: ping, heartbeat
@@ -47,7 +51,7 @@ The address of the TCP peer that opened the connection to divisor. It is what `X
 _Avoid_: real IP, remote address, origin IP
 
 **Virtual node**:
-One of the several positions a Backend occupies on the ip-hash ring so that client IPs spread evenly across Backends; a Backend leaves or rejoins the ring with all of its virtual nodes at once. Placed by the config alone: the Backend address plus which of the entries at that address the Backend is, in config order (`addr#0`, `addr#1`). Every divisor running one config routes each Client IP alike, and an entry changed in anything but its `url` keeps the Virtual nodes of the entry it replaced.
+One of the several positions a Backend occupies on the ip-hash ring so that client IPs spread evenly across Backends; a Backend leaves or rejoins the ring with all of its virtual nodes at once. Placed by the Backend address and Address occurrence (`addr#0`, `addr#1`), never by Index.
 _Avoid_: replica, vnode
 
 **TLS termination**:

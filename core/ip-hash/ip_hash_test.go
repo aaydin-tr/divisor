@@ -9,6 +9,7 @@ import (
 	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/aaydin-tr/divisor/pkg/helper"
 	"github.com/stretchr/testify/assert"
+	"github.com/valyala/fasthttp"
 )
 
 func ipHashConfig(n int) *config.Config {
@@ -125,7 +126,7 @@ func TestIPHashAddressOccurrenceShiftNeverLeavesTheBackendUnpickable(t *testing.
 		for i := 0; i < 500; i++ {
 			previousAddressOccurrence := backend.AddressOccurrence
 			backend.AddressOccurrence = 1 - previousAddressOccurrence
-			ih.(pool.RingBalancer).AddressOccurrenceShifted(backend, previousAddressOccurrence)
+			ih.(pool.RingBalancer).MoveToNewAddressOccurrences([]pool.AddressOccurrenceShift{{Backend: backend, PreviousAddressOccurrence: previousAddressOccurrence}})
 		}
 	}()
 
@@ -137,6 +138,49 @@ func TestIPHashAddressOccurrenceShiftNeverLeavesTheBackendUnpickable(t *testing.
 		default:
 			if ih.Pick(ctx) == nil {
 				t.Fatal("the only Alive Backend was off the ring while its AddressOccurrence shifted")
+			}
+		}
+	}
+}
+
+// A Reload swapping two entries at one address moves both in one call; the
+// Client IPs of that address must not visit another address meanwhile.
+func TestIPHashSwappingTwoEntriesAtOneAddressKeepsTheirClientsOnIt(t *testing.T) {
+	backends := mocks.NewBackends(3)
+	first, second := backends[0], backends[1]
+	second.Addr = first.Addr
+	second.AddressOccurrence = 1
+	ih := New(ipHashConfig(3))
+	mocks.JoinAll(ih, backends)
+	var clientsOfTheAddress []*fasthttp.RequestCtx
+	for i := 0; i < clientSamples; i++ {
+		if ctx := mocks.RequestFrom(clientIP(i)); ih.Pick(ctx).Addr == first.Addr {
+			clientsOfTheAddress = append(clientsOfTheAddress, ctx)
+		}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 500; i++ {
+			previousOfFirst, previousOfSecond := first.AddressOccurrence, second.AddressOccurrence
+			first.AddressOccurrence, second.AddressOccurrence = previousOfSecond, previousOfFirst
+			ih.(pool.RingBalancer).MoveToNewAddressOccurrences([]pool.AddressOccurrenceShift{
+				{Backend: second, PreviousAddressOccurrence: previousOfSecond},
+				{Backend: first, PreviousAddressOccurrence: previousOfFirst},
+			})
+		}
+	}()
+
+	for {
+		select {
+		case <-done:
+			return
+		default:
+			for _, ctx := range clientsOfTheAddress {
+				if picked := ih.Pick(ctx); picked.Addr != first.Addr {
+					t.Fatalf("a Client IP of %s went to %s while its two entries swapped", first.Addr, picked.Addr)
+				}
 			}
 		}
 	}

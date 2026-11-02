@@ -13,7 +13,7 @@ import (
 // placement is one node's claim on a position: two keys can hash a virtual
 // node to the same one.
 type placement[Owner comparable] struct {
-	nodeKey string
+	ringKey string
 	owner   Owner
 }
 
@@ -24,7 +24,7 @@ type ringSnapshot[Owner comparable] struct {
 	positions    []uint32
 }
 
-// ConsistentHash places a node's virtual nodes by its key alone: rings holding
+// ConsistentHash places virtual nodes by their ring key alone: rings holding
 // the same keys agree on every hash. AddNode and RemoveNode need one writer.
 type ConsistentHash[Owner comparable] struct {
 	ring                atomic.Pointer[ringSnapshot[Owner]]
@@ -41,18 +41,18 @@ func NewConsistentHash[Owner comparable](virtualNodesPerNode int, hashFunc func(
 	return c
 }
 
-// AddNode gives owner the virtual nodes of nodeKey, taking them over from any
+// AddNode gives owner the virtual nodes of ringKey, taking them over from any
 // owner placed under the same key before.
-func (c *ConsistentHash[Owner]) AddNode(nodeKey string, owner Owner) {
+func (c *ConsistentHash[Owner]) AddNode(ringKey string, owner Owner) {
 	old := c.ring.Load()
 	newPlacementsAt := maps.Clone(old.placementsAt)
 	newPositions := slices.Grow(slices.Clone(old.positions), c.virtualNodesPerNode)
 	for i := 0; i < c.virtualNodesPerNode; i++ {
-		position := c.hashFunc(virtualNodeKey(nodeKey, i))
+		position := c.hashFunc(virtualNodeKey(ringKey, i))
 		if len(newPlacementsAt[position]) == 0 {
 			newPositions = append(newPositions, position)
 		}
-		newPlacementsAt[position] = withPlacement(newPlacementsAt[position], placement[Owner]{nodeKey: nodeKey, owner: owner})
+		newPlacementsAt[position] = withPlacement(newPlacementsAt[position], placement[Owner]{ringKey: ringKey, owner: owner})
 	}
 	slices.Sort(newPositions)
 	c.ring.Store(&ringSnapshot[Owner]{placementsAt: newPlacementsAt, positions: newPositions})
@@ -62,22 +62,22 @@ func (c *ConsistentHash[Owner]) AddNode(nodeKey string, owner Owner) {
 func withPlacement[Owner comparable](placements []placement[Owner], added placement[Owner]) []placement[Owner] {
 	updated := make([]placement[Owner], 0, len(placements)+1)
 	for _, placed := range placements {
-		if placed.nodeKey != added.nodeKey {
+		if placed.ringKey != added.ringKey {
 			updated = append(updated, placed)
 		}
 	}
 	updated = append(updated, added)
-	slices.SortFunc(updated, func(left, right placement[Owner]) int { return strings.Compare(left.nodeKey, right.nodeKey) })
+	slices.SortFunc(updated, func(left, right placement[Owner]) int { return strings.Compare(left.ringKey, right.ringKey) })
 	return updated
 }
 
-// RemoveNode drops the virtual nodes of nodeKey that owner still holds.
-func (c *ConsistentHash[Owner]) RemoveNode(nodeKey string, owner Owner) {
+// RemoveNode drops the virtual nodes of ringKey that owner still holds.
+func (c *ConsistentHash[Owner]) RemoveNode(ringKey string, owner Owner) {
 	old := c.ring.Load()
 	newPlacementsAt := maps.Clone(old.placementsAt)
-	removed := placement[Owner]{nodeKey: nodeKey, owner: owner}
+	removed := placement[Owner]{ringKey: ringKey, owner: owner}
 	for i := 0; i < c.virtualNodesPerNode; i++ {
-		position := c.hashFunc(virtualNodeKey(nodeKey, i))
+		position := c.hashFunc(virtualNodeKey(ringKey, i))
 		remaining := slices.DeleteFunc(slices.Clone(newPlacementsAt[position]), func(placed placement[Owner]) bool { return placed == removed })
 		if len(remaining) == 0 {
 			delete(newPlacementsAt, position)
@@ -95,8 +95,8 @@ func (c *ConsistentHash[Owner]) RemoveNode(nodeKey string, owner Owner) {
 	c.ring.Store(&ringSnapshot[Owner]{placementsAt: newPlacementsAt, positions: newPositions})
 }
 
-func virtualNodeKey(nodeKey string, i int) []byte {
-	return helper.S2B(nodeKey + "|" + strconv.Itoa(i))
+func virtualNodeKey(ringKey string, i int) []byte {
+	return helper.S2B(ringKey + "|" + strconv.Itoa(i))
 }
 
 // OwnerOf returns the owner of the first position at or after hash, wrapping

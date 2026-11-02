@@ -36,17 +36,26 @@ func New(cfg *config.Config) pool.Balancer {
 }
 
 func (h *ipHash) Join(backend *pool.Backend) {
-	h.ring.AddNode(ringKey(backend.Addr, backend.AddressOccurrence), backend)
+	h.ring.AddNode(ringKeyOf(backend), backend)
 }
 
 func (h *ipHash) Leave(backend *pool.Backend) {
-	h.ring.RemoveNode(ringKey(backend.Addr, backend.AddressOccurrence), backend)
+	h.ring.RemoveNode(ringKeyOf(backend), backend)
 }
 
-// AddressOccurrenceShifted places the new positions before dropping the old.
-func (h *ipHash) AddressOccurrenceShifted(backend *pool.Backend, previousAddressOccurrence int) {
-	h.ring.AddNode(ringKey(backend.Addr, backend.AddressOccurrence), backend)
-	h.ring.RemoveNode(ringKey(backend.Addr, previousAddressOccurrence), backend)
+// Every new position goes in before any old one goes out, so no Client IP
+// visits another address while entries at one address trade places.
+func (h *ipHash) MoveToNewAddressOccurrences(shifts []pool.AddressOccurrenceShift) {
+	for _, shift := range shifts {
+		h.ring.AddNode(ringKeyOf(shift.Backend), shift.Backend)
+	}
+	for _, shift := range shifts {
+		h.ring.RemoveNode(ringKey(shift.Backend.Addr, shift.PreviousAddressOccurrence), shift.Backend)
+	}
+}
+
+func ringKeyOf(backend *pool.Backend) string {
+	return ringKey(backend.Addr, backend.AddressOccurrence)
 }
 
 // Placed by the config alone, never by Index (development/adr/0008-ip-hash-placement-by-config.md).
