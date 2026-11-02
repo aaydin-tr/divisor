@@ -16,8 +16,11 @@ type Backend struct {
 	ProbeURL            string
 	ExpectedProbeStatus types.ExpectedProbeStatus
 	Index               int
-	Weight              uint
-	isAlive             atomic.Bool
+	// AddressOccurrence counts the earlier entries sharing its address in the
+	// current config (RingBalancer placement); only the Pool's writer touches it.
+	AddressOccurrence int
+	Weight            uint
+	isAlive           atomic.Bool
 }
 
 func (b *Backend) IsAlive() bool {

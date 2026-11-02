@@ -16,7 +16,7 @@ The **Regression test** line of each entry is the scenario that pins the fix.
 ## Checklist
 
 High
-- [ ] [B1 — ip-hash routes a client differently on each replica after a Reload](#b1)
+- [x] [B1 — ip-hash routes a client differently on each replica after a Reload](#b1)
 - [ ] [B2 — least-response-time exiles a Backend after one failed request](#b2)
 - [ ] [B3 — least-response-time sends every concurrent request to one Backend](#b3)
 - [ ] [B4 — 502/504 responses carry the failed Backend's headers](#b4)
@@ -33,7 +33,7 @@ Low
 - [ ] [B11 — No read or idle timeout by default on the client listeners](#b11)
 - [ ] [B12 — backends[].weight has no upper bound](#b12)
 - [ ] [B13 — The monitoring dashboard needs the internet](#b13)
-- [ ] [B14 — ip-hash keeps every Backend it ever Joined](#b14)
+- [x] [B14 — ip-hash keeps every Backend it ever Joined](#b14)
 
 Docs
 - [ ] [D1 — The Balancer guide recommends ip-hash and least-response-time without caveats](#d1)

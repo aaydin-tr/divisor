@@ -76,7 +76,8 @@ helm install divisor oci://ghcr.io/aaydin-tr/charts/divisor -f values.yaml
   round, shared by the loop and by tests, so unit tests never race a
   goroutine. A Reload goes through `SetProbeSettings()` (only when it changes them: it restarts the loop timer) and
   `ReplaceBackends()` (added Backends Probed concurrently and Joined, removed ones Leave
-  and close, survivors untouched); `transitionsMu` makes Probe rounds and
+  and close, survivors untouched except that a `pool.RingBalancer` re-places one whose
+  `AddressOccurrence` shifted); `transitionsMu` makes Probe rounds and
   Reloads the Balancer's one writer. It never imports a balancer package.
 - **Balancers** (one package each: `core/round-robin`, `core/w-round-robin`,
   `core/random`, `core/least-connection`, `core/least-response-time`,
@@ -85,8 +86,11 @@ helm install divisor oci://ghcr.io/aaydin-tr/charts/divisor -f values.yaml
   called by the Pool (single writer) on liveness transitions and Reloads, and
   `Pick(ctx)`, which runs on request goroutines and returns nil when nothing
   is Alive. The slice-based ones embed `pool.Rotation` (copy-on-write Alive
-  slice); ip-hash places each Backend on the ring (`pkg/consistent`) by its
-  Index on Join, so it accepts Backends it was not constructed with.
+  slice); ip-hash (a `pool.RingBalancer`) places each Backend on the ring
+  (`pkg/consistent`, generic over the position's owner) by its address and
+  `AddressOccurrence`, never its Index, so divisor instances sharing a config
+  agree whatever their Reload history (ADR 0008); a Backend Joining under a
+  ring key takes over the positions of the entry it replaces.
 
 `core.NewBalancer(cfg, middlewareExecutor, proxyFunc)` is the only wiring:
 it turns `cfg.Backends` into Backends, picks the balancer by `cfg.Type`,
@@ -283,7 +287,7 @@ When `server.http_version: http2`, divisor serves via `net/http` (its built-in H
 ## Testing Notes
 
 - Tests use the test doubles in `mocks/mocks.go`: `MockProxy`, `MockBalancer`, `NewBackends(n)`, `RecordingBalancer` (records Join/Leave), `ProbeTable` (per-Backend Probe answers), `RequestFrom(ip)`
-- `core/pool/pool_test.go` drives the Pool through `NewPool` + `ProbeAllBackends` with a `RecordingBalancer`; each balancer package has a selection-only `*_test.go` that feeds `Join`/`Leave` and asserts `Pick`; `core/balancer_test.go` covers `NewBalancer`, `Serve` (forward vs 503) and `Pick` racing a Probe round for every balancer
+- `core/pool/pool_test.go` drives the Pool through `NewPool` + `ProbeAllBackends` with a `RecordingBalancer` (the real ip-hash Balancer where ring placement after a Reload is the point); each balancer package has a selection-only `*_test.go` that feeds `Join`/`Leave` and asserts `Pick`; `core/balancer_test.go` covers `NewBalancer`, `Serve` (forward vs 503) and `Pick` racing a Probe round for every balancer
 - Config validation tested in `pkg/config/config_test.go`; the Reload classifier in `pkg/config/reload_test.go` (YAML tables through `PlanReload`)
 - `internal/reload/reload_test.go` drives the Reloader against a temp config file with a recording Target and an observed zap logger; `watch_test.go` drives the config file watch through real file edits (in place, bursts, a ConfigMap `..data` swap — skipped where symlinks need privileges, e.g. Windows) with a short quiet period and a channel Target
 - Proxy behavior tested in `internal/proxy/proxy_test.go`; Streamed responses in `streaming_test.go` and `access_log_test.go`, each test run on every listener stack (`onEveryListenerStack`: fasthttp, net/http HTTP/2, net/http HTTP/1.1) against `httptest` Backends that emit delayed frames (or flood a client that stops reading), asserting what reaches the client and what the Backend sees

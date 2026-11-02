@@ -19,7 +19,7 @@ All configured Backends together with each one's liveness. The Pool runs the Pro
 _Avoid_: server list, server map, registry
 
 **Index**:
-A Backend's identity number for the life of the process: its config position at boot, and a number never used before for a Backend a Reload adds. It never changes when the list is reordered or shrinks, so after the first Reload that adds a Backend it no longer matches the config position. Shown as `backend_hash` in `/stats` and as the `index` label, next to `address`, on every per-Backend `/metrics` series, so two Backends sharing an address keep separate series; ip-hash places a Backend's Virtual nodes by it.
+A Backend's identity number for the life of the process: its config position at boot, and a number never used before for a Backend a Reload adds. It never changes when the list is reordered or shrinks, so after the first Reload that adds a Backend it no longer matches the config position. Shown as `backend_hash` in `/stats` and as the `index` label, next to `address`, on every per-Backend `/metrics` series, so two Backends sharing an address keep separate series. It depends on the process's Reload history, so ip-hash never places Virtual nodes by it.
 _Avoid_: backend hash, backend ID, position
 
 **Backend address**:
@@ -47,7 +47,7 @@ The address of the TCP peer that opened the connection to divisor. It is what `X
 _Avoid_: real IP, remote address, origin IP
 
 **Virtual node**:
-One of the several positions a Backend occupies on the ip-hash ring so that client IPs spread evenly across Backends; a Backend leaves or rejoins the ring with all of its virtual nodes at once.
+One of the several positions a Backend occupies on the ip-hash ring so that client IPs spread evenly across Backends; a Backend leaves or rejoins the ring with all of its virtual nodes at once. Placed by the config alone: the Backend address plus which of the entries at that address the Backend is, in config order (`addr#0`, `addr#1`). Every divisor running one config routes each Client IP alike, and an entry changed in anything but its `url` keeps the Virtual nodes of the entry it replaced.
 _Avoid_: replica, vnode
 
 **TLS termination**:
