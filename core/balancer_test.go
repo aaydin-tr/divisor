@@ -249,3 +249,27 @@ func TestReloadsLeavingProbeSettingsAloneKeepTheProbeSchedule(t *testing.T) {
 
 	assert.Greater(t, probeCount.Load(), probesAtBoot, "Reloads more frequent than health_checker_time must not starve the Probe rounds")
 }
+
+func pickedAddress(balancer types.IBalancer, ip string) string {
+	return balancer.(*loadBalancer).balancer.Pick(mocks.RequestFrom(ip)).Addr
+}
+
+// divisor instances behind one Service share a config but not a Reload
+// history; ip-hash affinity needs both to route each Client IP to one address.
+func TestIPHashRoutesLikeAFreshBootAfterAReload(t *testing.T) {
+	reloaded := NewBalancer(balancerConfig(config.IPHashType, alwaysAlive, "localhost:8080", "localhost:8081", "localhost:8082"), nil, mocks.CreateNewMockProxy)
+	defer reloaded.Shutdown() //nolint:errcheck
+	reloaded.ApplyReload(&config.ReloadPlan{
+		NextConfig:                     balancerConfig(config.IPHashType, alwaysAlive, "localhost:8080", "localhost:8082", "localhost:8083"),
+		KeptBackends:                   []config.KeptBackend{{RunningPosition: 0, NextPosition: 0}, {RunningPosition: 2, NextPosition: 1}},
+		AddedBackendNextPositions:      []int{2},
+		RemovedBackendRunningPositions: []int{1},
+	})
+	booted := NewBalancer(balancerConfig(config.IPHashType, alwaysAlive, "localhost:8080", "localhost:8082", "localhost:8083"), nil, mocks.CreateNewMockProxy)
+	defer booted.Shutdown() //nolint:errcheck
+
+	for i := 0; i < 1000; i++ {
+		ip := fmt.Sprintf("10.%d.%d.%d", i/65536, i/256%256, i%256)
+		assert.Equal(t, pickedAddress(booted, ip), pickedAddress(reloaded, ip), "Client IP %s", ip)
+	}
+}

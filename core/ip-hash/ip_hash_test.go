@@ -37,16 +37,46 @@ func TestIPHashIsStablePerClient(t *testing.T) {
 	assert.Len(t, seen, 3, "clients spread over every Alive Backend")
 }
 
-func TestIPHashAcceptsBackendsInAnyOrder(t *testing.T) {
-	backends := mocks.NewBackends(3)
-	shuffled := []*pool.Backend{backends[2], backends[0], backends[1]}
-	ih := New(ipHashConfig(3))
-	mocks.JoinAll(ih, shuffled)
-
-	for i := 0; i < clientSamples; i++ {
-		picked := ih.Pick(mocks.RequestFrom(clientIP(i)))
-		assert.Same(t, backends[picked.Index], picked, "client %d resolved to a Backend whose Index does not match", i)
+func picksOf(balancer pool.Balancer) []*pool.Backend {
+	picks := make([]*pool.Backend, clientSamples)
+	for i := range picks {
+		picks[i] = balancer.Pick(mocks.RequestFrom(clientIP(i)))
 	}
+	return picks
+}
+
+func TestIPHashRoutingDoesNotDependOnJoinOrder(t *testing.T) {
+	backends := mocks.NewBackends(3)
+	inConfigOrder := New(ipHashConfig(3))
+	mocks.JoinAll(inConfigOrder, backends)
+	shuffled := New(ipHashConfig(3))
+	mocks.JoinAll(shuffled, []*pool.Backend{backends[2], backends[0], backends[1]})
+
+	assert.Equal(t, picksOf(inConfigOrder), picksOf(shuffled))
+}
+
+// A Reload that changes an entry (its health_check_path, say) Joins a new
+// Backend at the same address before the old one Leaves.
+func TestIPHashChangedEntryKeepsItsClients(t *testing.T) {
+	backends := mocks.NewBackends(3)
+	ih := New(ipHashConfig(3))
+	mocks.JoinAll(ih, backends)
+	before := picksOf(ih)
+
+	changed := mocks.NewBackend(backends[1].Addr)
+	ih.Join(changed)
+	ih.Leave(backends[1])
+
+	movedToChanged := 0
+	for i, picked := range picksOf(ih) {
+		if before[i] == backends[1] {
+			assert.Same(t, changed, picked, "client %d must follow its Backend's address to the changed entry", i)
+			movedToChanged++
+			continue
+		}
+		assert.Same(t, before[i], picked, "client %d of an untouched Backend moved", i)
+	}
+	assert.NotZero(t, movedToChanged)
 }
 
 func TestIPHashNothingAlive(t *testing.T) {
@@ -62,6 +92,7 @@ func TestIPHashNothingAlive(t *testing.T) {
 func TestDuplicateAddressTwinKeepsItsVirtualNodes(t *testing.T) {
 	backends := mocks.NewBackends(2)
 	backends[1].Addr = backends[0].Addr
+	backends[1].AddressOccurrence = 1 // the Pool numbers entries sharing an address
 	cfg := ipHashConfig(2)
 	cfg.Backends[1].Url = cfg.Backends[0].Url
 	ih := New(cfg)
@@ -83,6 +114,34 @@ func TestDuplicateAddressTwinKeepsItsVirtualNodes(t *testing.T) {
 	}
 }
 
+func TestIPHashAddressOccurrenceShiftNeverLeavesTheBackendUnpickable(t *testing.T) {
+	backend := mocks.NewBackends(1)[0]
+	ih := New(ipHashConfig(1))
+	ih.Join(backend)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 500; i++ {
+			previousAddressOccurrence := backend.AddressOccurrence
+			backend.AddressOccurrence = 1 - previousAddressOccurrence
+			ih.(pool.RingBalancer).AddressOccurrenceShifted(backend, previousAddressOccurrence)
+		}
+	}()
+
+	ctx := mocks.RequestFrom("10.1.2.3")
+	for {
+		select {
+		case <-done:
+			return
+		default:
+			if ih.Pick(ctx) == nil {
+				t.Fatal("the only Alive Backend was off the ring while its AddressOccurrence shifted")
+			}
+		}
+	}
+}
+
 // With 100 virtual nodes per Backend the split is close to even; with the old
 // len(backends)² count (9 per Backend here) it was lumpy.
 func TestIPHashSpreadsClientsEvenly(t *testing.T) {
@@ -101,8 +160,8 @@ func TestIPHashSpreadsClientsEvenly(t *testing.T) {
 	}
 }
 
-// A Reload hands the Balancer Backends it was not constructed with, under an
-// Index past the boot-time ones; only the clients they take over move.
+// A Reload hands the Balancer Backends it was not constructed with; only the
+// clients they take over move.
 func TestIPHashBackendAddedAfterConstructionTakesOverSomeClients(t *testing.T) {
 	backends := mocks.NewBackends(2)
 	ih := New(ipHashConfig(2))
@@ -113,7 +172,6 @@ func TestIPHashBackendAddedAfterConstructionTakesOverSomeClients(t *testing.T) {
 	}
 
 	added := mocks.NewBackend("localhost:9000")
-	added.Index = 7
 	ih.Join(added)
 
 	movedToAdded := 0

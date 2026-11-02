@@ -1,13 +1,17 @@
 package pool_test
 
 import (
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	ip_hash "github.com/aaydin-tr/divisor/core/ip-hash"
 	"github.com/aaydin-tr/divisor/core/pool"
 	"github.com/aaydin-tr/divisor/core/types"
 	"github.com/aaydin-tr/divisor/mocks"
+	"github.com/aaydin-tr/divisor/pkg/config"
+	"github.com/aaydin-tr/divisor/pkg/helper"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -321,6 +325,90 @@ func TestReplaceBackendsSurvivorsKeepLivenessAndStats(t *testing.T) {
 	assert.Equal(t, float64(42), mocks.MockProxyOf(backends[0]).ResTime, "a survivor keeps its response-time score")
 	assert.Equal(t, []int{1, 0}, []int{backends[1].Index, backends[0].Index}, "a survivor keeps its Index")
 	assert.False(t, mocks.MockProxyOf(backends[0]).CloseCalled)
+}
+
+// entryAt is one config entry at addr; two entries at one address can differ
+// in health_check_path, so the Probe URL tells them apart.
+func entryAt(addr, healthCheckPath string) *pool.Backend {
+	backend := mocks.NewBackend(addr)
+	backend.ProbeURL = "http://" + addr + healthCheckPath
+	return backend
+}
+
+func freshCopiesOf(backends []*pool.Backend) []*pool.Backend {
+	copies := make([]*pool.Backend, len(backends))
+	for i, backend := range backends {
+		copies[i] = mocks.NewBackend(backend.Addr)
+		copies[i].ProbeURL = backend.ProbeURL
+	}
+	return copies
+}
+
+func entriesPickedFor(balancer pool.Balancer) []string {
+	picked := make([]string, 500)
+	for i := range picked {
+		picked[i] = balancer.Pick(mocks.RequestFrom(fmt.Sprintf("10.0.%d.%d", i/250, i%250))).ProbeURL
+	}
+	return picked
+}
+
+// ip-hash places a Backend by its address and its occurrence among the
+// entries at that address; a Reload can shift a survivor's occurrence.
+func TestReplaceBackendsPlacesSurvivorsLikeAFreshBoot(t *testing.T) {
+	for _, tc := range []struct {
+		name                 string
+		survivorDownAtReload bool
+		nextConfig           func(first, second, other *pool.Backend) []*pool.Backend
+	}{
+		{name: "an earlier entry at the address removed", nextConfig: func(first, second, other *pool.Backend) []*pool.Backend {
+			return []*pool.Backend{second, other}
+		}},
+		{name: "entries at the address swapped", nextConfig: func(first, second, other *pool.Backend) []*pool.Backend {
+			return []*pool.Backend{second, first, other}
+		}},
+		{name: "an entry at the address added before them", nextConfig: func(first, second, other *pool.Backend) []*pool.Backend {
+			return []*pool.Backend{entryAt(first.Addr, "/added"), first, second, other}
+		}},
+		{name: "a Down survivor Rejoins", survivorDownAtReload: true, nextConfig: func(first, second, other *pool.Backend) []*pool.Backend {
+			return []*pool.Backend{second, other}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			first, second, other := entryAt("localhost:8080", "/first"), entryAt("localhost:8080", "/second"), entryAt("localhost:8081", "/")
+			probes := &mocks.ProbeTable{}
+			reloadedBalancer := ip_hash.New(&config.Config{HashFunc: helper.HashFunc})
+			reloaded := pool.NewPool([]*pool.Backend{first, second, other}, probes.Probe, time.Hour, reloadedBalancer)
+			defer reloaded.Shutdown() //nolint:errcheck
+			if tc.survivorDownAtReload {
+				probes.SetAlive(second, false)
+				reloaded.ProbeAllBackends()
+			}
+
+			nextConfig := tc.nextConfig(first, second, other)
+			reloaded.ReplaceBackends(nextConfig)
+			probes.SetAlive(second, true)
+			reloaded.ProbeAllBackends()
+
+			freshBalancer := ip_hash.New(&config.Config{HashFunc: helper.HashFunc})
+			fresh := pool.NewPool(freshCopiesOf(nextConfig), (&mocks.ProbeTable{}).Probe, time.Hour, freshBalancer)
+			defer fresh.Shutdown() //nolint:errcheck
+			assert.Equal(t, entriesPickedFor(freshBalancer), entriesPickedFor(reloadedBalancer))
+		})
+	}
+}
+
+func TestReplaceBackendsLeavesASurvivorInPlaceOnBalancersNotPlacingByAddress(t *testing.T) {
+	removed, survivor := entryAt("localhost:8080", "/first"), entryAt("localhost:8080", "/second")
+	balancer := &mocks.RecordingBalancer{}
+	p := pool.NewPool([]*pool.Backend{removed, survivor}, (&mocks.ProbeTable{}).Probe, time.Hour, balancer)
+	defer p.Shutdown() //nolint:errcheck
+
+	p.ReplaceBackends([]*pool.Backend{survivor})
+
+	joins, leaves := balancer.Transitions()
+	assert.Equal(t, []*pool.Backend{removed, survivor}, joins, "only the boot-time Joins")
+	assert.Equal(t, []*pool.Backend{removed}, leaves, "only the removed Backend Leaves")
+	assert.Equal(t, 0, survivor.AddressOccurrence, "it is now the first entry at its address")
 }
 
 func TestSetProbeSettingsAppliesToTheNextRoundAndRestartsTheLoopTimer(t *testing.T) {
