@@ -1,110 +1,116 @@
 package consistent
 
 import (
-	"sort"
+	"maps"
+	"slices"
 	"strconv"
+	"strings"
 	"sync/atomic"
 
-	"github.com/aaydin-tr/divisor/internal/proxy"
 	"github.com/aaydin-tr/divisor/pkg/helper"
 )
 
-type hashRing []uint32
-
-func (h hashRing) Len() int {
-	return len(h)
+// placement is one node's claim on a position: two keys can hash a virtual
+// node to the same one.
+type placement[Owner comparable] struct {
+	ringKey string
+	owner   Owner
 }
 
-func (h hashRing) Less(i, j int) bool {
-	return h[i] < h[j]
+// ringSnapshot is never mutated once stored, so OwnerOf reads it unlocked.
+type ringSnapshot[Owner comparable] struct {
+	// placementsAt holds each position's claims sorted by key; the first owns it.
+	placementsAt map[uint32][]placement[Owner]
+	positions    []uint32
 }
 
-func (h hashRing) Swap(i, j int) {
-	h[i], h[j] = h[j], h[i]
+// ConsistentHash places virtual nodes by their ring key alone: rings holding
+// the same keys agree on every hash. AddNode and RemoveNode need one writer.
+type ConsistentHash[Owner comparable] struct {
+	ring                atomic.Pointer[ringSnapshot[Owner]]
+	hashFunc            func([]byte) uint32
+	virtualNodesPerNode int
 }
 
-type Node struct {
-	Proxy proxy.IProxyClient
-	Addr  string
-	Id    int
-}
-
-type ringSnapshot struct {
-	nodes   map[uint32]*Node
-	numbers hashRing
-}
-
-type ConsistentHash struct {
-	ring        atomic.Pointer[ringSnapshot]
-	hashFunc    func([]byte) uint32
-	virtualRepl int
-}
-
-func NewConsistentHash(replicas int, hashFunc func([]byte) uint32) *ConsistentHash {
-	c := &ConsistentHash{
-		virtualRepl: replicas,
-		hashFunc:    hashFunc,
+func NewConsistentHash[Owner comparable](virtualNodesPerNode int, hashFunc func([]byte) uint32) *ConsistentHash[Owner] {
+	c := &ConsistentHash[Owner]{
+		virtualNodesPerNode: virtualNodesPerNode,
+		hashFunc:            hashFunc,
 	}
-	c.ring.Store(&ringSnapshot{nodes: make(map[uint32]*Node)})
+	c.ring.Store(&ringSnapshot[Owner]{placementsAt: make(map[uint32][]placement[Owner])})
 	return c
 }
 
-func (c *ConsistentHash) AddNode(node *Node) {
+// AddNode gives owner the virtual nodes of ringKey, taking them over from any
+// owner placed under the same key before.
+func (c *ConsistentHash[Owner]) AddNode(ringKey string, owner Owner) {
 	old := c.ring.Load()
-	newNodes := make(map[uint32]*Node, len(old.nodes)+c.virtualRepl)
-	for hash, n := range old.nodes {
-		newNodes[hash] = n
+	newPlacementsAt := maps.Clone(old.placementsAt)
+	newPositions := slices.Grow(slices.Clone(old.positions), c.virtualNodesPerNode)
+	for i := 0; i < c.virtualNodesPerNode; i++ {
+		position := c.hashFunc(virtualNodeKey(ringKey, i))
+		if len(newPlacementsAt[position]) == 0 {
+			newPositions = append(newPositions, position)
+		}
+		newPlacementsAt[position] = withPlacement(newPlacementsAt[position], placement[Owner]{ringKey: ringKey, owner: owner})
 	}
-	newNumbers := make(hashRing, 0, len(old.numbers)+c.virtualRepl)
-	newNumbers = append(newNumbers, old.numbers...)
-
-	for i := 0; i < c.virtualRepl; i++ {
-		hash := c.hashFunc(virtualNodeKey(node, i))
-		newNodes[hash] = node
-		newNumbers = append(newNumbers, hash)
-	}
-	sort.Sort(newNumbers)
-	c.ring.Store(&ringSnapshot{nodes: newNodes, numbers: newNumbers})
+	slices.Sort(newPositions)
+	c.ring.Store(&ringSnapshot[Owner]{placementsAt: newPlacementsAt, positions: newPositions})
 }
 
-func (c *ConsistentHash) RemoveNode(node *Node) {
-	old := c.ring.Load()
-	removed := make(map[uint32]bool, c.virtualRepl)
-	for i := 0; i < c.virtualRepl; i++ {
-		removed[c.hashFunc(virtualNodeKey(node, i))] = true
-	}
-
-	newNodes := make(map[uint32]*Node, len(old.nodes))
-	for hash, n := range old.nodes {
-		if !removed[hash] {
-			newNodes[hash] = n
+// withPlacement returns a new slice: the previous snapshot still reads the old one.
+func withPlacement[Owner comparable](placements []placement[Owner], added placement[Owner]) []placement[Owner] {
+	updated := make([]placement[Owner], 0, len(placements)+1)
+	for _, placed := range placements {
+		if placed.ringKey != added.ringKey {
+			updated = append(updated, placed)
 		}
 	}
-	newNumbers := make(hashRing, 0, len(old.numbers))
-	for _, hash := range old.numbers {
-		if !removed[hash] {
-			newNumbers = append(newNumbers, hash)
+	updated = append(updated, added)
+	slices.SortFunc(updated, func(left, right placement[Owner]) int { return strings.Compare(left.ringKey, right.ringKey) })
+	return updated
+}
+
+// RemoveNode drops the virtual nodes of ringKey that owner still holds.
+func (c *ConsistentHash[Owner]) RemoveNode(ringKey string, owner Owner) {
+	old := c.ring.Load()
+	newPlacementsAt := maps.Clone(old.placementsAt)
+	removed := placement[Owner]{ringKey: ringKey, owner: owner}
+	for i := 0; i < c.virtualNodesPerNode; i++ {
+		position := c.hashFunc(virtualNodeKey(ringKey, i))
+		remaining := slices.DeleteFunc(slices.Clone(newPlacementsAt[position]), func(placed placement[Owner]) bool { return placed == removed })
+		if len(remaining) == 0 {
+			delete(newPlacementsAt, position)
+			continue
+		}
+		newPlacementsAt[position] = remaining
+	}
+
+	newPositions := make([]uint32, 0, len(newPlacementsAt))
+	for _, position := range old.positions {
+		if _, placed := newPlacementsAt[position]; placed {
+			newPositions = append(newPositions, position)
 		}
 	}
-	c.ring.Store(&ringSnapshot{nodes: newNodes, numbers: newNumbers})
+	c.ring.Store(&ringSnapshot[Owner]{placementsAt: newPlacementsAt, positions: newPositions})
 }
 
-// Keyed by Id first: two Nodes may share an Addr (the same Backend address
-// listed twice) and must still own disjoint virtual nodes.
-func virtualNodeKey(node *Node, i int) []byte {
-	return helper.S2B(strconv.Itoa(node.Id) + "|" + strconv.Itoa(i) + "|" + node.Addr)
+func virtualNodeKey(ringKey string, i int) []byte {
+	return helper.S2B(ringKey + "|" + strconv.Itoa(i))
 }
 
-func (c *ConsistentHash) GetNode(hash uint32) *Node {
+// OwnerOf returns the owner of the first position at or after hash, wrapping
+// past the last; false when the ring is empty.
+func (c *ConsistentHash[Owner]) OwnerOf(hash uint32) (Owner, bool) {
 	ring := c.ring.Load()
-	if ring.numbers.Len() == 0 {
-		return nil
+	if len(ring.positions) == 0 {
+		var noOwner Owner
+		return noOwner, false
 	}
 
-	i := sort.Search(ring.numbers.Len(), func(i int) bool { return ring.numbers[i] >= hash })
-	if i == ring.numbers.Len() {
+	i, _ := slices.BinarySearch(ring.positions, hash)
+	if i == len(ring.positions) {
 		i = 0
 	}
-
-	return ring.nodes[ring.numbers[i]]
+	return ring.placementsAt[ring.positions[i]][0].owner, true
 }

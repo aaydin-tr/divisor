@@ -19,12 +19,16 @@ All configured Backends together with each one's liveness. The Pool runs the Pro
 _Avoid_: server list, server map, registry
 
 **Index**:
-A Backend's identity number for the life of the process: its config position at boot, and a number never used before for a Backend a Reload adds. It never changes when the list is reordered or shrinks, so after the first Reload that adds a Backend it no longer matches the config position. Shown as `backend_hash` in `/stats` and as the `index` label, next to `address`, on every per-Backend `/metrics` series, so two Backends sharing an address keep separate series; ip-hash places a Backend's Virtual nodes by it.
+A Backend's identity number for the life of the process: its config position at boot, and a number never used before for a Backend a Reload adds. It never changes when the list is reordered or shrinks, so after the first Reload that adds a Backend it no longer matches the config position. Shown as `backend_hash` in `/stats` and as the `index` label, next to `address`, on every per-Backend `/metrics` series, so two Backends sharing an address keep separate series. It depends on the process's Reload history, so ip-hash never places Virtual nodes by it.
 _Avoid_: backend hash, backend ID, position
 
 **Backend address**:
 The dialable `host:port` divisor connects to, derived from the config `url` key by validation: an optional `http://` scheme and a bare trailing slash are accepted and stripped, a missing port defaults to 80; a path, query, userinfo, or `https://` scheme is rejected at startup.
 _Avoid_: backend URL, upstream address
+
+**Address occurrence**:
+How many entries before a Backend in the current config share its Backend address: `0` for the first, `1` for the second. Unlike the Index it comes from the config alone, so a Reload can change it, and divisor instances running one config with the same Backends Alive route each ip-hash Client IP alike whatever their Reload history.
+_Avoid_: duplicate index, ordinal
 
 **Probe**:
 A single health-check request (GET on the Backend's `health_check_path`) sent to a Backend to decide whether it is Alive. A Probe succeeds when the Backend answers with a 2xx or 3xx status within the Probe timeout (`health_checker_timeout`, one deadline covering dial, write and read); a connection failure, a timeout, or any other status is a failed Probe. A Backend with a `health_check_status` overrides that rule: only that exact status is a successful Probe. Redirects are not followed.
@@ -47,7 +51,7 @@ The address of the TCP peer that opened the connection to divisor. It is what `X
 _Avoid_: real IP, remote address, origin IP
 
 **Virtual node**:
-One of the several positions a Backend occupies on the ip-hash ring so that client IPs spread evenly across Backends; a Backend leaves or rejoins the ring with all of its virtual nodes at once.
+One of the several positions a Backend occupies on the ip-hash ring so that client IPs spread evenly across Backends; a Backend leaves or rejoins the ring with all of its virtual nodes at once. Placed by the Backend address and Address occurrence (`addr#0`, `addr#1`), never by Index.
 _Avoid_: replica, vnode
 
 **TLS termination**:

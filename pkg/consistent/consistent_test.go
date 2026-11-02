@@ -5,135 +5,175 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/aaydin-tr/divisor/internal/proxy"
 	"github.com/aaydin-tr/divisor/pkg/helper"
 )
 
-func TestNewConsistentHash(t *testing.T) {
-	replicas := 3
-	hashFunc := func([]byte) uint32 {
-		return uint32(0)
-	}
-	ch := NewConsistentHash(replicas, hashFunc)
+const (
+	testVirtualNodes = 100
+	hashSamples      = 2000
+	hashSampleStride = math.MaxUint32 / hashSamples
+)
 
-	if ch.virtualRepl != replicas {
-		t.Errorf("Expected virtualRepl to be %d, got %d", replicas, ch.virtualRepl)
+type owner struct{ name string }
+
+func sampledHash(i int) uint32 { return uint32(i * hashSampleStride) }
+
+func ownersOfSampledHashes(ring *ConsistentHash[*owner]) []*owner {
+	owners := make([]*owner, hashSamples)
+	for i := range owners {
+		owners[i], _ = ring.OwnerOf(sampledHash(i))
+	}
+	return owners
+}
+
+func TestEmptyRingHasNoOwner(t *testing.T) {
+	ring := NewConsistentHash[*owner](testVirtualNodes, helper.HashFunc)
+	if got, ok := ring.OwnerOf(42); ok || got != nil {
+		t.Fatalf("OwnerOf on an empty ring = %v, %v; want nil, false", got, ok)
+	}
+
+	ownerA := &owner{"a"}
+	ring.AddNode("a", ownerA)
+	ring.RemoveNode("a", ownerA)
+	if got, ok := ring.OwnerOf(42); ok || got != nil {
+		t.Fatalf("OwnerOf after the last node left = %v, %v; want nil, false", got, ok)
 	}
 }
 
-func TestAddNode(t *testing.T) {
-	ch := NewConsistentHash(3, func([]byte) uint32 {
-		return uint32(0)
-	})
+func TestOwnerOfIsTheFirstPositionAtOrAfterTheHash(t *testing.T) {
+	positions := map[string]uint32{"low|0": 100, "high|0": 200}
+	ring := NewConsistentHash[*owner](1, func(key []byte) uint32 { return positions[string(key)] })
+	low, high := &owner{"low"}, &owner{"high"}
+	ring.AddNode("low", low)
+	ring.AddNode("high", high)
 
-	node := &Node{
-		Proxy: &proxy.ProxyClient{Addr: "127.0.0.1:8080"},
-		Id:    1,
-	}
-
-	ch.AddNode(node)
-
-	ring := ch.ring.Load()
-	if len(ring.numbers) != 3 {
-		t.Errorf("Expected numbers to have length 3, got %d", len(ring.numbers))
-	}
-
-	for i := 0; i < 3; i++ {
-		_, ok := ring.nodes[ring.numbers[i]]
-		if !ok {
-			t.Errorf("Expected node with hash %d to be stored in nodes", ring.numbers[i])
+	for _, tc := range []struct {
+		hash uint32
+		want *owner
+	}{{0, low}, {100, low}, {101, high}, {200, high}, {201, low}, {math.MaxUint32, low}} {
+		if got, _ := ring.OwnerOf(tc.hash); got != tc.want {
+			t.Errorf("OwnerOf(%d) = %s, want %s", tc.hash, got.name, tc.want.name)
 		}
 	}
 }
 
-func TestRemoveNode(t *testing.T) {
-	ch := NewConsistentHash(3, func([]byte) uint32 {
-		return uint32(0)
-	})
+// Two divisor instances sharing a config must agree however each got there.
+func TestPositionsDependOnTheKeysAloneNotOnTheirHistory(t *testing.T) {
+	ownerA, ownerB, ownerC, ownerD := &owner{"a"}, &owner{"b"}, &owner{"c"}, &owner{"d"}
+	reshaped := NewConsistentHash[*owner](testVirtualNodes, helper.HashFunc)
+	reshaped.AddNode("a", ownerA)
+	reshaped.AddNode("b", ownerB)
+	reshaped.AddNode("c", ownerC)
+	reshaped.AddNode("d", ownerD)
+	reshaped.RemoveNode("b", ownerB)
 
-	node := &Node{
-		Proxy: &proxy.ProxyClient{Addr: "127.0.0.1:8080"},
-		Id:    1,
-	}
+	fresh := NewConsistentHash[*owner](testVirtualNodes, helper.HashFunc)
+	fresh.AddNode("d", ownerD)
+	fresh.AddNode("c", ownerC)
+	fresh.AddNode("a", ownerA)
 
-	ch.AddNode(node)
-	ch.RemoveNode(node)
-
-	ring := ch.ring.Load()
-	if len(ring.numbers) != 0 {
-		t.Errorf("Expected numbers to have length 0, got %d", len(ring.numbers))
-	}
-
-	for i := 0; i < 3; i++ {
-		_, ok := ring.nodes[uint32(i)]
-		if ok {
-			t.Errorf("Expected node with hash %d not to be stored in nodes", i)
+	reshapedOwners, freshOwners := ownersOfSampledHashes(reshaped), ownersOfSampledHashes(fresh)
+	for i := range freshOwners {
+		if reshapedOwners[i] != freshOwners[i] {
+			t.Fatalf("hash %d: %s on the reshaped ring, %s on the fresh one", sampledHash(i), reshapedOwners[i].name, freshOwners[i].name)
 		}
 	}
 }
 
-func TestGetNode(t *testing.T) {
-	// Create a ConsistentHash struct with replicas 2 and a dummy hash function
-	ch := NewConsistentHash(1, func(b []byte) uint32 {
-		return uint32(len(b))
-	})
+// A Reload Joins a changed entry's new Backend before the old one, under the
+// same key, Leaves; that Leave must not take the new one's positions.
+func TestANewOwnerTakesOverItsKeyAndTheOldOneCannotRemoveIt(t *testing.T) {
+	ring := NewConsistentHash[*owner](testVirtualNodes, helper.HashFunc)
+	previous, other := &owner{"previous"}, &owner{"other"}
+	ring.AddNode("shared", previous)
+	ring.AddNode("other", other)
+	before := ownersOfSampledHashes(ring)
 
-	// Add two nodes to the ConsistentHash
-	node1 := &Node{
-		Proxy: &proxy.ProxyClient{},
-		Id:    1,
-		Addr:  "localhost:8080",
-	}
-	node2 := &Node{
-		Proxy: &proxy.ProxyClient{},
-		Id:    2,
-		Addr:  "localhost:80",
-	}
-	ch.AddNode(node1)
-	ch.AddNode(node2)
+	replacement := &owner{"replacement"}
+	ring.AddNode("shared", replacement)
+	ring.RemoveNode("shared", previous)
 
-	// Test cases
-	testCases := []struct {
-		hash         uint32
-		expectedNode *Node
-	}{
-		{hash: ch.hashFunc(virtualNodeKey(node1, 0)), expectedNode: node1},
-		{hash: ch.hashFunc(virtualNodeKey(node2, 0)), expectedNode: node2},
-		{hash: ch.hashFunc(virtualNodeKey(node1, 0)), expectedNode: node1},
-		{hash: 16, expectedNode: node2},
+	after := ownersOfSampledHashes(ring)
+	for i := range before {
+		want := before[i]
+		if want == previous {
+			want = replacement
+		}
+		if after[i] != want {
+			t.Fatalf("hash %d: got %s, want %s", sampledHash(i), after[i].name, want.name)
+		}
 	}
 
-	for _, tc := range testCases {
-		node := ch.GetNode(tc.hash)
-		if node.Addr != tc.expectedNode.Addr {
-			t.Errorf("For hash %d, expected node %v but got %v", tc.hash, tc.expectedNode.Addr, node.Addr)
+	ring.RemoveNode("shared", replacement)
+	for i, got := range ownersOfSampledHashes(ring) {
+		if got != other {
+			t.Fatalf("hash %d: got %s after the key's owner left, want other", sampledHash(i), got.name)
 		}
 	}
 }
 
-func TestGetNodeEmptyRing(t *testing.T) {
-	ch := NewConsistentHash(3, func(b []byte) uint32 {
-		return uint32(len(b))
-	})
+// A Reload Joins in another order than a boot does, so a position two keys
+// hash to must not go to whichever arrived last.
+func TestACollidingPositionGoesToTheLowerKeyWhateverTheOrder(t *testing.T) {
+	everyKeyCollides := func([]byte) uint32 { return 7 }
+	ownerA, ownerB := &owner{"a"}, &owner{"b"}
+	addedAFirst := NewConsistentHash[*owner](1, everyKeyCollides)
+	addedAFirst.AddNode("a", ownerA)
+	addedAFirst.AddNode("b", ownerB)
+	addedBFirst := NewConsistentHash[*owner](1, everyKeyCollides)
+	addedBFirst.AddNode("b", ownerB)
+	addedBFirst.AddNode("a", ownerA)
 
-	if node := ch.GetNode(42); node != nil {
-		t.Errorf("Expected nil node from empty ring, got %v", node)
+	for name, ring := range map[string]*ConsistentHash[*owner]{"a first": addedAFirst, "b first": addedBFirst} {
+		if got, _ := ring.OwnerOf(0); got != ownerA {
+			t.Errorf("%s: OwnerOf = %s, want a", name, got.name)
+		}
+		ring.RemoveNode("a", ownerA)
+		if got, _ := ring.OwnerOf(0); got != ownerB {
+			t.Errorf("%s: OwnerOf after a left = %v, want b to keep the position", name, got)
+		}
 	}
 }
 
-func TestGetNodeConcurrentWithAddRemove(t *testing.T) {
-	ch := NewConsistentHash(9, helper.HashFunc)
-	nodeA := &Node{Proxy: &proxy.ProxyClient{}, Id: 0, Addr: "localhost:8080"}
-	nodeB := &Node{Proxy: &proxy.ProxyClient{}, Id: 1, Addr: "localhost:80"}
-	ch.AddNode(nodeA)
-	ch.AddNode(nodeB)
+func TestRemovingANodeAndAddingItBackRestoresEveryOwner(t *testing.T) {
+	ring := NewConsistentHash[*owner](testVirtualNodes, helper.HashFunc)
+	ownerA, flapping, ownerC := &owner{"a"}, &owner{"b"}, &owner{"c"}
+	ring.AddNode("a", ownerA)
+	ring.AddNode("b", flapping)
+	ring.AddNode("c", ownerC)
+	before := ownersOfSampledHashes(ring)
+
+	ring.RemoveNode("b", flapping)
+	for i, got := range ownersOfSampledHashes(ring) {
+		if got == flapping {
+			t.Fatalf("hash %d still routes to a removed node", sampledHash(i))
+		}
+		if before[i] != flapping && got != before[i] {
+			t.Fatalf("hash %d moved from %s to %s though its node stayed", sampledHash(i), before[i].name, got.name)
+		}
+	}
+
+	ring.AddNode("b", flapping)
+	after := ownersOfSampledHashes(ring)
+	for i := range before {
+		if after[i] != before[i] {
+			t.Fatalf("hash %d: %s before the flap, %s after", sampledHash(i), before[i].name, after[i].name)
+		}
+	}
+}
+
+func TestOwnerOfConcurrentWithAddRemove(t *testing.T) {
+	ring := NewConsistentHash[*owner](9, helper.HashFunc)
+	flapping, steady := &owner{"a"}, &owner{"b"}
+	ring.AddNode("a", flapping)
+	ring.AddNode("b", steady)
 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		for i := 0; i < 500; i++ {
-			ch.RemoveNode(nodeA)
-			ch.AddNode(nodeA)
+			ring.RemoveNode("a", flapping)
+			ring.AddNode("a", flapping)
 		}
 	}()
 
@@ -143,62 +183,25 @@ func TestGetNodeConcurrentWithAddRemove(t *testing.T) {
 			return
 		default:
 			for i := uint32(0); i < 8; i++ {
-				if node := ch.GetNode(i * 500000000); node == nil {
-					t.Fatal("GetNode returned nil while the ring was not empty")
+				if _, ok := ring.OwnerOf(i * 500000000); !ok {
+					t.Fatal("OwnerOf found no owner while the ring was not empty")
 				}
 			}
 		}
 	}
 }
 
-func BenchmarkGetNode(b *testing.B) {
-	ch := NewConsistentHash(100, helper.HashFunc)
+func BenchmarkOwnerOf(b *testing.B) {
+	ring := NewConsistentHash[*owner](testVirtualNodes, helper.HashFunc)
 	for i := 0; i < 10; i++ {
-		ch.AddNode(&Node{Proxy: &proxy.ProxyClient{}, Id: i, Addr: "localhost:" + strconv.Itoa(8000+i)})
+		ring.AddNode("localhost:"+strconv.Itoa(8000+i), &owner{strconv.Itoa(i)})
 	}
 
 	b.RunParallel(func(pb *testing.PB) {
 		h := uint32(0)
 		for pb.Next() {
 			h += 2654435761
-			ch.GetNode(h)
+			ring.OwnerOf(h)
 		}
 	})
-}
-
-// The same address listed twice in config: two Nodes, same Addr, different Ids.
-func TestNodesWithSameAddrKeepSeparateVirtualNodes(t *testing.T) {
-	const replicas = 4
-	ch := NewConsistentHash(replicas, helper.HashFunc)
-	first := &Node{Id: 0, Addr: "127.0.0.1:8080", Proxy: &proxy.ProxyClient{Addr: "127.0.0.1:8080"}}
-	second := &Node{Id: 1, Addr: "127.0.0.1:8080", Proxy: &proxy.ProxyClient{Addr: "127.0.0.1:8080"}}
-
-	ch.AddNode(first)
-	ch.AddNode(second)
-
-	ring := ch.ring.Load()
-	if got := len(ring.numbers); got != 2*replicas {
-		t.Fatalf("expected %d virtual nodes, got %d", 2*replicas, got)
-	}
-	if got := len(ring.nodes); got != 2*replicas {
-		t.Fatalf("expected %d distinct positions, got %d", 2*replicas, got)
-	}
-
-	ch.RemoveNode(first)
-
-	ring = ch.ring.Load()
-	if got := len(ring.numbers); got != replicas {
-		t.Fatalf("expected the twin to keep its %d virtual nodes, got %d", replicas, got)
-	}
-	for _, hash := range ring.numbers {
-		if ring.nodes[hash] != second {
-			t.Fatalf("position %d no longer routes to the remaining twin", hash)
-		}
-	}
-	const samples, sampleStride = 1000, math.MaxUint32 / 1000
-	for i := 0; i < samples; i++ {
-		if got := ch.GetNode(uint32(i * sampleStride)); got != second {
-			t.Fatalf("GetNode(%d) = %v, want the remaining twin", i, got)
-		}
-	}
 }

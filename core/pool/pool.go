@@ -21,6 +21,19 @@ type Balancer interface {
 	Pick(ctx *fasthttp.RequestCtx) *Backend
 }
 
+// RingBalancer places each Backend by its Addr and AddressOccurrence (ip-hash).
+type RingBalancer interface {
+	Balancer
+	// MoveToNewAddressOccurrences re-places, in one call, every Alive Backend
+	// whose AddressOccurrence one Reload changed.
+	MoveToNewAddressOccurrences(shifts []AddressOccurrenceShift)
+}
+
+type AddressOccurrenceShift struct {
+	Backend                   *Backend
+	PreviousAddressOccurrence int
+}
+
 // Pool owns every configured Backend and its liveness: it runs the Probes,
 // moves Backends between Alive and Down, and tells the Balancer what it may
 // pick from.
@@ -56,6 +69,9 @@ func NewPool(backends []*Backend, probe types.IsHostAlive, healthCheckInterval t
 	}
 	pool.backends.Store(&backends)
 	pool.healthCheckInterval.Store(int64(healthCheckInterval))
+	for position, addressOccurrence := range addressOccurrencesOf(backends) {
+		backends[position].AddressOccurrence = addressOccurrence
+	}
 
 	for _, backend := range backends {
 		pool.registerNewBackend(backend, probe(backend.ProbeURL, backend.ExpectedProbeStatus))
@@ -144,16 +160,24 @@ func (p *Pool) ReplaceBackends(backendsInConfigOrder []*Backend) {
 
 	runningBackends := p.Backends()
 	var addedBackends []*Backend
-	for _, backend := range backendsInConfigOrder {
-		if slices.Contains(runningBackends, backend) {
-			continue
+	var aliveBackendShifts []AddressOccurrenceShift
+	for position, addressOccurrence := range addressOccurrencesOf(backendsInConfigOrder) {
+		backend := backendsInConfigOrder[position]
+		switch {
+		case !slices.Contains(runningBackends, backend):
+			backend.Index = p.nextBackendIndex
+			p.nextBackendIndex++
+			addedBackends = append(addedBackends, backend)
+		case backend.AddressOccurrence != addressOccurrence && backend.isAlive.Load():
+			aliveBackendShifts = append(aliveBackendShifts, AddressOccurrenceShift{Backend: backend, PreviousAddressOccurrence: backend.AddressOccurrence})
 		}
-		backend.Index = p.nextBackendIndex
-		p.nextBackendIndex++
-		addedBackends = append(addedBackends, backend)
+		backend.AddressOccurrence = addressOccurrence
 	}
 	for addedPosition, isAlive := range p.probeConcurrently(addedBackends) {
 		p.registerNewBackend(addedBackends[addedPosition], isAlive)
+	}
+	if ringBalancer, placesByAddress := p.balancer.(RingBalancer); placesByAddress && len(aliveBackendShifts) > 0 {
+		ringBalancer.MoveToNewAddressOccurrences(aliveBackendShifts)
 	}
 
 	// Removed Backends Leave only after the added ones Joined, so replacing
@@ -165,6 +189,16 @@ func (p *Pool) ReplaceBackends(backendsInConfigOrder []*Backend) {
 			p.removeBackend(backend)
 		}
 	}
+}
+
+func addressOccurrencesOf(backendsInConfigOrder []*Backend) []int {
+	occurrences := make([]int, len(backendsInConfigOrder))
+	seenPerAddress := map[string]int{}
+	for position, backend := range backendsInConfigOrder {
+		occurrences[position] = seenPerAddress[backend.Addr]
+		seenPerAddress[backend.Addr]++
+	}
+	return occurrences
 }
 
 // probeConcurrently bounds a Reload adding many unreachable Backends to one
