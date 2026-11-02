@@ -10,6 +10,40 @@ items that need one say so. Each open item below points to its spec
 (`.scratch/<feature>/spec.md`) and its ready-for-agent tickets
 (`.scratch/<feature>/issues/`); conventions in `development/agents/issue-tracker.md`.
 
+**1.0 shipped as `v1.0.0` (2026-10-29).** This file is now the 1.0 record plus
+its five unshipped items; new work lives in [bugs.md](bugs.md) and
+[features.md](features.md) (see [Post-1.0](#post-10)).
+
+## Post-1.0
+
+The post-1.0 review (2026-10-29) filed defects in [bugs.md](bugs.md) and
+missing capabilities in [features.md](features.md). The unshipped 1.0 items
+stay below, where they were:
+
+- `open_conn_count` on the HTTP/2 listener ([Observability](#observability))
+- Concurrent Probe rounds ([Kubernetes](#kubernetes)): it also shortens the
+  window of 502s that [features.md F1](features.md#f1) is about
+- Request streaming, ending open streams when the drain begins, and
+  `server.write_timeout` no longer capping streams ([Streaming](#streaming))
+
+Items 1.0 deferred are tracked in features.md now: trusted proxies (F7),
+per-Backend `proxy_timeout` (F14), TLS to Backends (F15), streaming on by
+default (F16), the docs site (FD3). review.md M7's note (only one of
+`cert_file`/`key_file` set serves plain HTTP) was never tracked; it is
+[bugs.md B8](bugs.md#b8).
+
+Housekeeping, neither bug nor feature:
+
+- [ ] [pkg/config/config.go:329](pkg/config/config.go#L329) carries
+  `// TODO make more flexible` with no ticket: file it or delete it.
+- [ ] CI: [go.yml](.github/workflows/go.yml) and
+  [test.yml](.github/workflows/test.yml) still use `actions/checkout@v3` and
+  `actions/setup-go@v4` (every other workflow v4/v5), and a push to `main`
+  runs no linter.
+- [ ] Decide where the backlog files live: TODO.md, review.md, bugs.md and
+  features.md sit at the repo root, while CLAUDE.md (Docs by audience) puts
+  development material in `development/`.
+
 ## Observability
 
 Spec: `.scratch/logging/spec.md` — tickets in `.scratch/logging/issues/`.
