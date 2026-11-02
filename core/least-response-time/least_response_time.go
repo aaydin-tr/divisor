@@ -23,9 +23,9 @@ func (l *leastResponseTime) Pick(*fasthttp.RequestCtx) *pool.Backend {
 	leastResTime := picked.Proxy.RecentResponseTime()
 	for _, candidate := range aliveBackends {
 		resTime := candidate.Proxy.RecentResponseTime()
-		// 0 means the Backend is unmeasured — never answered, or just
-		// Rejoined: it wins outright so it gets its first sample.
-		if resTime == 0 {
+		// 0 means unmeasured (never answered, or just Rejoined), and an expired
+		// score is due its Trial request: either wins to get a fresh sample.
+		if resTime == 0 || candidate.Proxy.ClaimTrialRequest() {
 			return candidate
 		}
 		if resTime < leastResTime {

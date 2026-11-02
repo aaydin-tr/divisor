@@ -46,6 +46,10 @@ _Avoid_: recovery, re-add
 A request divisor has forwarded to a Backend and not yet received the response for; a Streamed response stays pending until its stream ends. It is what least-connection counts and compares — not TCP connections.
 _Avoid_: in-flight request, active connection, open connection
 
+**Trial request**:
+The one request least-response-time sends to an Alive Backend that no request reached for three Probe rounds, ahead of faster Backends. Its response time replaces the Backend's score instead of averaging into it, so one failed request cannot keep a healthy Backend out of traffic. A Backend still failing costs one request every four Probe rounds: the round that sees the Trial request, then three without one.
+_Avoid_: probe request (a Probe is the health check), retry
+
 **Client IP**:
 The address of the TCP peer that opened the connection to divisor. It is what `X-Forwarded-For` is appended with, what `$remote_addr` carries, and what ip-hash hashes. Divisor never reads a client-sent `X-Forwarded-For` to decide it: behind another proxy, the Client IP is that proxy.
 _Avoid_: real IP, remote address, origin IP

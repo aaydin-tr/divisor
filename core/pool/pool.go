@@ -129,6 +129,7 @@ func (p *Pool) ProbeAllBackends() {
 		if helper.IsClosed(p.stopHealthChecker) {
 			return
 		}
+		backend.expireScoreIfNotPicked()
 		p.updateLiveness(backend, p.probe(backend.ProbeURL, backend.ExpectedProbeStatus))
 	}
 }

@@ -68,7 +68,10 @@ helm install divisor oci://ghcr.io/aaydin-tr/charts/divisor -f values.yaml
   configured `Backend` (Index, address, weight, Probe URL, proxy
   client, Alive flag), runs the Probe loop every `config.HealthCheckerTime`,
   moves Backends between Alive and Down, resets a Rejoining Backend's
-  response-time score, builds `Stats()` rows in config order (`BackendHash`
+  response-time score, expires the score of an Alive Backend no request
+  reached for 3 Probe rounds (least-response-time then sends it one Trial
+  request: `ClaimTrialRequest` in `Pick`, its sample replaces the score),
+  builds `Stats()` rows in config order (`BackendHash`
   is the Backend's Index: its config position at boot, a never-used-before
   number for a Backend a Reload added), and closes every proxy on
   `Shutdown()`. `NewPool` Probes once synchronously and does not start the

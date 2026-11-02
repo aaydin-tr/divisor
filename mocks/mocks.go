@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 
 	"github.com/aaydin-tr/divisor/core/pool"
 	"github.com/aaydin-tr/divisor/core/types"
@@ -13,8 +14,8 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-// MockProxy satisfies proxy.IProxyClient with values a test sets directly:
-// Pending for least-connection, ResTime (ms) for least-response-time.
+// MockProxy satisfies proxy.IProxyClient with values a test sets directly
+// (Pending, ResTime in ms); Stat counts the requests it served.
 type MockProxy struct {
 	Addr               string
 	ResTime            float64
@@ -24,17 +25,21 @@ type MockProxy struct {
 	middlewareExecutor *middleware.Executor
 	// Guards ResTime in the methods: the Probe loop resets it while
 	// selection reads it, and the real ProxyClient is atomic there.
-	resTimeMu sync.Mutex
+	resTimeMu       sync.Mutex
+	requestCount    atomic.Uint64
+	trialRequestDue atomic.Bool
 }
 
 func (m *MockProxy) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 	m.IsCalled = true
+	m.requestCount.Add(1)
 	return nil
 }
 
 func (m *MockProxy) Stat() types.ProxyStat {
 	return types.ProxyStat{
-		Addr: m.Addr,
+		Addr:          m.Addr,
+		TotalReqCount: m.requestCount.Load(),
 	}
 }
 
@@ -57,6 +62,14 @@ func (m *MockProxy) ResetRecentResponseTime() {
 	m.resTimeMu.Lock()
 	m.ResTime = 0
 	m.resTimeMu.Unlock()
+}
+
+func (m *MockProxy) ExpireRecentResponseTime() {
+	m.trialRequestDue.Store(true)
+}
+
+func (m *MockProxy) ClaimTrialRequest() bool {
+	return m.trialRequestDue.CompareAndSwap(true, false)
 }
 
 func (m *MockProxy) Close() error {

@@ -17,7 +17,7 @@ The **Regression test** line of each entry is the scenario that pins the fix.
 
 High
 - [x] [B1 — ip-hash routes a client differently on each replica after a Reload](#b1)
-- [ ] [B2 — least-response-time exiles a Backend after one failed request](#b2)
+- [x] [B2 — least-response-time exiles a Backend after one failed request](#b2)
 - [ ] [B3 — least-response-time sends every concurrent request to one Backend](#b3)
 - [ ] [B4 — 502/504 responses carry the failed Backend's headers](#b4)
 

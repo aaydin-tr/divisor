@@ -39,6 +39,19 @@ func TestLeastResponseTimePicksFastest(t *testing.T) {
 		assert.Same(t, backends[1], lrt.Pick(nil))
 	})
 
+	t.Run("an expired score gets one trial request ahead of a faster Backend", func(t *testing.T) {
+		backends := mocks.NewBackends(2)
+		faster, expired := backends[0], backends[1]
+		mocks.MockProxyOf(faster).ResTime = 1
+		mocks.MockProxyOf(expired).ResTime = 10_000
+		lrt := New(nil)
+		mocks.JoinAll(lrt, backends)
+
+		expired.Proxy.ExpireRecentResponseTime()
+		assert.Same(t, expired, lrt.Pick(nil))
+		assert.Same(t, faster, lrt.Pick(nil), "one trial request; the fastest wins again")
+	})
+
 	t.Run("nothing Alive → nil", func(t *testing.T) {
 		lrt := New(nil)
 		assert.Nil(t, lrt.Pick(nil))

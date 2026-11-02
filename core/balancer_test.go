@@ -2,16 +2,20 @@ package core
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/aaydin-tr/divisor/core/pool"
 	"github.com/aaydin-tr/divisor/core/types"
+	"github.com/aaydin-tr/divisor/internal/proxy"
 	"github.com/aaydin-tr/divisor/mocks"
 	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/aaydin-tr/divisor/pkg/helper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/valyala/fasthttp"
 )
 
@@ -272,4 +276,46 @@ func TestIPHashRoutesLikeAFreshBootAfterAReload(t *testing.T) {
 		ip := fmt.Sprintf("10.%d.%d.%d", i/65536, i/256%256, i%256)
 		assert.Equal(t, pickedAddress(booted, ip), pickedAddress(reloaded, ip), "Client IP %s", ip)
 	}
+}
+
+// One failure scores a Backend at seconds, and least-response-time only
+// re-measures a Backend it picks: without a trial request it never came back.
+func TestLeastResponseTimePicksABackendAgainAfterOneFailure(t *testing.T) {
+	var fasterRequests atomic.Int64
+	faster := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		if fasterRequests.Add(1) == 1 {
+			time.Sleep(300 * time.Millisecond)
+		}
+	}))
+	defer faster.Close()
+	slower := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		time.Sleep(20 * time.Millisecond)
+	}))
+	defer slower.Close()
+
+	cfg := balancerConfig(config.LeastResponseTimeType, alwaysAlive, faster.Listener.Addr().String(), slower.Listener.Addr().String())
+	for i := range cfg.Backends {
+		cfg.Backends[i].ProxyTimeout = 100 * time.Millisecond
+	}
+	b := NewBalancer(cfg, nil, proxy.NewProxyClient)
+	defer b.Shutdown() //nolint:errcheck
+	serve := b.Serve()
+
+	for range 5 {
+		serve(mocks.RequestFrom("10.0.0.1"))
+	}
+	require.Equal(t, int64(1), fasterRequests.Load(), "its one request outlived proxy_timeout, so the slower Backend took the rest")
+
+	probeRounds := 0
+	for fasterRequests.Load() == 1 && probeRounds < 10 {
+		probeAllBackends(b)
+		probeRounds++
+		serve(mocks.RequestFrom("10.0.0.1"))
+	}
+	assert.Equal(t, 4, probeRounds, "the round that saw its last pick, then three rounds without one")
+
+	for range 5 {
+		serve(mocks.RequestFrom("10.0.0.1"))
+	}
+	assert.Equal(t, int64(7), fasterRequests.Load(), "its trial request answered at once, so it is the fastest again")
 }

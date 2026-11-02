@@ -1287,6 +1287,30 @@ func TestResetRecentResponseTime(t *testing.T) {
 	assert.InDelta(t, 2, p.RecentResponseTime(), 0.001)
 }
 
+func TestExpiredResponseTimeGrantsOneTrialRequest(t *testing.T) {
+	p := NewProxyClient(&config.Backend{Url: "localhost:8080"}, nil, nil).(*ProxyClient)
+	assert.False(t, p.ClaimTrialRequest(), "a score that never expired grants no trial request")
+
+	p.ExpireRecentResponseTime()
+	assert.True(t, p.ClaimTrialRequest())
+	assert.False(t, p.ClaimTrialRequest(), "one trial request per expiry")
+}
+
+func TestTrialRequestSampleReplacesExpiredResponseTime(t *testing.T) {
+	p := NewProxyClient(&config.Backend{Url: "localhost:8080"}, nil, nil).(*ProxyClient)
+	p.recordResponseTime(time.Millisecond)
+	p.recordFailure(time.Millisecond)
+
+	p.ExpireRecentResponseTime()
+	p.ClaimTrialRequest()
+	p.recordResponseTime(time.Millisecond)
+	// Averaged into the failure penalty, a 1ms answer would still read ~1600ms.
+	assert.InDelta(t, 1, p.RecentResponseTime(), 0.001)
+
+	p.recordResponseTime(3 * time.Millisecond)
+	assert.InDelta(t, 1.4, p.RecentResponseTime(), 0.001, "later samples average in again")
+}
+
 func TestAvgResponseTimeExcludesFailures(t *testing.T) {
 	handler := mockServer{}
 	bServer := httptest.NewServer(&handler)
