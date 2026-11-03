@@ -24,6 +24,7 @@ import (
 	middlewarePkg "github.com/aaydin-tr/divisor/pkg/middleware"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/valyala/fasthttp"
 	"go.uber.org/zap/zapcore"
 )
@@ -199,6 +200,91 @@ func TestProxyTimeoutReturns504(t *testing.T) {
 	err := p.ReverseProxyHandler(&ctx)
 	assert.ErrorIs(t, err, fasthttp.ErrTimeout)
 	assert.Equal(t, fasthttp.StatusGatewayTimeout, ctx.Response.StatusCode())
+}
+
+var failedBackendHeaders = map[string]string{
+	"Cache-Control":    "public, max-age=3600",
+	"Set-Cookie":       "session=from-the-failed-backend",
+	"Content-Encoding": "gzip",
+}
+
+func newBackendStallingAfterItsHeaders(t *testing.T) string {
+	t.Helper()
+	return newBackend(t, func(w http.ResponseWriter, r *http.Request) {
+		for name, value := range failedBackendHeaders {
+			w.Header().Set(name, value)
+		}
+		// A declared length: with streaming on, a length-less body is a Streamed response, not a failure.
+		w.Header().Set("Content-Length", "1024")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		waitFor(r, nil)
+	})
+}
+
+func newProxyClientTimingOutOn(backendAddress string, streaming bool, middlewares ...middleware.Middleware) *ProxyClient {
+	return createTestProxyWithMiddlewares(config.Backend{
+		Url:               backendAddress,
+		ProxyTimeout:      100 * time.Millisecond,
+		Streaming:         streaming,
+		StreamIdleTimeout: time.Minute,
+	}, nil, middlewares...)
+}
+
+func onBothStreamingValues(t *testing.T, test func(t *testing.T, streaming bool)) {
+	t.Helper()
+	for _, streaming := range []bool{false, true} {
+		t.Run("streaming "+strconv.FormatBool(streaming), func(t *testing.T) { test(t, streaming) })
+	}
+}
+
+func TestGatewayTimeoutCarriesNoneOfTheFailedBackendsHeaders(t *testing.T) {
+	onBothStreamingValues(t, func(t *testing.T, streaming bool) {
+		onEveryListenerStack(t, func(t *testing.T, startFrontend func(*testing.T, *ProxyClient) frontend) {
+			proxyFrontend := startFrontend(t, newProxyClientTimingOutOn(newBackendStallingAfterItsHeaders(t), streaming))
+
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, proxyFrontend.url, nil)
+			require.NoError(t, err)
+			// Asked for by the caller, gzip is left encoded by net/http's client, Content-Encoding included.
+			req.Header.Set("Accept-Encoding", "gzip")
+			res, err := within(t, waitLimit, func() (*http.Response, error) { return proxyFrontend.client.Do(req) })
+			require.NoError(t, err)
+			defer res.Body.Close()
+			body, err := io.ReadAll(res.Body)
+			require.NoError(t, err)
+
+			assert.Equal(t, http.StatusGatewayTimeout, res.StatusCode)
+			assert.JSONEq(t, `{"message":"gateway timeout"}`, string(body))
+			for name := range failedBackendHeaders {
+				assert.Empty(t, res.Header.Values(name), "the 504 carries the failed Backend's %s", name)
+			}
+		})
+	})
+}
+
+func TestOnResponseSeesACleanResponseAfterABackendFailure(t *testing.T) {
+	onBothStreamingValues(t, func(t *testing.T, streaming bool) {
+		var failedBackendHeadersSeen []string
+		var bodySeen string
+		onResponseRecorder := &mockMiddleware{onResponseFunc: func(ctx *middleware.Context, err error) error {
+			for name := range failedBackendHeaders {
+				if len(ctx.Response.Header.Peek(name)) > 0 {
+					failedBackendHeadersSeen = append(failedBackendHeadersSeen, name)
+				}
+			}
+			bodySeen = string(ctx.Response.Body())
+			ctx.Response.Header.Set("X-Request-Id", "abc")
+			return nil
+		}}
+		proxyClient := newProxyClientTimingOutOn(newBackendStallingAfterItsHeaders(t), streaming, onResponseRecorder)
+		ctx := newTestRequestCtx()
+
+		assert.ErrorIs(t, proxyClient.ReverseProxyHandler(ctx), fasthttp.ErrTimeout)
+		assert.Empty(t, failedBackendHeadersSeen)
+		assert.Empty(t, bodySeen)
+		assert.Equal(t, fasthttp.StatusGatewayTimeout, ctx.Response.StatusCode())
+		assert.Equal(t, "abc", string(ctx.Response.Header.Peek("X-Request-Id")), "headers a Middleware adds after the failure survive the 504")
+	})
 }
 
 func TestServerErrorStatusMapping(t *testing.T) {

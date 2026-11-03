@@ -506,7 +506,14 @@ upgrade:
 - least-connection now picks the Backend with the fewest Pending requests.
   0.x stopped at the first Backend with fewer.
 - least-response-time scores Backends by a moving average, and counts a
-  failed request as slow. 0.x let a failing Backend look fast. When
+  failed request as slow. 0.x let a failing Backend look fast. Each request
+  now compares two different Backends drawn at random and goes to the one
+  whose moving average, multiplied by one plus the requests it has not
+  answered yet, is lower, so a burst of concurrent requests spreads over
+  Backends instead of piling onto the fastest. A Backend that has not
+  answered yet, at startup or when it comes back, is scored as the median
+  of the others' moving averages. At startup, before any Backend has
+  answered, the requests each has not answered yet decide alone. When
   least-response-time has sent requests only to other Backends for three
   Probe rounds (`health_checker_time`), it sends the Backend it skipped one
   request to measure it again, so one failure no longer keeps a healthy

@@ -47,15 +47,15 @@ A Down Backend returning to the traffic rotation after a successful Probe.
 _Avoid_: recovery, re-add
 
 **Pending request**:
-A request divisor has forwarded to a Backend and not yet received the response for; a Streamed response stays pending until its stream ends. It is what least-connection counts and compares — not TCP connections.
+A request divisor has forwarded to a Backend and not yet received the response for; a Streamed response stays pending until its stream ends. It is what least-connection counts and compares, and what least-response-time weighs each Score by — not TCP connections.
 _Avoid_: in-flight request, active connection, open connection
 
 **Score**:
-What least-response-time compares: a moving average of a Backend's recent response times (`RecentResponseTime`), a failed request counting as at least 10s. `0` means unmeasured — never answered, or just Rejoined — and an unmeasured Backend wins outright. Unlike the lifetime average `/stats` reports, it forgets old samples, and it changes only when a request to the Backend finishes.
+What least-response-time compares: a moving average of a Backend's recent response times (`RecentResponseTime`), a failed request counting as at least 10s. Each Pick draws two different Alive Backends at random and takes the one with the lower Score × (Pending requests + 1), so a burst of concurrent requests spreads over Backends instead of following the lowest Score. `0` means unmeasured — never answered, or just Rejoined — and an unmeasured Backend competes with the median Score of the measured Alive Backends; while none is measured (a cold start), Pending requests alone decide. Unlike the lifetime average `/stats` reports, it forgets old samples, and it changes only when a request to the Backend finishes.
 _Avoid_: weight, rank, latency
 
 **Trial request**:
-The one request least-response-time sends, ahead of faster Backends, to an Alive Backend that traffic bypassed for three Probe rounds: rounds in which requests were routed to other Backends and none to it. A round in which no Backend got a request bypassed none. Its response time replaces the Backend's Score instead of averaging into it, so one failed request cannot keep a healthy Backend out of traffic. A Backend still failing costs one request every four Probe rounds that carry traffic: the round that sees the Trial request, then three bypassing it. A Trial request an `OnRequest` Middleware answers never reached the Backend, so the next request takes it.
+The one request least-response-time sends, ahead of its two-Backend comparison, to an Alive Backend that traffic bypassed for three Probe rounds: rounds in which requests were routed to other Backends and none to it. A round in which no Backend got a request bypassed none. The two Backends a Pick compares are never the same one, so the worst Backend never wins a comparison: a Trial request is how one penalized by a failure gets measured again. Its response time replaces the Backend's Score instead of averaging into it, so one failed request cannot keep a healthy Backend out of traffic. A Backend still failing costs one request every four Probe rounds that carry traffic: the round that sees the Trial request, then three bypassing it. A Trial request an `OnRequest` Middleware answers never reached the Backend, so the next request takes it.
 _Avoid_: probe request (a Probe is the health check), retry
 
 **Client IP**:

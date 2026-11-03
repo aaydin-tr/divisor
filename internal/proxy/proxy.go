@@ -163,6 +163,10 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 		serverErr = h.doWithProxyTimeout(req, res)
 		h.recordOutcome(serverErr, time.Since(s))
 	}
+	if serverErr != nil {
+		// fasthttp resets res only before an attempt: a failed one leaves the Backend's status and headers.
+		res.Reset()
+	}
 
 	if h.middlewareExecutor != nil {
 		if err := h.middlewareExecutor.RunOnResponse(mwCtx, serverErr); err != nil {
@@ -500,7 +504,7 @@ func (h *ProxyClient) RecentResponseTime() float64 {
 }
 
 // ResetRecentResponseTime makes the Backend read as unmeasured again, with no
-// Trial request due: an unmeasured Backend wins its next Pick outright.
+// Trial request due: its first answer sets the Score.
 func (h *ProxyClient) ResetRecentResponseTime() {
 	atomic.StoreUint64(h.recentResTime, 0)
 	h.trialRequestState.Store(int32(noTrialRequest))

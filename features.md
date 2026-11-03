@@ -16,7 +16,7 @@ High
 - [ ] [F2 — TLS certificate reload without a restart](#f2)
 - [ ] [F3 — X-Forwarded-Proto and X-Forwarded-Host](#f3)
 - [ ] [F4 — Request metrics: status codes and latency](#f4)
-- [ ] [F5 — A load-aware least-response-time](#f5)
+- [x] [F5 — A load-aware least-response-time](#f5)
 
 Medium
 - [ ] [F6 — One Backend per DNS record](#f6)
@@ -136,13 +136,13 @@ Docs
   ([bugs.md B3](bugs.md#b3)).
 - **Shape:** power of two choices: pick two random Alive Backends and take the
   lower `moving average × (Pending requests + 1)`; score an unmeasured Backend
-  as the pool's median, not as best. Sampling non-minimum Backends gives every
-  Backend fresh samples, which also ends B2's exile.
-- **Decisions:** keep the name `least-response-time` (a behavior change for
-  everyone using it), or add a new Balancer and deprecate it? Draw the two
-  choices with replacement: drawn without, a penalized Backend never wins a
-  comparison and B2 returns. B2 is fixed meanwhile by the Trial request
-  (CONTEXT.md); whether P2C keeps it is part of the spec.
+  as the pool's median, not as best. Drawn without replacement (Decisions), the
+  worst Backend never wins a comparison: the Trial request keeps measuring it.
+- **Decisions (settled 2026-11-03):** `least-response-time` changed in
+  place. The two choices are drawn without replacement and the Trial request
+  stays: drawn with, a Backend failing every request while its Probe passes
+  would take 1/n² of requests (25% with two Backends); the Trial request
+  already keeps B2 fixed. With nothing measured, Pending requests decide.
 - **Fixes:** B3.
 
 ## Medium
@@ -231,8 +231,7 @@ Docs
 ### F12. Slow start
 
 - **Gap:** a Backend that Rejoins, or that a Reload adds, takes its full share
-  at once; with least-response-time it takes everything arriving during its
-  first round trip ([bugs.md B3](bugs.md#b3)).
+  at once.
 - **Shape:** ramp a new or Rejoined Backend's share over a configurable
   duration. Each Balancer implements the ramp in its own way.
 
@@ -280,10 +279,10 @@ Docs
 - **Shape:** one user-facing page in `docs/` covering each limitation and what
   to do meanwhile: Probe-only failure detection and no retry ([F1](#f1)),
   certificate rotation needs a restart ([F2](#f2)), `Host` rewritten and no
-  `X-Forwarded-Proto` ([F3](#f3)), least-response-time under concurrency
-  ([F5](#f5)), ip-hash behind NAT and across replicas ([F8](#f8),
-  [bugs.md B1](bugs.md#b1)), no WebSockets ([F10](#f10)), buffered uploads,
-  one Pool per process ([F13](#f13)). Remove each line as its feature ships.
+  `X-Forwarded-Proto` ([F3](#f3)), ip-hash behind NAT and across replicas
+  ([F8](#f8), [bugs.md B1](bugs.md#b1)), no WebSockets ([F10](#f10)), buffered
+  uploads, one Pool per process ([F13](#f13)). Remove each line as its feature
+  ships.
 - **Fixes:** [bugs.md D1](bugs.md#d1).
 
 <a id="fd2"></a>
