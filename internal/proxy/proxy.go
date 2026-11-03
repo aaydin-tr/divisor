@@ -139,6 +139,7 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 
 	if h.middlewareExecutor != nil {
 		if err := h.middlewareExecutor.RunOnRequest(mwCtx); err != nil {
+			h.handBackTrialRequest()
 			h.postRes(res)
 			if isShortCircuit(err) {
 				shortCircuited = true
@@ -504,9 +505,18 @@ func (h *ProxyClient) ExpireRecentResponseTime() {
 	h.trialRequestState.Store(trialRequestDue)
 }
 
-// ClaimTrialRequest reports true to one caller per expiry.
+// ClaimTrialRequest reports true to one caller per expiry. It loads first:
+// Pick asks every candidate, and a failed CompareAndSwap still writes the line.
 func (h *ProxyClient) ClaimTrialRequest() bool {
 	return h.trialRequestState.Load() == trialRequestDue && h.trialRequestState.CompareAndSwap(trialRequestDue, trialRequestClaimed)
+}
+
+// handBackTrialRequest lets the next Pick claim a Trial request that an
+// OnRequest Middleware answered, since the Backend never measured it.
+func (h *ProxyClient) handBackTrialRequest() {
+	if h.trialRequestState.Load() == trialRequestClaimed {
+		h.trialRequestState.CompareAndSwap(trialRequestClaimed, trialRequestDue)
+	}
 }
 
 // consumeScoreExpiry loads before it swaps so that a sample with no expiry

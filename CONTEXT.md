@@ -47,7 +47,7 @@ A request divisor has forwarded to a Backend and not yet received the response f
 _Avoid_: in-flight request, active connection, open connection
 
 **Trial request**:
-The one request least-response-time sends to an Alive Backend that no request reached for three Probe rounds, ahead of faster Backends. Its response time replaces the Backend's score instead of averaging into it, so one failed request cannot keep a healthy Backend out of traffic. A Backend still failing costs one request every four Probe rounds: the round that sees the Trial request, then three without one.
+The one request least-response-time sends to an Alive Backend that no request was routed to for three Probe rounds, ahead of faster Backends. Its response time replaces the Backend's score (the moving average of recent response times least-response-time compares) instead of averaging into it, so one failed request cannot keep a healthy Backend out of traffic. A Backend still failing costs one request every four Probe rounds: the round that sees the Trial request, then three without one. A Trial request an `OnRequest` Middleware answers never reached the Backend, so the next request takes it.
 _Avoid_: probe request (a Probe is the health check), retry
 
 **Client IP**:

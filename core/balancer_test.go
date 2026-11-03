@@ -289,7 +289,7 @@ func TestLeastResponseTimePicksABackendAgainAfterOneFailure(t *testing.T) {
 	}))
 	defer faster.Close()
 	slower := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 	}))
 	defer slower.Close()
 

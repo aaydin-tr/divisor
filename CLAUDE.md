@@ -67,11 +67,9 @@ helm install divisor oci://ghcr.io/aaydin-tr/charts/divisor -f values.yaml
 - **Pool** (`core/pool`: `pool.go`, `backend.go`, `rotation.go`) — owns every
   configured `Backend` (Index, address, weight, Probe URL, proxy
   client, Alive flag), runs the Probe loop every `config.HealthCheckerTime`,
-  moves Backends between Alive and Down, resets a Rejoining Backend's
-  response-time score, expires the score of an Alive Backend no request
-  reached for 3 Probe rounds (least-response-time then sends it one Trial
-  request: `ClaimTrialRequest` in `Pick`, its sample replaces the score),
-  builds `Stats()` rows in config order (`BackendHash`
+  moves Backends between Alive and Down, calls `ProbeRoundStarted()` before
+  each round's Probes on a `pool.ProbeRoundBalancer`, builds `Stats()` rows
+  in config order (`BackendHash`
   is the Backend's Index: its config position at boot, a never-used-before
   number for a Backend a Reload added), and closes every proxy on
   `Shutdown()`. `NewPool` Probes once synchronously and does not start the
@@ -94,6 +92,10 @@ helm install divisor oci://ghcr.io/aaydin-tr/charts/divisor -f values.yaml
   `AddressOccurrence`, never its Index, so divisor instances sharing a config
   agree whatever their Reload history (ADR 0008); a Backend Joining under a
   ring key takes over the positions of the entry it replaces.
+  least-response-time (a `pool.ProbeRoundBalancer`) owns its score
+  lifecycle: `Join` resets a Backend to unmeasured, and `ProbeRoundStarted`
+  expires the score of one no request was routed to for 3 rounds, so `Pick`
+  sends it one Trial request (`ClaimTrialRequest`) whose sample replaces it.
 
 `core.NewBalancer(cfg, middlewareExecutor, proxyFunc)` is the only wiring:
 it turns `cfg.Backends` into Backends, picks the balancer by `cfg.Type`,

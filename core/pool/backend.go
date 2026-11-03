@@ -21,32 +21,8 @@ type Backend struct {
 	AddressOccurrence int
 	Weight            uint
 	isAlive           atomic.Bool
-
-	// Touched only by Probe rounds, under the Pool's transitionsMu.
-	requestCountAtLastProbeRound uint64
-	probeRoundsSinceLastPick     int
 }
 
 func (b *Backend) IsAlive() bool {
 	return b.isAlive.Load()
-}
-
-// A score changes only when least-response-time picks its Backend, so one
-// failure penalty would keep a healthy Backend out until it goes Down.
-const probeRoundsBeforeTrialRequest = 3
-
-// expireScoreIfNotPicked judges the interval since the last Probe round, so a
-// round calls it before its Probe can change the Backend's liveness.
-func (b *Backend) expireScoreIfNotPicked() {
-	requestCount := b.Proxy.Stat().TotalReqCount
-	if !b.isAlive.Load() || requestCount != b.requestCountAtLastProbeRound {
-		b.requestCountAtLastProbeRound = requestCount
-		b.probeRoundsSinceLastPick = 0
-		return
-	}
-	b.probeRoundsSinceLastPick++
-	if b.probeRoundsSinceLastPick == probeRoundsBeforeTrialRequest {
-		b.probeRoundsSinceLastPick = 0
-		b.Proxy.ExpireRecentResponseTime()
-	}
 }

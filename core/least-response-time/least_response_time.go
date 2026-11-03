@@ -6,12 +6,55 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
+// A score changes only when least-response-time picks its Backend, so one
+// failure penalty would keep a healthy Backend out until it goes Down.
+const probeRoundsBeforeTrialRequest = 3
+
 type leastResponseTime struct {
 	pool.Rotation
+	// Only the Pool's one writer touches it, through Join, Leave and
+	// ProbeRoundStarted; Pick never does.
+	probeRoundTallyByBackend map[*pool.Backend]*probeRoundTally
+}
+
+type probeRoundTally struct {
+	requestCountAtLastProbeRound uint64
+	probeRoundsSinceLastRequest  int
 }
 
 func New(*config.Config) pool.Balancer {
-	return &leastResponseTime{}
+	return &leastResponseTime{probeRoundTallyByBackend: map[*pool.Backend]*probeRoundTally{}}
+}
+
+// Join starts a Backend unmeasured: after a Rejoin, its score from before it
+// went Down, possibly a failure penalty, says nothing about it now.
+func (l *leastResponseTime) Join(backend *pool.Backend) {
+	backend.Proxy.ResetRecentResponseTime()
+	l.probeRoundTallyByBackend[backend] = &probeRoundTally{requestCountAtLastProbeRound: backend.Proxy.Stat().TotalReqCount}
+	l.Rotation.Join(backend)
+}
+
+func (l *leastResponseTime) Leave(backend *pool.Backend) {
+	l.Rotation.Leave(backend)
+	delete(l.probeRoundTallyByBackend, backend)
+}
+
+// ProbeRoundStarted expires the score of every Alive Backend no request was
+// routed to for probeRoundsBeforeTrialRequest rounds.
+func (l *leastResponseTime) ProbeRoundStarted() {
+	for backend, tally := range l.probeRoundTallyByBackend {
+		requestCount := backend.Proxy.Stat().TotalReqCount
+		if requestCount != tally.requestCountAtLastProbeRound {
+			tally.requestCountAtLastProbeRound = requestCount
+			tally.probeRoundsSinceLastRequest = 0
+			continue
+		}
+		tally.probeRoundsSinceLastRequest++
+		if tally.probeRoundsSinceLastRequest == probeRoundsBeforeTrialRequest {
+			tally.probeRoundsSinceLastRequest = 0
+			backend.Proxy.ExpireRecentResponseTime()
+		}
+	}
 }
 
 func (l *leastResponseTime) Pick(*fasthttp.RequestCtx) *pool.Backend {

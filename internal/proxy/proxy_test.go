@@ -1311,6 +1311,23 @@ func TestTrialRequestSampleReplacesExpiredResponseTime(t *testing.T) {
 	assert.InDelta(t, 1.4, p.RecentResponseTime(), 0.001, "later samples average in again")
 }
 
+func TestTrialRequestAnsweredByMiddlewareIsHandedBack(t *testing.T) {
+	answeredByMiddleware := map[string]func(*middleware.Context) error{
+		"short-circuit": func(*middleware.Context) error { return middleware.ErrShortCircuit },
+		"error":         func(*middleware.Context) error { return errors.New("middleware failed") },
+	}
+	for name, onRequest := range answeredByMiddleware {
+		t.Run(name, func(t *testing.T) {
+			p := createTestProxyWithMiddlewares(config.Backend{Url: "localhost:8080"}, nil, &mockMiddleware{onRequestFunc: onRequest})
+			p.ExpireRecentResponseTime()
+			assert.True(t, p.ClaimTrialRequest())
+
+			p.ReverseProxyHandler(newTestRequestCtx()) //nolint:errcheck
+			assert.True(t, p.ClaimTrialRequest(), "the Backend never saw the Trial request, so the next Pick takes it")
+		})
+	}
+}
+
 func TestAvgResponseTimeExcludesFailures(t *testing.T) {
 	handler := mockServer{}
 	bServer := httptest.NewServer(&handler)

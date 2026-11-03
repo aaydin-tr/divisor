@@ -88,57 +88,35 @@ func TestExpectedProbeStatusDecidesLiveness(t *testing.T) {
 	assert.Equal(t, []*pool.Backend{backends[0]}, leaves)
 }
 
-func TestRejoinResetsResponseTimeScore(t *testing.T) {
-	backends := mocks.NewBackends(1)
-	probes := &mocks.ProbeTable{}
-	p := pool.NewPool(backends, probes.Probe, time.Hour, &mocks.RecordingBalancer{})
-	defer p.Shutdown() //nolint:errcheck
-	mocks.MockProxyOf(backends[0]).ResTime = 42
-
-	probes.SetAlive(backends[0], false)
-	p.ProbeAllBackends()
-	assert.Equal(t, float64(42), mocks.MockProxyOf(backends[0]).ResTime, "going Down alone must not clear the score")
-
-	probes.SetAlive(backends[0], true)
-	p.ProbeAllBackends()
-	assert.Equal(t, float64(0), mocks.MockProxyOf(backends[0]).ResTime, "a Rejoining Backend must start unmeasured")
+// probeRoundLoggingBalancer records Probe round starts and Joins in order.
+type probeRoundLoggingBalancer struct {
+	mocks.RecordingBalancer
+	events []string
 }
 
-func TestProbeRoundsExpireTheScoreOfABackendNotPicked(t *testing.T) {
-	backends := mocks.NewBackends(2)
-	p := pool.NewPool(backends, (&mocks.ProbeTable{}).Probe, time.Hour, &mocks.RecordingBalancer{})
-	defer p.Shutdown() //nolint:errcheck
-	picked, notPicked := backends[0], backends[1]
-
-	for round := 1; round <= 3; round++ {
-		assert.NoError(t, picked.Proxy.ReverseProxyHandler(nil))
-		assert.False(t, notPicked.Proxy.ClaimTrialRequest(), "round %d: fewer than three Probe rounds without a pick", round)
-		p.ProbeAllBackends()
-	}
-
-	assert.True(t, notPicked.Proxy.ClaimTrialRequest(), "three Probe rounds without a pick expire its score")
-	assert.False(t, picked.Proxy.ClaimTrialRequest(), "a Backend picked between rounds keeps its score")
+func (b *probeRoundLoggingBalancer) ProbeRoundStarted() {
+	b.events = append(b.events, "probe round")
 }
 
-func TestProbeRoundsCountOnlyWhileTheBackendIsAlive(t *testing.T) {
+func (b *probeRoundLoggingBalancer) Join(backend *pool.Backend) {
+	b.events = append(b.events, "join "+backend.Addr)
+	b.RecordingBalancer.Join(backend)
+}
+
+func TestProbeRoundStartsBeforeItsProbes(t *testing.T) {
 	backends := mocks.NewBackends(1)
 	probes := &mocks.ProbeTable{}
 	probes.SetAlive(backends[0], false)
-	p := pool.NewPool(backends, probes.Probe, time.Hour, &mocks.RecordingBalancer{})
+	balancer := &probeRoundLoggingBalancer{}
+	p := pool.NewPool(backends, probes.Probe, time.Hour, balancer)
 	defer p.Shutdown() //nolint:errcheck
-
-	for range 3 {
-		p.ProbeAllBackends()
-	}
-	assert.False(t, backends[0].Proxy.ClaimTrialRequest(), "a Down Backend cannot be picked, so its rounds do not count")
 
 	probes.SetAlive(backends[0], true)
 	p.ProbeAllBackends()
 	p.ProbeAllBackends()
-	p.ProbeAllBackends()
-	assert.False(t, backends[0].Proxy.ClaimTrialRequest(), "the round that Rejoins it does not count")
-	p.ProbeAllBackends()
-	assert.True(t, backends[0].Proxy.ClaimTrialRequest())
+
+	assert.Equal(t, []string{"probe round", "join localhost:8080", "probe round"}, balancer.events,
+		"a Backend Rejoining in a round Joins after that round started")
 }
 
 func TestAllBackendsDownLeavesNothingToPick(t *testing.T) {

@@ -29,6 +29,14 @@ type RingBalancer interface {
 	MoveToNewAddressOccurrences(shifts []AddressOccurrenceShift)
 }
 
+// ProbeRoundBalancer keeps time by Probe rounds (least-response-time expires
+// the score of a Backend no request was routed to).
+type ProbeRoundBalancer interface {
+	Balancer
+	// ProbeRoundStarted runs before each round's Probes, from the Pool's one writer.
+	ProbeRoundStarted()
+}
+
 type AddressOccurrenceShift struct {
 	Backend                   *Backend
 	PreviousAddressOccurrence int
@@ -125,11 +133,13 @@ func (p *Pool) currentHealthCheckInterval() time.Duration {
 func (p *Pool) ProbeAllBackends() {
 	p.transitionsMu.Lock()
 	defer p.transitionsMu.Unlock()
+	if probeRoundBalancer, keepsTimeByProbeRounds := p.balancer.(ProbeRoundBalancer); keepsTimeByProbeRounds {
+		probeRoundBalancer.ProbeRoundStarted()
+	}
 	for _, backend := range p.Backends() {
 		if helper.IsClosed(p.stopHealthChecker) {
 			return
 		}
-		backend.expireScoreIfNotPicked()
 		p.updateLiveness(backend, p.probe(backend.ProbeURL, backend.ExpectedProbeStatus))
 	}
 }
@@ -239,9 +249,6 @@ func (p *Pool) updateLiveness(backend *Backend, isAlive bool) {
 	}
 
 	if isAlive {
-		// A Rejoining Backend starts unmeasured: its score from before it
-		// went Down — possibly a failure penalty — says nothing about it now.
-		backend.Proxy.ResetRecentResponseTime()
 		p.joinRotation(backend)
 		zap.S().Infof("Backend is Alive again, Rejoining rotation, Addr: %s", backend.Addr)
 		return
