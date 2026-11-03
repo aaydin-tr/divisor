@@ -1300,6 +1300,21 @@ func TestExpiredResponseTimeGrantsOneTrialRequest(t *testing.T) {
 	assert.False(t, p.ClaimTrialRequest(), "one trial request per expiry")
 }
 
+// A Backend can hang on its Trial request past three Probe rounds when
+// proxy_timeout is longer than them.
+func TestExpiringAClaimedTrialRequestSendsNoSecondOne(t *testing.T) {
+	p := NewProxyClient(&config.Backend{Url: "localhost:8080"}, nil, nil).(*ProxyClient)
+	p.ExpireRecentResponseTime()
+	assert.True(t, p.ClaimTrialRequest())
+
+	p.ExpireRecentResponseTime()
+	assert.False(t, p.ClaimTrialRequest(), "the Trial request in flight is the one that measures it")
+
+	p.recordFailure(time.Millisecond)
+	p.ExpireRecentResponseTime()
+	assert.True(t, p.ClaimTrialRequest(), "once its sample arrived, the Score can expire again")
+}
+
 func TestTrialRequestSampleReplacesExpiredResponseTime(t *testing.T) {
 	p := NewProxyClient(&config.Backend{Url: "localhost:8080"}, nil, nil).(*ProxyClient)
 	p.recordResponseTime(time.Millisecond)

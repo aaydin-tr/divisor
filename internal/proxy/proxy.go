@@ -27,6 +27,7 @@ type ProxyFunc func(*config.Backend, map[string]string, *middlewarePkg.Executor)
 type IProxyClient interface {
 	ReverseProxyHandler(ctx *fasthttp.RequestCtx) error
 	Stat() types.ProxyStat
+	TotalRequestCount() uint64
 	PendingRequests() int
 	AvgResponseTime() float64
 	RecentResponseTime() float64
@@ -67,8 +68,8 @@ const failureResponseTimePenalty = 10 * time.Second
 // Response times accumulate in microseconds and are reported in milliseconds.
 const microsPerMilli = float64(1000)
 
-// An expired score's way back to measured: its Trial request is due until a
-// Pick claims it, then claimed until a sample replaces the score.
+// An expired Score's way back to measured: its Trial request is due until a
+// Pick claims it, then claimed until a sample replaces the Score.
 type trialRequestState int32
 
 const (
@@ -93,7 +94,7 @@ type ProxyClient struct {
 	totalResTime         *uint64
 	measuredRequestCount *uint64
 	recentResTime        *uint64
-	currentTrialRequest  atomic.Int32
+	trialRequestState    atomic.Int32
 	customHeaders        map[string]string
 	middlewareExecutor   *middlewarePkg.Executor
 	Addr                 string
@@ -152,7 +153,7 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 		}
 	}
 
-	// Scored before OnResponse: the score is the Backend's, whatever a
+	// Scored before OnResponse: the Score is the Backend's, whatever a
 	// Middleware does with its response afterwards.
 	var stream *streamedBody
 	var serverErr error
@@ -232,7 +233,7 @@ func (h *ProxyClient) recordResponseTime(elapsed time.Duration) {
 }
 
 // recordFailure feeds only the moving average: a failure must push the
-// Backend's score above healthy peers, not skew the lifetime average of
+// Backend's Score above healthy peers, not skew the lifetime average of
 // successful requests. Timeouts keep their real (larger) elapsed time.
 func (h *ProxyClient) recordFailure(elapsed time.Duration) {
 	h.storeRecentResTime(durationMicros(max(elapsed, failureResponseTimePenalty)))
@@ -456,15 +457,19 @@ func (h *ProxyClient) setCustomHeaders(req *fasthttp.Request, clientIP []byte, r
 }
 
 func (h *ProxyClient) Stat() types.ProxyStat {
-	rc := atomic.LoadUint64(h.totalRequestCount)
-
 	return types.ProxyStat{
-		TotalReqCount: rc,
+		TotalReqCount: h.TotalRequestCount(),
 		AvgResTime:    h.AvgResponseTime(),
 		Addr:          h.Addr,
 		LastUseTime:   h.proxy.LastUseTime(),
 		ConnsCount:    h.proxy.ConnsCount(),
 	}
+}
+
+// TotalRequestCount counts every request routed to the Backend, a
+// Middleware-answered one included.
+func (h *ProxyClient) TotalRequestCount() uint64 {
+	return atomic.LoadUint64(h.totalRequestCount)
 }
 
 // PendingRequests counts a Streamed response until it closes; fasthttp's own
@@ -489,7 +494,7 @@ func (h *ProxyClient) AvgResponseTime() float64 {
 // RecentResponseTime returns a moving average of the last response times in
 // milliseconds, or 0 while the Backend is unmeasured. Unlike the lifetime
 // average it decays, and failures are scored as slow, so a failing Backend
-// loses traffic instead of keeping its last healthy score.
+// loses traffic instead of keeping its last healthy Score.
 func (h *ProxyClient) RecentResponseTime() float64 {
 	return math.Float64frombits(atomic.LoadUint64(h.recentResTime)) / microsPerMilli
 }
@@ -498,13 +503,13 @@ func (h *ProxyClient) RecentResponseTime() float64 {
 // Trial request due: an unmeasured Backend wins its next Pick outright.
 func (h *ProxyClient) ResetRecentResponseTime() {
 	atomic.StoreUint64(h.recentResTime, 0)
-	h.currentTrialRequest.Store(int32(noTrialRequest))
+	h.trialRequestState.Store(int32(noTrialRequest))
 }
 
-// ExpireRecentResponseTime makes the next sample replace the score instead of
-// averaging into it, and lets one Pick claim the Trial request that takes it.
+// ExpireRecentResponseTime lets one Pick claim a Trial request whose sample
+// replaces the Score; while one is due or in flight it changes nothing.
 func (h *ProxyClient) ExpireRecentResponseTime() {
-	h.currentTrialRequest.Store(int32(trialRequestDue))
+	h.moveTrialRequest(noTrialRequest, trialRequestDue)
 }
 
 // ClaimTrialRequest reports true to one caller per expiry.
@@ -519,7 +524,7 @@ func (h *ProxyClient) handBackTrialRequest() {
 }
 
 // consumeScoreExpiry reports, once per expiry, that this sample replaces the
-// score.
+// Score.
 func (h *ProxyClient) consumeScoreExpiry() bool {
 	return h.moveTrialRequest(trialRequestClaimed, noTrialRequest) || h.moveTrialRequest(trialRequestDue, noTrialRequest)
 }
@@ -527,7 +532,7 @@ func (h *ProxyClient) consumeScoreExpiry() bool {
 // moveTrialRequest loads before it swaps: Pick asks every candidate and every
 // sample asks too, and a failed CompareAndSwap still writes the cache line.
 func (h *ProxyClient) moveTrialRequest(from, to trialRequestState) bool {
-	return h.currentTrialRequest.Load() == int32(from) && h.currentTrialRequest.CompareAndSwap(int32(from), int32(to))
+	return h.trialRequestState.Load() == int32(from) && h.trialRequestState.CompareAndSwap(int32(from), int32(to))
 }
 
 func (h *ProxyClient) Close() error {

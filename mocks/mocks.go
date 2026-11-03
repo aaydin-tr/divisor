@@ -39,8 +39,12 @@ func (m *MockProxy) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 func (m *MockProxy) Stat() types.ProxyStat {
 	return types.ProxyStat{
 		Addr:          m.Addr,
-		TotalReqCount: m.requestCount.Load(),
+		TotalReqCount: m.TotalRequestCount(),
 	}
+}
+
+func (m *MockProxy) TotalRequestCount() uint64 {
+	return m.requestCount.Load()
 }
 
 func (m *MockProxy) PendingRequests() int {

@@ -6,7 +6,7 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-// A score changes only when least-response-time picks its Backend, so one
+// A Score changes only when least-response-time picks its Backend, so one
 // failure penalty would keep a healthy Backend out until it goes Down.
 const probeRoundsBeforeTrialRequest = 3
 
@@ -18,23 +18,25 @@ type leastResponseTime struct {
 }
 
 type probeRoundTally struct {
+	backend                      *pool.Backend
 	requestCountAtLastProbeRound uint64
 	probeRoundsBypassed          int
 }
 
-// recordRequestCount reports whether a request was routed to the Backend
-// since the last Probe round.
-func (t *probeRoundTally) recordRequestCount(requestCount uint64) (requestWasRouted bool) {
+// bypassedSinceLastProbeRound reports whether no request was routed to the
+// Backend since the last round, and records the count for the next one.
+func (t *probeRoundTally) bypassedSinceLastProbeRound() bool {
+	requestCount := t.backend.Proxy.TotalRequestCount()
 	if requestCount == t.requestCountAtLastProbeRound {
-		return false
+		return true
 	}
 	t.requestCountAtLastProbeRound = requestCount
 	t.probeRoundsBypassed = 0
-	return true
+	return false
 }
 
 // countBypassedRound reports whether this round is the one that makes the
-// Backend's score due a Trial request.
+// Backend's Score due a Trial request.
 func (t *probeRoundTally) countBypassedRound() (trialRequestDue bool) {
 	t.probeRoundsBypassed++
 	if t.probeRoundsBypassed < probeRoundsBeforeTrialRequest {
@@ -48,11 +50,11 @@ func New(*config.Config) pool.Balancer {
 	return &leastResponseTime{probeRoundTallyByBackend: map[*pool.Backend]*probeRoundTally{}}
 }
 
-// Join starts a Backend unmeasured: after a Rejoin, its score from before it
+// Join starts a Backend unmeasured: after a Rejoin, its Score from before it
 // went Down, possibly a failure penalty, says nothing about it now.
 func (l *leastResponseTime) Join(backend *pool.Backend) {
 	backend.Proxy.ResetRecentResponseTime()
-	l.probeRoundTallyByBackend[backend] = &probeRoundTally{requestCountAtLastProbeRound: backend.Proxy.Stat().TotalReqCount}
+	l.probeRoundTallyByBackend[backend] = &probeRoundTally{backend: backend, requestCountAtLastProbeRound: backend.Proxy.TotalRequestCount()}
 	l.Rotation.Join(backend)
 }
 
@@ -61,22 +63,22 @@ func (l *leastResponseTime) Leave(backend *pool.Backend) {
 	delete(l.probeRoundTallyByBackend, backend)
 }
 
-// ProbeRoundStarted expires the score of every Alive Backend that traffic
+// ProbeRoundStarted expires the Score of every Alive Backend that traffic
 // bypassed for probeRoundsBeforeTrialRequest rounds: requests went to other
 // Backends, none to it. A round no request reached bypassed none of them.
 func (l *leastResponseTime) ProbeRoundStarted() {
-	var bypassedBackends []*pool.Backend
-	for backend, tally := range l.probeRoundTallyByBackend {
-		if !tally.recordRequestCount(backend.Proxy.Stat().TotalReqCount) {
-			bypassedBackends = append(bypassedBackends, backend)
+	var bypassedTallies []*probeRoundTally
+	for _, tally := range l.probeRoundTallyByBackend {
+		if tally.bypassedSinceLastProbeRound() {
+			bypassedTallies = append(bypassedTallies, tally)
 		}
 	}
-	if len(bypassedBackends) == len(l.probeRoundTallyByBackend) {
+	if len(bypassedTallies) == len(l.probeRoundTallyByBackend) {
 		return
 	}
-	for _, backend := range bypassedBackends {
-		if l.probeRoundTallyByBackend[backend].countBypassedRound() {
-			backend.Proxy.ExpireRecentResponseTime()
+	for _, tally := range bypassedTallies {
+		if tally.countBypassedRound() {
+			tally.backend.Proxy.ExpireRecentResponseTime()
 		}
 	}
 }
@@ -91,7 +93,7 @@ func (l *leastResponseTime) Pick(*fasthttp.RequestCtx) *pool.Backend {
 	for _, candidate := range aliveBackends {
 		resTime := candidate.Proxy.RecentResponseTime()
 		// 0 means unmeasured (never answered, or just Rejoined), and an expired
-		// score is due its Trial request: either wins to get a fresh sample.
+		// Score is due its Trial request: either wins to get a fresh sample.
 		if resTime == 0 || candidate.Proxy.ClaimTrialRequest() {
 			return candidate
 		}
