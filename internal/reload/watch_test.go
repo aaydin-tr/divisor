@@ -70,9 +70,9 @@ func TestConfigFileWatchReloadsAnEditedConfigFile(t *testing.T) {
 	writeConfigFile(t, configPath, threeBackendsYAML)
 
 	assert.Equal(t, []int{2}, receiveAppliedPlan(t, target).AddedBackendNextPositions)
-	applied := logs.FilterMessage("Reload applied").All()
-	require.Len(t, applied, 1)
-	assert.Equal(t, "config file change", applied[0].ContextMap()["trigger"])
+	// The watch goroutine logs after ApplyReload hands the plan to this one.
+	require.Eventually(t, func() bool { return logs.FilterMessage("Reload applied").Len() == 1 }, 5*time.Second, 10*time.Millisecond)
+	assert.Equal(t, "config file change", logs.FilterMessage("Reload applied").All()[0].ContextMap()["trigger"])
 }
 
 func TestConfigFileWatchReloadsOnceForABurstOfEdits(t *testing.T) {

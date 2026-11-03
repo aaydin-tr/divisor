@@ -67,10 +67,10 @@ helm install divisor oci://ghcr.io/aaydin-tr/charts/divisor -f values.yaml
 - **Pool** (`core/pool`: `pool.go`, `backend.go`, `rotation.go`) — owns every
   configured `Backend` (Index, address, weight, Probe URL, proxy
   client, Alive flag), runs the Probe loop every `config.HealthCheckerTime`,
-  moves Backends between Alive and Down, resets a Rejoining Backend's
-  response-time score, builds `Stats()` rows in config order (`BackendHash`
-  is the Backend's Index: its config position at boot, a never-used-before
-  number for a Backend a Reload added), and closes every proxy on
+  moves Backends between Alive and Down, calls `ProbeRoundStarted()` before
+  each round's Probes on a `pool.ProbeRoundBalancer`, builds `Stats()` rows
+  in config order (`BackendHash` is the Backend's Index: its config position
+  at boot, a never-used-before number for a Backend a Reload added), and closes every proxy on
   `Shutdown()`. `NewPool` Probes once synchronously and does not start the
   loop; `StartHealthChecker()` does. `ProbeAllBackends()` is the one Probe
   round, shared by the loop and by tests, so unit tests never race a
@@ -91,6 +91,11 @@ helm install divisor oci://ghcr.io/aaydin-tr/charts/divisor -f values.yaml
   `AddressOccurrence`, never its Index, so divisor instances sharing a config
   agree whatever their Reload history (ADR 0008); a Backend Joining under a
   ring key takes over the positions of the entry it replaces.
+  least-response-time (a `pool.ProbeRoundBalancer`) owns its Score
+  lifecycle: `Join` resets a Backend to unmeasured, and `ProbeRoundStarted`
+  expires the Score of one traffic bypassed for 3 rounds (requests went to
+  other Backends, none to it; a round with no requests at all counts for
+  nobody), so `Pick` sends it one Trial request (`ClaimTrialRequest`).
 
 `core.NewBalancer(cfg, middlewareExecutor, proxyFunc)` is the only wiring:
 it turns `cfg.Backends` into Backends, picks the balancer by `cfg.Type`,
@@ -111,6 +116,11 @@ when `Pick` returns nil.
 - Forwards headers as the client sent them: no default `Content-Type` or `User-Agent`; URI userinfo becomes `Authorization: Basic` in `preReq` (a client Authorization header wins)
 - Supports custom headers with special variables: `$remote_addr`, `$time`, `$uuid`, `$incremental`
 - Tracks metrics: total requests, average response time, last use time, Pending requests (an open stream counts until it ends)
+- Keeps least-response-time's Score (`RecentResponseTime`, a lock-free moving average) and its
+  Trial request state (`noTrialRequest` → `trialRequestDue` on `ExpireRecentResponseTime`, which
+  leaves a due or claimed one alone → `trialRequestClaimed` on `ClaimTrialRequest`): the next sample replaces the Score instead of
+  averaging in (`consumeScoreExpiry`), and an `OnRequest` Middleware answering the claimed
+  request hands it back (`handBackTrialRequest`)
 - Streamed responses (`server.streaming`, ADR 0007) live in `streaming.go`:
   `forwardAllowingStream` applies the streaming rule; a `streamedBody` is
   attached to the response and pumped by the server after
@@ -286,7 +296,7 @@ When `server.http_version: http2`, divisor serves via `net/http` (its built-in H
 
 ## Testing Notes
 
-- Tests use the test doubles in `mocks/mocks.go`: `MockProxy`, `MockBalancer`, `NewBackends(n)`, `RecordingBalancer` (records Join/Leave), `ProbeTable` (per-Backend Probe answers), `RequestFrom(ip)`
+- Tests use the test doubles in `mocks/mocks.go`: `MockProxy` (counts the requests it served, as `TotalRequestCount`/`Stat` report them), `MockBalancer`, `NewBackends(n)`, `RecordingBalancer` (records Join/Leave), `ProbeTable` (per-Backend Probe answers), `RequestFrom(ip)`
 - `core/pool/pool_test.go` drives the Pool through `NewPool` + `ProbeAllBackends` with a `RecordingBalancer` (the real ip-hash Balancer where ring placement after a Reload is the point); each balancer package has a selection-only `*_test.go` that feeds `Join`/`Leave` and asserts `Pick`; `core/balancer_test.go` covers `NewBalancer`, `Serve` (forward vs 503) and `Pick` racing a Probe round for every balancer
 - Config validation tested in `pkg/config/config_test.go`; the Reload classifier in `pkg/config/reload_test.go` (YAML tables through `PlanReload`)
 - `internal/reload/reload_test.go` drives the Reloader against a temp config file with a recording Target and an observed zap logger; `watch_test.go` drives the config file watch through real file edits (in place, bursts, a ConfigMap `..data` swap — skipped where symlinks need privileges, e.g. Windows) with a short quiet period and a channel Target

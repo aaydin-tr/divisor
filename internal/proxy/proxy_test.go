@@ -1285,6 +1285,66 @@ func TestResetRecentResponseTime(t *testing.T) {
 	// against the discarded score.
 	p.recordResponseTime(2 * time.Millisecond)
 	assert.InDelta(t, 2, p.RecentResponseTime(), 0.001)
+
+	p.ExpireRecentResponseTime()
+	p.ResetRecentResponseTime()
+	assert.False(t, p.ClaimTrialRequest(), "an unmeasured Backend wins outright, so it is due no Trial request")
+}
+
+func TestExpiredResponseTimeGrantsOneTrialRequest(t *testing.T) {
+	p := NewProxyClient(&config.Backend{Url: "localhost:8080"}, nil, nil).(*ProxyClient)
+	assert.False(t, p.ClaimTrialRequest(), "a score that never expired grants no trial request")
+
+	p.ExpireRecentResponseTime()
+	assert.True(t, p.ClaimTrialRequest())
+	assert.False(t, p.ClaimTrialRequest(), "one trial request per expiry")
+}
+
+// A Backend can hang on its Trial request past three Probe rounds when
+// proxy_timeout is longer than them.
+func TestExpiringAClaimedTrialRequestSendsNoSecondOne(t *testing.T) {
+	p := NewProxyClient(&config.Backend{Url: "localhost:8080"}, nil, nil).(*ProxyClient)
+	p.ExpireRecentResponseTime()
+	assert.True(t, p.ClaimTrialRequest())
+
+	p.ExpireRecentResponseTime()
+	assert.False(t, p.ClaimTrialRequest(), "the Trial request in flight is the one that measures it")
+
+	p.recordFailure(time.Millisecond)
+	p.ExpireRecentResponseTime()
+	assert.True(t, p.ClaimTrialRequest(), "once its sample arrived, the Score can expire again")
+}
+
+func TestTrialRequestSampleReplacesExpiredResponseTime(t *testing.T) {
+	p := NewProxyClient(&config.Backend{Url: "localhost:8080"}, nil, nil).(*ProxyClient)
+	p.recordResponseTime(time.Millisecond)
+	p.recordFailure(time.Millisecond)
+
+	p.ExpireRecentResponseTime()
+	p.ClaimTrialRequest()
+	p.recordResponseTime(time.Millisecond)
+	// Averaged into the failure penalty, a 1ms answer would still read ~1600ms.
+	assert.InDelta(t, 1, p.RecentResponseTime(), 0.001)
+
+	p.recordResponseTime(3 * time.Millisecond)
+	assert.InDelta(t, 1.4, p.RecentResponseTime(), 0.001, "later samples average in again")
+}
+
+func TestTrialRequestAnsweredByMiddlewareIsHandedBack(t *testing.T) {
+	answeredByMiddleware := map[string]func(*middleware.Context) error{
+		"short-circuit": func(*middleware.Context) error { return middleware.ErrShortCircuit },
+		"error":         func(*middleware.Context) error { return errors.New("middleware failed") },
+	}
+	for name, onRequest := range answeredByMiddleware {
+		t.Run(name, func(t *testing.T) {
+			p := createTestProxyWithMiddlewares(config.Backend{Url: "localhost:8080"}, nil, &mockMiddleware{onRequestFunc: onRequest})
+			p.ExpireRecentResponseTime()
+			assert.True(t, p.ClaimTrialRequest())
+
+			p.ReverseProxyHandler(newTestRequestCtx()) //nolint:errcheck
+			assert.True(t, p.ClaimTrialRequest(), "the Backend never saw the Trial request, so the next Pick takes it")
+		})
+	}
 }
 
 func TestAvgResponseTimeExcludesFailures(t *testing.T) {

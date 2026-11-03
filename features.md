@@ -139,8 +139,11 @@ Docs
   as the pool's median, not as best. Sampling non-minimum Backends gives every
   Backend fresh samples, which also ends B2's exile.
 - **Decisions:** keep the name `least-response-time` (a behavior change for
-  everyone using it), or add a new Balancer and deprecate it?
-- **Fixes:** B2, B3.
+  everyone using it), or add a new Balancer and deprecate it? Draw the two
+  choices with replacement: drawn without, a penalized Backend never wins a
+  comparison and B2 returns. B2 is fixed meanwhile by the Trial request
+  (CONTEXT.md); whether P2C keeps it is part of the spec.
+- **Fixes:** B3.
 
 ## Medium
 

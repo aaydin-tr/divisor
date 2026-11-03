@@ -88,20 +88,35 @@ func TestExpectedProbeStatusDecidesLiveness(t *testing.T) {
 	assert.Equal(t, []*pool.Backend{backends[0]}, leaves)
 }
 
-func TestRejoinResetsResponseTimeScore(t *testing.T) {
+// probeRoundLoggingBalancer records Probe round starts and Joins in order.
+type probeRoundLoggingBalancer struct {
+	mocks.RecordingBalancer
+	events []string
+}
+
+func (b *probeRoundLoggingBalancer) ProbeRoundStarted() {
+	b.events = append(b.events, "probe round")
+}
+
+func (b *probeRoundLoggingBalancer) Join(backend *pool.Backend) {
+	b.events = append(b.events, "join "+backend.Addr)
+	b.RecordingBalancer.Join(backend)
+}
+
+func TestProbeRoundStartsBeforeItsProbes(t *testing.T) {
 	backends := mocks.NewBackends(1)
 	probes := &mocks.ProbeTable{}
-	p := pool.NewPool(backends, probes.Probe, time.Hour, &mocks.RecordingBalancer{})
-	defer p.Shutdown() //nolint:errcheck
-	mocks.MockProxyOf(backends[0]).ResTime = 42
-
 	probes.SetAlive(backends[0], false)
-	p.ProbeAllBackends()
-	assert.Equal(t, float64(42), mocks.MockProxyOf(backends[0]).ResTime, "going Down alone must not clear the score")
+	balancer := &probeRoundLoggingBalancer{}
+	p := pool.NewPool(backends, probes.Probe, time.Hour, balancer)
+	defer p.Shutdown() //nolint:errcheck
 
 	probes.SetAlive(backends[0], true)
 	p.ProbeAllBackends()
-	assert.Equal(t, float64(0), mocks.MockProxyOf(backends[0]).ResTime, "a Rejoining Backend must start unmeasured")
+	p.ProbeAllBackends()
+
+	assert.Equal(t, []string{"probe round", "join localhost:8080", "probe round"}, balancer.events,
+		"a Backend Rejoining in a round Joins after that round started")
 }
 
 func TestAllBackendsDownLeavesNothingToPick(t *testing.T) {

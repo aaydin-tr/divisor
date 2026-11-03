@@ -34,6 +34,10 @@ _Avoid_: duplicate index, ordinal
 A single health-check request (GET on the Backend's `health_check_path`) sent to a Backend to decide whether it is Alive. A Probe succeeds when the Backend answers with a 2xx or 3xx status within the Probe timeout (`health_checker_timeout`, one deadline covering dial, write and read); a connection failure, a timeout, or any other status is a failed Probe. A Backend with a `health_check_status` overrides that rule: only that exact status is a successful Probe. Redirects are not followed.
 _Avoid_: ping, heartbeat
 
+**Probe round**:
+One pass of the Pool's Probe loop, every `health_checker_time`: each registered Backend, Alive or Down, is Probed once and moved between Alive and Down by the result. least-response-time counts time in Probe rounds.
+_Avoid_: health check cycle, tick
+
 **Alive / Down**:
 The two liveness states of a Backend. Only Alive Backends receive traffic; a Down Backend keeps being probed so it can Rejoin.
 _Avoid_: healthy/unhealthy, up/dead
@@ -45,6 +49,14 @@ _Avoid_: recovery, re-add
 **Pending request**:
 A request divisor has forwarded to a Backend and not yet received the response for; a Streamed response stays pending until its stream ends. It is what least-connection counts and compares — not TCP connections.
 _Avoid_: in-flight request, active connection, open connection
+
+**Score**:
+What least-response-time compares: a moving average of a Backend's recent response times (`RecentResponseTime`), a failed request counting as at least 10s. `0` means unmeasured — never answered, or just Rejoined — and an unmeasured Backend wins outright. Unlike the lifetime average `/stats` reports, it forgets old samples, and it changes only when a request to the Backend finishes.
+_Avoid_: weight, rank, latency
+
+**Trial request**:
+The one request least-response-time sends, ahead of faster Backends, to an Alive Backend that traffic bypassed for three Probe rounds: rounds in which requests were routed to other Backends and none to it. A round in which no Backend got a request bypassed none. Its response time replaces the Backend's Score instead of averaging into it, so one failed request cannot keep a healthy Backend out of traffic. A Backend still failing costs one request every four Probe rounds that carry traffic: the round that sees the Trial request, then three bypassing it. A Trial request an `OnRequest` Middleware answers never reached the Backend, so the next request takes it.
+_Avoid_: probe request (a Probe is the health check), retry
 
 **Client IP**:
 The address of the TCP peer that opened the connection to divisor. It is what `X-Forwarded-For` is appended with, what `$remote_addr` carries, and what ip-hash hashes. Divisor never reads a client-sent `X-Forwarded-For` to decide it: behind another proxy, the Client IP is that proxy.

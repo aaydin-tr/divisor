@@ -506,7 +506,11 @@ upgrade:
 - least-connection now picks the Backend with the fewest Pending requests.
   0.x stopped at the first Backend with fewer.
 - least-response-time scores Backends by a moving average, and counts a
-  failed request as slow. 0.x let a failing Backend look fast.
+  failed request as slow. 0.x let a failing Backend look fast. When
+  least-response-time has sent requests only to other Backends for three
+  Probe rounds (`health_checker_time`), it sends the Backend it skipped one
+  request to measure it again, so one failure no longer keeps a healthy
+  Backend out of traffic.
 - `server.tcp_keepalive_period` now takes effect on both stacks. In 0.x it
   did nothing.
 - `/stats` lists every Backend in config order, Down ones included.
