@@ -19,7 +19,29 @@ type leastResponseTime struct {
 
 type probeRoundTally struct {
 	requestCountAtLastProbeRound uint64
-	probeRoundsSinceLastRequest  int
+	probeRoundsBypassed          int
+}
+
+// recordRequestCount reports whether a request was routed to the Backend
+// since the last Probe round.
+func (t *probeRoundTally) recordRequestCount(requestCount uint64) (requestWasRouted bool) {
+	if requestCount == t.requestCountAtLastProbeRound {
+		return false
+	}
+	t.requestCountAtLastProbeRound = requestCount
+	t.probeRoundsBypassed = 0
+	return true
+}
+
+// countBypassedRound reports whether this round is the one that makes the
+// Backend's score due a Trial request.
+func (t *probeRoundTally) countBypassedRound() (trialRequestDue bool) {
+	t.probeRoundsBypassed++
+	if t.probeRoundsBypassed < probeRoundsBeforeTrialRequest {
+		return false
+	}
+	t.probeRoundsBypassed = 0
+	return true
 }
 
 func New(*config.Config) pool.Balancer {
@@ -39,19 +61,21 @@ func (l *leastResponseTime) Leave(backend *pool.Backend) {
 	delete(l.probeRoundTallyByBackend, backend)
 }
 
-// ProbeRoundStarted expires the score of every Alive Backend no request was
-// routed to for probeRoundsBeforeTrialRequest rounds.
+// ProbeRoundStarted expires the score of every Alive Backend that traffic
+// bypassed for probeRoundsBeforeTrialRequest rounds: requests went to other
+// Backends, none to it. A round no request reached bypassed none of them.
 func (l *leastResponseTime) ProbeRoundStarted() {
+	var bypassedBackends []*pool.Backend
 	for backend, tally := range l.probeRoundTallyByBackend {
-		requestCount := backend.Proxy.Stat().TotalReqCount
-		if requestCount != tally.requestCountAtLastProbeRound {
-			tally.requestCountAtLastProbeRound = requestCount
-			tally.probeRoundsSinceLastRequest = 0
-			continue
+		if !tally.recordRequestCount(backend.Proxy.Stat().TotalReqCount) {
+			bypassedBackends = append(bypassedBackends, backend)
 		}
-		tally.probeRoundsSinceLastRequest++
-		if tally.probeRoundsSinceLastRequest == probeRoundsBeforeTrialRequest {
-			tally.probeRoundsSinceLastRequest = 0
+	}
+	if len(bypassedBackends) == len(l.probeRoundTallyByBackend) {
+		return
+	}
+	for _, backend := range bypassedBackends {
+		if l.probeRoundTallyByBackend[backend].countBypassedRound() {
 			backend.Proxy.ExpireRecentResponseTime()
 		}
 	}

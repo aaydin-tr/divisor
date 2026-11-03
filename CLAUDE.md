@@ -92,10 +92,11 @@ helm install divisor oci://ghcr.io/aaydin-tr/charts/divisor -f values.yaml
   `AddressOccurrence`, never its Index, so divisor instances sharing a config
   agree whatever their Reload history (ADR 0008); a Backend Joining under a
   ring key takes over the positions of the entry it replaces.
-  least-response-time (a `pool.ProbeRoundBalancer`) owns its score
+  least-response-time (a `pool.ProbeRoundBalancer`) owns its Score
   lifecycle: `Join` resets a Backend to unmeasured, and `ProbeRoundStarted`
-  expires the score of one no request was routed to for 3 rounds, so `Pick`
-  sends it one Trial request (`ClaimTrialRequest`) whose sample replaces it.
+  expires the Score of one traffic bypassed for 3 rounds (requests went to
+  other Backends, none to it; a round with no requests at all counts for
+  nobody), so `Pick` sends it one Trial request (`ClaimTrialRequest`).
 
 `core.NewBalancer(cfg, middlewareExecutor, proxyFunc)` is the only wiring:
 it turns `cfg.Backends` into Backends, picks the balancer by `cfg.Type`,
@@ -116,6 +117,11 @@ when `Pick` returns nil.
 - Forwards headers as the client sent them: no default `Content-Type` or `User-Agent`; URI userinfo becomes `Authorization: Basic` in `preReq` (a client Authorization header wins)
 - Supports custom headers with special variables: `$remote_addr`, `$time`, `$uuid`, `$incremental`
 - Tracks metrics: total requests, average response time, last use time, Pending requests (an open stream counts until it ends)
+- Keeps least-response-time's Score (`RecentResponseTime`, a lock-free moving average) and its
+  Trial request state (`noTrialRequest` → `trialRequestDue` on `ExpireRecentResponseTime` →
+  `trialRequestClaimed` on `ClaimTrialRequest`): the next sample replaces the Score instead of
+  averaging in (`consumeScoreExpiry`), and an `OnRequest` Middleware answering the claimed
+  request hands it back (`handBackTrialRequest`)
 - Streamed responses (`server.streaming`, ADR 0007) live in `streaming.go`:
   `forwardAllowingStream` applies the streaming rule; a `streamedBody` is
   attached to the response and pumped by the server after

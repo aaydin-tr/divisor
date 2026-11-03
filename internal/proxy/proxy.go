@@ -67,10 +67,12 @@ const failureResponseTimePenalty = 10 * time.Second
 // Response times accumulate in microseconds and are reported in milliseconds.
 const microsPerMilli = float64(1000)
 
-// An expired score's way back to measured: its trial request is due until a
+// An expired score's way back to measured: its Trial request is due until a
 // Pick claims it, then claimed until a sample replaces the score.
+type trialRequestState int32
+
 const (
-	noTrialRequest int32 = iota
+	noTrialRequest trialRequestState = iota
 	trialRequestDue
 	trialRequestClaimed
 )
@@ -91,7 +93,7 @@ type ProxyClient struct {
 	totalResTime         *uint64
 	measuredRequestCount *uint64
 	recentResTime        *uint64
-	trialRequestState    atomic.Int32
+	currentTrialRequest  atomic.Int32
 	customHeaders        map[string]string
 	middlewareExecutor   *middlewarePkg.Executor
 	Addr                 string
@@ -492,37 +494,40 @@ func (h *ProxyClient) RecentResponseTime() float64 {
 	return math.Float64frombits(atomic.LoadUint64(h.recentResTime)) / microsPerMilli
 }
 
-// ResetRecentResponseTime makes the Backend read as unmeasured again. Called
-// on Rejoin: the score from before it went Down — possibly a failure
-// penalty — would otherwise starve it long after it recovered.
+// ResetRecentResponseTime makes the Backend read as unmeasured again, with no
+// Trial request due: an unmeasured Backend wins its next Pick outright.
 func (h *ProxyClient) ResetRecentResponseTime() {
 	atomic.StoreUint64(h.recentResTime, 0)
+	h.currentTrialRequest.Store(int32(noTrialRequest))
 }
 
 // ExpireRecentResponseTime makes the next sample replace the score instead of
 // averaging into it, and lets one Pick claim the Trial request that takes it.
 func (h *ProxyClient) ExpireRecentResponseTime() {
-	h.trialRequestState.Store(trialRequestDue)
+	h.currentTrialRequest.Store(int32(trialRequestDue))
 }
 
-// ClaimTrialRequest reports true to one caller per expiry. It loads first:
-// Pick asks every candidate, and a failed CompareAndSwap still writes the line.
+// ClaimTrialRequest reports true to one caller per expiry.
 func (h *ProxyClient) ClaimTrialRequest() bool {
-	return h.trialRequestState.Load() == trialRequestDue && h.trialRequestState.CompareAndSwap(trialRequestDue, trialRequestClaimed)
+	return h.moveTrialRequest(trialRequestDue, trialRequestClaimed)
 }
 
 // handBackTrialRequest lets the next Pick claim a Trial request that an
 // OnRequest Middleware answered, since the Backend never measured it.
 func (h *ProxyClient) handBackTrialRequest() {
-	if h.trialRequestState.Load() == trialRequestClaimed {
-		h.trialRequestState.CompareAndSwap(trialRequestClaimed, trialRequestDue)
-	}
+	h.moveTrialRequest(trialRequestClaimed, trialRequestDue)
 }
 
-// consumeScoreExpiry loads before it swaps so that a sample with no expiry
-// pending, nearly all of them, never writes the shared state.
+// consumeScoreExpiry reports, once per expiry, that this sample replaces the
+// score.
 func (h *ProxyClient) consumeScoreExpiry() bool {
-	return h.trialRequestState.Load() != noTrialRequest && h.trialRequestState.Swap(noTrialRequest) != noTrialRequest
+	return h.moveTrialRequest(trialRequestClaimed, noTrialRequest) || h.moveTrialRequest(trialRequestDue, noTrialRequest)
+}
+
+// moveTrialRequest loads before it swaps: Pick asks every candidate and every
+// sample asks too, and a failed CompareAndSwap still writes the cache line.
+func (h *ProxyClient) moveTrialRequest(from, to trialRequestState) bool {
+	return h.currentTrialRequest.Load() == int32(from) && h.currentTrialRequest.CompareAndSwap(int32(from), int32(to))
 }
 
 func (h *ProxyClient) Close() error {

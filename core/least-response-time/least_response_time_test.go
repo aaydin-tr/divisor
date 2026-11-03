@@ -94,6 +94,30 @@ func TestLeastResponseTimeSendsATrialRequestAfterThreeProbeRoundsWithoutOne(t *t
 	assert.Same(t, faster, serve(lrt))
 }
 
+func TestLeastResponseTimeCountsOnlyProbeRoundsThatCarriedRequests(t *testing.T) {
+	backends := mocks.NewBackends(3)
+	slowest, slower, fastest := backends[0], backends[1], backends[2]
+	lrt := New(nil).(pool.ProbeRoundBalancer)
+	joinWithScores(lrt, backends, 5, 3, 1)
+	requestThenQuietRounds := func() *pool.Backend {
+		picked := serve(lrt)
+		for range 4 {
+			lrt.ProbeRoundStarted()
+		}
+		return picked
+	}
+
+	for range 10 {
+		lrt.ProbeRoundStarted()
+	}
+	for request := 1; request <= 3; request++ {
+		assert.Same(t, fastest, requestThenQuietRounds(), "request %d: a round no request reached bypassed no Backend", request)
+	}
+	assert.Same(t, slowest, requestThenQuietRounds(), "three rounds carried requests, none to it")
+	assert.Same(t, slower, requestThenQuietRounds())
+	assert.Same(t, fastest, requestThenQuietRounds(), "one Trial request each, then the fastest again")
+}
+
 func TestLeastResponseTimeDoesNotCountProbeRoundsOfABackendThatLeft(t *testing.T) {
 	backends := mocks.NewBackends(2)
 	down := backends[1]

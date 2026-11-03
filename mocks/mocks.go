@@ -62,6 +62,7 @@ func (m *MockProxy) ResetRecentResponseTime() {
 	m.resTimeMu.Lock()
 	m.ResTime = 0
 	m.resTimeMu.Unlock()
+	m.trialRequestDue.Store(false)
 }
 
 func (m *MockProxy) ExpireRecentResponseTime() {

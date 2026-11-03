@@ -1285,6 +1285,10 @@ func TestResetRecentResponseTime(t *testing.T) {
 	// against the discarded score.
 	p.recordResponseTime(2 * time.Millisecond)
 	assert.InDelta(t, 2, p.RecentResponseTime(), 0.001)
+
+	p.ExpireRecentResponseTime()
+	p.ResetRecentResponseTime()
+	assert.False(t, p.ClaimTrialRequest(), "an unmeasured Backend wins outright, so it is due no Trial request")
 }
 
 func TestExpiredResponseTimeGrantsOneTrialRequest(t *testing.T) {
