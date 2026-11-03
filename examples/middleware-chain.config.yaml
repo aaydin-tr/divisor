@@ -43,7 +43,6 @@ middlewares:
           if err == nil {
               return nil
           }
-          ctx.Response.Reset() // drop whatever a Backend that failed mid-read left behind
           ctx.SetStatusCode(503)
           ctx.Response.Header.Set("Retry-After", f.retryAfter)
           ctx.SetContentType("application/json")

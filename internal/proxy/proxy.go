@@ -163,6 +163,10 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 		serverErr = h.doWithProxyTimeout(req, res)
 		h.recordOutcome(serverErr, time.Since(s))
 	}
+	if serverErr != nil {
+		// fasthttp resets res only before an attempt: a failed one leaves the Backend's status and headers.
+		res.Reset()
+	}
 
 	if h.middlewareExecutor != nil {
 		if err := h.middlewareExecutor.RunOnResponse(mwCtx, serverErr); err != nil {

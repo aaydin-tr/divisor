@@ -134,7 +134,6 @@ func TestMiddlewareGuideExampleChain(t *testing.T) {
 	t.Run("a Backend failure is replaced by the fallback", func(t *testing.T) {
 		ctx := newRequest(map[string]string{"X-Api-Key": "change-me"})
 		require.NoError(t, executor.RunOnRequest(ctx))
-		ctx.Response.Header.Set("X-Partial", "left by a Backend that failed mid-read")
 
 		err := executor.RunOnResponse(ctx, errors.New("dial tcp: connection refused"))
 		assert.ErrorIs(t, err, middleware.ErrShortCircuit)
@@ -142,7 +141,6 @@ func TestMiddlewareGuideExampleChain(t *testing.T) {
 		assert.Equal(t, "5", string(ctx.Response.Header.Peek("Retry-After")))
 		assert.Equal(t, "application/json", string(ctx.Response.Header.ContentType()))
 		assert.JSONEq(t, `{"message":"service temporarily unavailable"}`, string(ctx.Response.Body()))
-		assert.Empty(t, ctx.Response.Header.Peek("X-Partial"))
 	})
 
 	t.Run("a Backend response, even a 500, passes through untouched", func(t *testing.T) {

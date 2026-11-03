@@ -19,7 +19,7 @@ High
 - [x] [B1 — ip-hash routes a client differently on each replica after a Reload](#b1)
 - [x] [B2 — least-response-time exiles a Backend after one failed request](#b2)
 - [x] [B3 — least-response-time sends every concurrent request to one Backend](#b3)
-- [ ] [B4 — 502/504 responses carry the failed Backend's headers](#b4)
+- [x] [B4 — 502/504 responses carry the failed Backend's headers](#b4)
 
 Medium
 - [ ] [B5 — A non-idempotent request timing out mid-body gets 502, not 504](#b5)

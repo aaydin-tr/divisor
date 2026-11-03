@@ -137,11 +137,14 @@ not.
   `Content-Encoding`; `ctx.Response.BodyUncompressed()` decodes it). A
   [Streamed response](#streamed-responses) is the exception.
 - `err != nil`: the Backend gave no complete response (refused, reset, timed
-  out under `server.proxy_timeout`). `ctx.Response` may still hold whatever
-  the Backend sent before failing. If every hook returns `nil`, divisor then
-  answers `502 {"message":"bad gateway"}`, or `504 {"message":"gateway timeout"}`
-  for a timeout: it sets the status, body and `Content-Type`, and keeps the
-  other headers your Middleware added. To answer differently, Short-circuit.
+  out under `server.proxy_timeout`). Whatever it sent before failing (status,
+  headers, part of a body) is discarded before any `OnResponse` hook runs:
+  `ctx.Response` starts empty, so none of the failed Backend's headers
+  (`Set-Cookie`, `Cache-Control`, ...) reach the client. If every hook returns
+  `nil`, divisor then answers `502 {"message":"bad gateway"}`, or
+  `504 {"message":"gateway timeout"}` for a timeout: it sets the status, body
+  and `Content-Type`, and keeps the other headers your Middleware added. To
+  answer differently, Short-circuit.
 
 ### What a hook returns
 
@@ -216,7 +219,6 @@ func (f *Fallback) OnResponse(ctx *middleware.Context, err error) error {
     if err == nil {
         return nil
     }
-    ctx.Response.Reset() // drop whatever a Backend that failed mid-read left behind
     ctx.SetStatusCode(503)
     ctx.Response.Header.Set("Retry-After", f.retryAfter)
     ctx.SetContentType("application/json")
@@ -225,9 +227,10 @@ func (f *Fallback) OnResponse(ctx *middleware.Context, err error) error {
 }
 ```
 
-- When replacing a response in `OnResponse`, start from
-  `ctx.Response.Reset()`: otherwise the Backend's headers (or a failed
-  Backend's partial ones) go out with yours.
+- When replacing a Backend's response in `OnResponse`, start from
+  `ctx.Response.Reset()`: otherwise the Backend's headers go out with yours.
+  After a Backend failure there is nothing of the Backend's to drop:
+  `ctx.Response` starts empty, as the fallback above relies on.
 - The match is `errors.Is`, so a wrapped sentinel
   (`fmt.Errorf("blocked %s: %w", ip, middleware.ErrShortCircuit)`) still
   Short-circuits.
@@ -303,7 +306,8 @@ Backends to declare a length, or streaming off.
    Middleware's response; any other error answers `500`. Either way the
    Backend is never asked and no `OnResponse` runs.
 4. The request is forwarded to the Backend; its response, or the failure, is
-   captured (a Streamed response at its status and headers).
+   captured (a Streamed response at its status and headers). On a failure,
+   whatever the Backend sent is discarded.
 5. `OnResponse` hooks run in reverse config order with the Backend failure as
    `err` (`nil` on success). A Short-circuit sends the Middleware's response;
    any other error answers `500`.
