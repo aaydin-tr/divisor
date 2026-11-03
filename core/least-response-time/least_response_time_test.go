@@ -25,9 +25,9 @@ func serve(lrt pool.Balancer) *pool.Backend {
 	return picked
 }
 
-// pickForConcurrentRequests Picks for requests that each arrive while every
-// earlier one is still Pending, and counts the requests each Backend took.
-func pickForConcurrentRequests(lrt pool.Balancer, requestCount int) map[*pool.Backend]int {
+// pickWhileEveryRequestStaysPending counts the requests each Backend took when
+// each arrives while every earlier one is still Pending.
+func pickWhileEveryRequestStaysPending(lrt pool.Balancer, requestCount int) map[*pool.Backend]int {
 	requestCountByBackend := map[*pool.Backend]int{}
 	for range requestCount {
 		picked := lrt.Pick(nil)
@@ -37,9 +37,9 @@ func pickForConcurrentRequests(lrt pool.Balancer, requestCount int) map[*pool.Ba
 	return requestCountByBackend
 }
 
-// pickRepeatedly counts the Backends Pick chose for requestCount requests
-// that each finish before the next arrives.
-func pickRepeatedly(lrt pool.Balancer, requestCount int) map[*pool.Backend]int {
+// pickWhileEveryRequestFinishesFirst counts the requests each Backend took when
+// each finishes before the next arrives.
+func pickWhileEveryRequestFinishesFirst(lrt pool.Balancer, requestCount int) map[*pool.Backend]int {
 	requestCountByBackend := map[*pool.Backend]int{}
 	for range requestCount {
 		requestCountByBackend[lrt.Pick(nil)]++
@@ -53,7 +53,7 @@ func TestLeastResponseTimeSpreadsConcurrentRequestsFromAColdStart(t *testing.T) 
 		lrt := New(nil)
 		mocks.JoinAll(lrt, backends)
 
-		requestCountByBackend := pickForConcurrentRequests(lrt, 100)
+		requestCountByBackend := pickWhileEveryRequestStaysPending(lrt, 100)
 
 		assert.InDelta(t, 50, requestCountByBackend[backends[0]], 10)
 		assert.InDelta(t, 50, requestCountByBackend[backends[1]], 10)
@@ -64,7 +64,7 @@ func TestLeastResponseTimeSpreadsConcurrentRequestsFromAColdStart(t *testing.T) 
 		lrt := New(nil)
 		joinWithScores(lrt, backends, 50)
 
-		requestCountByBackend := pickForConcurrentRequests(lrt, 100)
+		requestCountByBackend := pickWhileEveryRequestStaysPending(lrt, 100)
 
 		assert.InDelta(t, 50, requestCountByBackend[backends[0]], 10)
 		assert.InDelta(t, 50, requestCountByBackend[backends[1]], 10)
@@ -77,7 +77,7 @@ func TestLeastResponseTimeSpreadsABurstByScoreAndPendingRequests(t *testing.T) {
 	lrt := New(nil)
 	joinWithScores(lrt, backends, 10, 20)
 
-	requestCountByBackend := pickForConcurrentRequests(lrt, 30)
+	requestCountByBackend := pickWhileEveryRequestStaysPending(lrt, 30)
 
 	assert.InDelta(t, 20, requestCountByBackend[faster], 2, "twice as fast, so twice the Pending requests")
 	assert.InDelta(t, 10, requestCountByBackend[slower], 2)
@@ -89,7 +89,7 @@ func TestLeastResponseTimeComparesTwoDifferentBackends(t *testing.T) {
 		lrt := New(nil)
 		joinWithScores(lrt, backends, 5, 1)
 
-		assert.Equal(t, map[*pool.Backend]int{backends[1]: 10}, pickRepeatedly(lrt, 10))
+		assert.Equal(t, map[*pool.Backend]int{backends[1]: 10}, pickWhileEveryRequestFinishesFirst(lrt, 10))
 	})
 
 	t.Run("distinguishes sub-millisecond Backends", func(t *testing.T) {
@@ -97,7 +97,7 @@ func TestLeastResponseTimeComparesTwoDifferentBackends(t *testing.T) {
 		lrt := New(nil)
 		joinWithScores(lrt, backends, 0.8, 0.2)
 
-		assert.Equal(t, map[*pool.Backend]int{backends[1]: 10}, pickRepeatedly(lrt, 10))
+		assert.Equal(t, map[*pool.Backend]int{backends[1]: 10}, pickWhileEveryRequestFinishesFirst(lrt, 10))
 	})
 
 	t.Run("a lower Score loses to its Pending requests", func(t *testing.T) {
@@ -107,7 +107,7 @@ func TestLeastResponseTimeComparesTwoDifferentBackends(t *testing.T) {
 		joinWithScores(lrt, backends, 1, 3)
 		mocks.MockProxyOf(busyFaster).Pending = 3
 
-		assert.Equal(t, map[*pool.Backend]int{idleSlower: 10}, pickRepeatedly(lrt, 10), "1ms × 4 is worse than 3ms × 1")
+		assert.Equal(t, map[*pool.Backend]int{idleSlower: 10}, pickWhileEveryRequestFinishesFirst(lrt, 10), "1ms × 4 is worse than 3ms × 1")
 	})
 
 	t.Run("the worst Backend never wins, every other one takes requests", func(t *testing.T) {
@@ -116,7 +116,7 @@ func TestLeastResponseTimeComparesTwoDifferentBackends(t *testing.T) {
 		lrt := New(nil)
 		joinWithScores(lrt, backends, 5, 3, 1)
 
-		requestCountByBackend := pickRepeatedly(lrt, 300)
+		requestCountByBackend := pickWhileEveryRequestFinishesFirst(lrt, 300)
 
 		assert.Zero(t, requestCountByBackend[slowest], "drawn with another Backend every time, it loses every comparison")
 		assert.Positive(t, requestCountByBackend[slower], "it wins every draw that pairs it with the slowest")
@@ -145,7 +145,7 @@ func TestLeastResponseTimeScoresAnUnmeasuredBackendAsTheMedian(t *testing.T) {
 		joinWithScores(lrt, backends, 5)
 		mocks.MockProxyOf(unmeasuredBackend).Pending = 1
 
-		assert.Equal(t, map[*pool.Backend]int{measured: 10}, pickRepeatedly(lrt, 10))
+		assert.Equal(t, map[*pool.Backend]int{measured: 10}, pickWhileEveryRequestFinishesFirst(lrt, 10))
 	})
 
 	t.Run("the median of the measured Scores, not their mean", func(t *testing.T) {
@@ -156,7 +156,7 @@ func TestLeastResponseTimeScoresAnUnmeasuredBackendAsTheMedian(t *testing.T) {
 		mocks.MockProxyOf(fastest).Pending = 17
 		mocks.MockProxyOf(unmeasuredBackend).Pending = 1
 
-		requestCountByBackend := pickRepeatedly(lrt, 100)
+		requestCountByBackend := pickWhileEveryRequestFinishesFirst(lrt, 100)
 
 		assert.Zero(t, requestCountByBackend[unmeasuredBackend], "median 10 × 2 is the worst of 18, 10 and 11; the mean, 7.3 × 2, would beat 18")
 	})
@@ -219,11 +219,11 @@ func TestLeastResponseTimeCountsOnlyProbeRoundsThatCarriedRequests(t *testing.T)
 	}
 	requestToTheFastestThenQuietRounds()
 	requestToTheFastestThenQuietRounds()
-	assert.Zero(t, pickRepeatedly(lrt, 100)[slowest], "two rounds carried requests, the quiet ones bypassed nobody: no Trial request yet, and the slowest never wins the comparison")
+	assert.Zero(t, pickWhileEveryRequestFinishesFirst(lrt, 100)[slowest], "two rounds carried requests, the quiet ones bypassed nobody: no Trial request yet, and the slowest never wins the comparison")
 
 	requestToTheFastestThenQuietRounds()
 	assert.ElementsMatch(t, []*pool.Backend{slowest, slower}, []*pool.Backend{lrt.Pick(nil), lrt.Pick(nil)}, "three rounds carried requests, none to either")
-	assert.Zero(t, pickRepeatedly(lrt, 100)[slowest], "one Trial request each, then the comparison again, which the slowest never wins")
+	assert.Zero(t, pickWhileEveryRequestFinishesFirst(lrt, 100)[slowest], "one Trial request each, then the comparison again, which the slowest never wins")
 }
 
 func TestLeastResponseTimeDoesNotCountProbeRoundsOfABackendThatLeft(t *testing.T) {

@@ -108,7 +108,12 @@ func (l *leastResponseTime) Pick(*fasthttp.RequestCtx) *pool.Backend {
 		return aliveBackends[0]
 	}
 	first, second := drawTwoDifferentBackends(aliveBackends)
-	if loadWeightedScore(second, aliveBackends) < loadWeightedScore(first, aliveBackends) {
+	firstScore, secondScore := first.Proxy.RecentResponseTime(), second.Proxy.RecentResponseTime()
+	if firstScore == unmeasured || secondScore == unmeasured {
+		medianScore := medianMeasuredScore(aliveBackends)
+		firstScore, secondScore = scoreOrMedian(firstScore, medianScore), scoreOrMedian(secondScore, medianScore)
+	}
+	if loadWeightedScore(second, secondScore) < loadWeightedScore(first, firstScore) {
 		return second
 	}
 	return first
@@ -123,11 +128,14 @@ func drawTwoDifferentBackends(aliveBackends []*pool.Backend) (first, second *poo
 	return aliveBackends[firstIndex], aliveBackends[secondIndex]
 }
 
-func loadWeightedScore(backend *pool.Backend, aliveBackends []*pool.Backend) float64 {
-	score := backend.Proxy.RecentResponseTime()
+func scoreOrMedian(score, medianScore float64) float64 {
 	if score == unmeasured {
-		score = medianMeasuredScore(aliveBackends)
+		return medianScore
 	}
+	return score
+}
+
+func loadWeightedScore(backend *pool.Backend, score float64) float64 {
 	return score * float64(backend.Proxy.PendingRequests()+1)
 }
 

@@ -144,7 +144,8 @@ not.
   `nil`, divisor then answers `502 {"message":"bad gateway"}`, or
   `504 {"message":"gateway timeout"}` for a timeout: it sets the status, body
   and `Content-Type`, and keeps the other headers your Middleware added. To
-  answer differently, Short-circuit.
+  answer differently, Short-circuit, and set the status yourself: an empty
+  `ctx.Response` goes out as `200`.
 
 ### What a hook returns
 
