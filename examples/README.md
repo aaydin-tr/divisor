@@ -25,7 +25,7 @@ This directory contains example configurations for different use cases and deplo
 **Least Connection** - Dynamic balancing to least busy backend:
 - [`least-connection.config.yaml`](least-connection.config.yaml) - Optimal for mixed workloads
 
-**Least Response Time** - Route to fastest backend:
+**Least Response Time** - Route to fast, lightly loaded backends:
 - Use `type: least-response-time` in your config
 
 **Random** - Random backend selection:

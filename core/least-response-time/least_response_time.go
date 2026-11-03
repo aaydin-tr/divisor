@@ -1,6 +1,9 @@
 package least_response_time
 
 import (
+	"math/rand/v2"
+	"slices"
+
 	"github.com/aaydin-tr/divisor/core/pool"
 	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/valyala/fasthttp"
@@ -9,6 +12,12 @@ import (
 // A Score changes only when least-response-time picks its Backend, so one
 // failure penalty would keep a healthy Backend out until it goes Down.
 const probeRoundsBeforeTrialRequest = 3
+
+// A Score of 0: the Backend never answered, or just Rejoined.
+const unmeasured = 0
+
+// Any positive value: a Score of 0 would erase the Pending requests term.
+const scoreWhenNothingIsMeasured = 1
 
 type leastResponseTime struct {
 	pool.Rotation
@@ -83,24 +92,60 @@ func (l *leastResponseTime) ProbeRoundStarted() {
 	}
 }
 
+// Pick compares two different Alive Backends drawn at random by Score ×
+// (Pending requests + 1). The worst never wins, so a Trial request comes first.
 func (l *leastResponseTime) Pick(*fasthttp.RequestCtx) *pool.Backend {
 	aliveBackends := l.AliveBackends()
 	if len(aliveBackends) == 0 {
 		return nil
 	}
-	picked := aliveBackends[0]
-	leastResTime := picked.Proxy.RecentResponseTime()
 	for _, candidate := range aliveBackends {
-		resTime := candidate.Proxy.RecentResponseTime()
-		// 0 means unmeasured (never answered, or just Rejoined), and an expired
-		// Score is due its Trial request: either wins to get a fresh sample.
-		if resTime == 0 || candidate.Proxy.ClaimTrialRequest() {
+		if candidate.Proxy.ClaimTrialRequest() {
 			return candidate
 		}
-		if resTime < leastResTime {
-			picked = candidate
-			leastResTime = resTime
+	}
+	if len(aliveBackends) == 1 {
+		return aliveBackends[0]
+	}
+	first, second := drawTwoDifferentBackends(aliveBackends)
+	if loadWeightedScore(second, aliveBackends) < loadWeightedScore(first, aliveBackends) {
+		return second
+	}
+	return first
+}
+
+func drawTwoDifferentBackends(aliveBackends []*pool.Backend) (first, second *pool.Backend) {
+	firstIndex := rand.IntN(len(aliveBackends))      //nolint:gosec
+	secondIndex := rand.IntN(len(aliveBackends) - 1) //nolint:gosec
+	if secondIndex >= firstIndex {
+		secondIndex++
+	}
+	return aliveBackends[firstIndex], aliveBackends[secondIndex]
+}
+
+func loadWeightedScore(backend *pool.Backend, aliveBackends []*pool.Backend) float64 {
+	score := backend.Proxy.RecentResponseTime()
+	if score == unmeasured {
+		score = medianMeasuredScore(aliveBackends)
+	}
+	return score * float64(backend.Proxy.PendingRequests()+1)
+}
+
+// With nothing measured, every Backend competes alike and Pending requests decide.
+func medianMeasuredScore(aliveBackends []*pool.Backend) float64 {
+	measuredScores := make([]float64, 0, len(aliveBackends))
+	for _, backend := range aliveBackends {
+		if score := backend.Proxy.RecentResponseTime(); score != unmeasured {
+			measuredScores = append(measuredScores, score)
 		}
 	}
-	return picked
+	if len(measuredScores) == 0 {
+		return scoreWhenNothingIsMeasured
+	}
+	slices.Sort(measuredScores)
+	middle := len(measuredScores) / 2
+	if len(measuredScores)%2 == 1 {
+		return measuredScores[middle]
+	}
+	return (measuredScores[middle-1] + measuredScores[middle]) / 2
 }

@@ -16,7 +16,7 @@ High
 - [ ] [F2 — TLS certificate reload without a restart](#f2)
 - [ ] [F3 — X-Forwarded-Proto and X-Forwarded-Host](#f3)
 - [ ] [F4 — Request metrics: status codes and latency](#f4)
-- [ ] [F5 — A load-aware least-response-time](#f5)
+- [x] [F5 — A load-aware least-response-time](#f5)
 
 Medium
 - [ ] [F6 — One Backend per DNS record](#f6)
@@ -138,11 +138,11 @@ Docs
   lower `moving average × (Pending requests + 1)`; score an unmeasured Backend
   as the pool's median, not as best. Sampling non-minimum Backends gives every
   Backend fresh samples, which also ends B2's exile.
-- **Decisions:** keep the name `least-response-time` (a behavior change for
-  everyone using it), or add a new Balancer and deprecate it? Draw the two
-  choices with replacement: drawn without, a penalized Backend never wins a
-  comparison and B2 returns. B2 is fixed meanwhile by the Trial request
-  (CONTEXT.md); whether P2C keeps it is part of the spec.
+- **Decisions (settled 2026-11-03):** `least-response-time` changed in
+  place. The two choices are drawn without replacement and the Trial request
+  stays: drawn with, a Backend failing every request while its Probe passes
+  would take 1/n² of requests (25% with two Backends); the Trial request
+  already keeps B2 fixed. With nothing measured, Pending requests decide.
 - **Fixes:** B3.
 
 ## Medium

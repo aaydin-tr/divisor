@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -281,14 +282,18 @@ func TestIPHashRoutesLikeAFreshBootAfterAReload(t *testing.T) {
 // One failure scores a Backend at seconds, and least-response-time only
 // re-measures a Backend it picks: without a trial request it never came back.
 func TestLeastResponseTimePicksABackendAgainAfterOneFailure(t *testing.T) {
-	var fasterRequests atomic.Int64
+	var fasterRequests, slowerRequests atomic.Int64
 	faster := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		if fasterRequests.Add(1) == 1 {
 			time.Sleep(300 * time.Millisecond)
+			return
 		}
+		// Measurable on a coarse clock (Windows): a 0 sample reads as unmeasured.
+		time.Sleep(5 * time.Millisecond)
 	}))
 	defer faster.Close()
 	slower := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		slowerRequests.Add(1)
 		time.Sleep(50 * time.Millisecond)
 	}))
 	defer slower.Close()
@@ -301,13 +306,21 @@ func TestLeastResponseTimePicksABackendAgainAfterOneFailure(t *testing.T) {
 	defer b.Shutdown() //nolint:errcheck
 	serve := b.Serve()
 
+	// Until both are measured, the draw is random: the first request to the
+	// faster Backend outlives proxy_timeout, the others it gets take 5ms.
+	for request := 0; fasterRequests.Load() == 0 || slowerRequests.Load() == 0; request++ {
+		require.Less(t, request, 100, "both Backends get a request from a cold start")
+		serve(mocks.RequestFrom("10.0.0.1"))
+	}
+	fasterRequestsBeforeBothMeasured := fasterRequests.Load()
+
 	for range 5 {
 		serve(mocks.RequestFrom("10.0.0.1"))
 	}
-	require.Equal(t, int64(1), fasterRequests.Load(), "its one request outlived proxy_timeout, so the slower Backend took the rest")
+	require.Equal(t, fasterRequestsBeforeBothMeasured, fasterRequests.Load(), "its failure scored it at seconds, so the slower Backend took the rest")
 
 	probeRounds := 0
-	for fasterRequests.Load() == 1 && probeRounds < 10 {
+	for fasterRequests.Load() == fasterRequestsBeforeBothMeasured && probeRounds < 10 {
 		probeAllBackends(b)
 		probeRounds++
 		serve(mocks.RequestFrom("10.0.0.1"))
@@ -317,5 +330,35 @@ func TestLeastResponseTimePicksABackendAgainAfterOneFailure(t *testing.T) {
 	for range 5 {
 		serve(mocks.RequestFrom("10.0.0.1"))
 	}
-	assert.Equal(t, int64(7), fasterRequests.Load(), "its trial request answered at once, so it is the fastest again")
+	assert.Equal(t, fasterRequestsBeforeBothMeasured+6, fasterRequests.Load(), "its trial request answered at once, so it is the fastest again")
+}
+
+// At a cold start every Backend is unmeasured, and picking the lowest Score
+// alone sent a whole burst to the first one before it could answer.
+func TestLeastResponseTimeSpreadsAConcurrentBurstFromAColdStart(t *testing.T) {
+	newCountingBackend := func(requests *atomic.Int64) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			requests.Add(1)
+			time.Sleep(50 * time.Millisecond)
+		}))
+	}
+	var firstRequests, secondRequests atomic.Int64
+	first := newCountingBackend(&firstRequests)
+	defer first.Close()
+	second := newCountingBackend(&secondRequests)
+	defer second.Close()
+
+	b := NewBalancer(balancerConfig(config.LeastResponseTimeType, alwaysAlive, first.Listener.Addr().String(), second.Listener.Addr().String()), nil, proxy.NewProxyClient)
+	defer b.Shutdown() //nolint:errcheck
+	serve := b.Serve()
+
+	var concurrentRequests sync.WaitGroup
+	for range 100 {
+		concurrentRequests.Go(func() { serve(mocks.RequestFrom("10.0.0.1")) })
+	}
+	concurrentRequests.Wait()
+
+	require.Equal(t, int64(100), firstRequests.Load()+secondRequests.Load(), "every request reached a Backend")
+	assert.InDelta(t, 50, firstRequests.Load(), 25, "two equal Backends share the burst")
+	assert.InDelta(t, 50, secondRequests.Load(), 25, "two equal Backends share the burst")
 }

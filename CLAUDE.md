@@ -96,6 +96,8 @@ helm install divisor oci://ghcr.io/aaydin-tr/charts/divisor -f values.yaml
   expires the Score of one traffic bypassed for 3 rounds (requests went to
   other Backends, none to it; a round with no requests at all counts for
   nobody), so `Pick` sends it one Trial request (`ClaimTrialRequest`).
+  Otherwise `Pick` is power of two choices without replacement over Score ×
+  (Pending requests + 1), an unmeasured Backend scored at the median.
 
 `core.NewBalancer(cfg, middlewareExecutor, proxyFunc)` is the only wiring:
 it turns `cfg.Backends` into Backends, picks the balancer by `cfg.Type`,
