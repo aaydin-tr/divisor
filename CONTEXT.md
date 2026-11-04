@@ -123,3 +123,29 @@ _Avoid_: fallback
 **Spec-red**:
 A test written against agreed 1.0 spec behavior that has not shipped yet; it skips unless explicitly opted into, so the blocking CI job stays green while the spec gap stays tracked. Shipping the behavior removes the marker and the test starts gating PRs.
 _Avoid_: born-red, expected-failure, xfail
+
+### Release benchmark
+
+**Release benchmark**:
+The performance comparison run for each stable divisor release: every Contender serves the same traffic, one after another, on one machine in one run, so its numbers compare Contenders with each other and never with an earlier run's numbers.
+_Avoid_: perf test, load test, benchmark suite
+
+**Contender**:
+One proxy measured in a Release benchmark, configured by the Equivalent setup: the divisor being released, the Baseline release, nginx, HAProxy and Traefik.
+_Avoid_: competitor, target, subject
+
+**Baseline release**:
+The previous stable divisor release, run as a Contender next to the one being released; what changed in a release is always the difference between the two within the same run.
+_Avoid_: previous version, reference build
+
+**Equivalent setup**:
+How every Contender is configured so they all do the same work: round-robin over the same Backends, HTTP/1.1 without TLS towards clients and Backends with keep-alive on both sides, `X-Forwarded-For` added, no access logging, the same CPU and memory, active health checks at the same interval where the proxy has them, and otherwise each proxy's own defaults. No config file is shared; each proxy states the same setup in its own config language.
+_Avoid_: same config, identical config, tuned config
+
+**Workload**:
+One traffic shape every Contender serves in a Release benchmark: Throughput (a fixed number of keep-alive connections sending as fast as they can) or Fixed-rate latency (a constant request rate well below every Contender's maximum).
+_Avoid_: scenario (an Integration suite term), test case, profile
+
+**Benchmark backend**:
+The purpose-built Backend every Contender forwards to in a Release benchmark. It answers every request, Probes included, with the same small fixed body and does as little work as it can, so it is never what limits a Contender.
+_Avoid_: echo backend (the Integration suite's), mock server

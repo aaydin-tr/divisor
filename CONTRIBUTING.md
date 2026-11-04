@@ -47,6 +47,21 @@ shaped this way is in
 [ADR 0001](development/adr/0001-black-box-integration-suite.md) and
 [ADR 0002](development/adr/0002-spec-red-gating.md).
 
+### Release benchmark
+
+`benchmark/` is its own Go module too, so `go test ./...` never runs its tests.
+CI runs them with `-race` and lints the module:
+
+```bash
+go -C benchmark test -race ./...
+```
+
+`make benchmark-smoke` runs the benchmark's short smoke run (Docker): every
+Contender (each proxy the benchmark measures) must answer only 2xx, spread
+requests evenly over the 4 Benchmark backends, forward `X-Forwarded-For` and
+reuse its Backend connections. It exits non-zero naming the Contender and the
+check that failed. See [`benchmark/README.md`](benchmark/README.md).
+
 ## Lint
 
 CI runs golangci-lint v2.15.0 with the repo's `.golangci.yml`:
@@ -54,6 +69,9 @@ CI runs golangci-lint v2.15.0 with the repo's `.golangci.yml`:
 ```bash
 go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0 run --timeout=3m
 ```
+
+Run the same command from `benchmark/` to lint the benchmark module, which CI
+lints separately.
 
 ## Changing the Middleware contract
 
@@ -124,7 +142,9 @@ history. Point to the ADR from the code it constrains in a one-line comment.
 4. Open a PR against `main`. CI runs the linter, the unit tests with `-race`,
    the integration suite, and, when the PR touches release files
    (`.goreleaser.yaml`, `Dockerfile`, `main.go`, `charts/`, `.github/scripts/`
-   or the release workflows), a release dry-run.
+   or the release workflows), a release dry-run, and, when it touches
+   `benchmark/`, the benchmark workflows, `Dockerfile`, `main.go` or
+   `.goreleaser.yaml`, a Benchmark smoke run (`make benchmark-smoke`).
 
 Instructions for AI coding agents working in this repo are in
 [`development/agents/`](development/agents/).

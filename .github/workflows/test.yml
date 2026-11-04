@@ -17,3 +17,7 @@ jobs:
 
       - name: Test
         run:  go test -race -v ./...
+
+      # The benchmark is its own Go module, which the root ./... never reaches.
+      - name: Test the benchmark module
+        run: go -C benchmark test -race -v ./...

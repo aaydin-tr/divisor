@@ -28,3 +28,14 @@ jobs:
           version: v2.15.0
           args: --timeout=3m
           working-directory: .
+
+      - name: Download the benchmark module dependencies
+        run: go -C benchmark mod download
+
+      # The benchmark is its own Go module, which the root run never reaches.
+      - name: golangci-lint the benchmark module
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.15.0
+          args: --timeout=3m
+          working-directory: benchmark

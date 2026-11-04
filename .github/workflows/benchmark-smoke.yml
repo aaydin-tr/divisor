@@ -1,0 +1,80 @@
+name: Benchmark smoke
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    name: Detect benchmark changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      benchmark: ${{ steps.changes.outputs.benchmark }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Quoted so git matches the pathspec, which also catches a deleted benchmark workflow.
+      # The benchmark rebuilds the release image from Dockerfile, main.go and .goreleaser.yaml's ldflags.
+      - name: Detect benchmark changes
+        id: changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if git diff --quiet "$BASE_SHA" HEAD -- \
+            benchmark/ \
+            '.github/workflows/benchmark*.yml' \
+            Dockerfile \
+            main.go \
+            .goreleaser.yaml; then
+            echo "benchmark=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "benchmark=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  benchmark-smoke:
+    name: Benchmark smoke
+    needs: detect
+    if: needs.detect.outputs.benchmark == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        # The tags let the tool pick the Baseline release, whose published image
+        # then runs the PR's divisor config too.
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.3"
+          cache-dependency-path: |
+            go.sum
+            benchmark/go.sum
+
+      # The tool builds the PR's divisor into the release image shape and uses
+      # it as a local base image, so this job keeps Docker's default builder.
+      - name: Smoke run
+        run: go -C benchmark run ./cmd/release-benchmark --checkout .. --results results --smoke
+
+      - name: Write the section to the job summary
+        if: always()
+        run: |
+          if [ -f benchmark/results/section.md ]; then
+            cat benchmark/results/section.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload the smoke results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-smoke-results
+          path: benchmark/results/
+          if-no-files-found: ignore

@@ -1,0 +1,174 @@
+name: Benchmark
+
+on:
+  workflow_run:
+    workflows: [goreleaser]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Tag or branch to benchmark (a tag runs its published image)
+        required: true
+        default: main
+        type: string
+      publish:
+        description: Put the numbers on the tag's release page (needs a tag with a GitHub release)
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: benchmark-${{ github.event.workflow_run.head_branch || inputs.ref }}
+  cancel-in-progress: false
+
+env:
+  # For a tag push, the release run's head_branch is the tag.
+  MEASURED_REF: ${{ github.event.workflow_run.head_branch || inputs.ref }}
+  TRIGGER: ${{ github.event_name == 'workflow_run' && 'release' || 'manual' }}
+  # A release run asks to publish through its tag message instead.
+  PUBLISH: ${{ inputs.publish || false }}
+
+jobs:
+  benchmark:
+    name: Release benchmark
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    outputs:
+      publish: ${{ steps.release-benchmark.outputs.publish }}
+    steps:
+      # The benchmark tool and Contender definitions come from this workflow's
+      # commit, so an old tag is measured with today's method.
+      - name: Checkout the benchmark
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Checkout the measured ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MEASURED_REF }}
+          path: measured
+          fetch-depth: 0
+          persist-credentials: false
+
+      # actions/checkout can leave an annotated tag without its message; the repo is public, so no credentials.
+      - name: Fetch every tag
+        run: git -C measured fetch --force --tags
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.3"
+          cache-dependency-path: |
+            benchmark/go.sum
+            measured/go.sum
+
+      # No setup-buildx-action: a docker-container builder cannot build FROM
+      # the divisor image the tool builds from a branch into the local store.
+      - name: Run the Release benchmark
+        id: release-benchmark
+        env:
+          # Looks up whether a manual run's tag has a GitHub release to publish to.
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: >-
+          go -C benchmark run ./cmd/release-benchmark
+          --trigger "$TRIGGER" --ref "$MEASURED_REF" --publish="$PUBLISH"
+          --checkout ../measured --results results
+          --summary "$GITHUB_STEP_SUMMARY"
+          --publish-verdict "$GITHUB_OUTPUT"
+
+      - name: Say why the benchmark never ran
+        if: failure() && steps.release-benchmark.outcome == 'skipped'
+        run: |
+          printf '## Release benchmark failed\n\nA step before the benchmark failed for %s; see the job log.\n' \
+            "$MEASURED_REF" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-benchmark-results
+          path: benchmark/results
+          # A skipped run measures nothing.
+          if-no-files-found: ignore
+
+  publish:
+    name: Publish to the release page
+    needs: benchmark
+    if: needs.benchmark.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The only job that can write: it edits the release notes and assets.
+    permissions:
+      contents: write
+    # GH_TOKEN goes only on the steps that run gh, never on one that runs compiled code.
+    env:
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Checkout the benchmark
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.3"
+          cache-dependency-path: benchmark/go.sum
+
+      - name: Download the results
+        uses: actions/download-artifact@v4
+        with:
+          name: release-benchmark-results
+          path: results
+
+      # --template, unlike --jq, adds no newline, so publishing again leaves the notes as they are.
+      - name: Read the release notes
+        id: release-before
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest_release_before="$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name)"
+          echo "latest=$latest_release_before" >> "$GITHUB_OUTPUT"
+          gh release view "$MEASURED_REF" --json body --template '{{.body}}' > "$RUNNER_TEMP/release-notes.md"
+
+      - name: Splice the section into the release notes
+        run: >-
+          go -C benchmark run ./cmd/release-benchmark splice
+          --notes "$RUNNER_TEMP/release-notes.md" --section "$GITHUB_WORKSPACE/results/section.md"
+          --out "$RUNNER_TEMP/spliced-release-notes.md"
+
+      # gh sends make_latest only when --latest is given, so it is always given, to keep Latest where it is.
+      - name: Edit the release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST_RELEASE_BEFORE: ${{ steps.release-before.outputs.latest }}
+        run: |
+          measured_ref_is_latest=false
+          if [ "$LATEST_RELEASE_BEFORE" = "$MEASURED_REF" ]; then
+            measured_ref_is_latest=true
+          fi
+          gh release edit "$MEASURED_REF" --notes-file "$RUNNER_TEMP/spliced-release-notes.md" \
+            --latest="$measured_ref_is_latest"
+          latest_release_after="$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name)"
+          if [ "$latest_release_after" != "$LATEST_RELEASE_BEFORE" ]; then
+            echo "::error::Publishing to $MEASURED_REF moved the Latest release from $LATEST_RELEASE_BEFORE to $latest_release_after; mark $LATEST_RELEASE_BEFORE as Latest again by hand"
+            exit 1
+          fi
+
+      - name: Attach benchmark.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$MEASURED_REF" results/benchmark.json --clobber
+
+      - name: Say where it was published
+        run: |
+          printf '## Published\n\nThe section and benchmark.json are on the [%s release page](%s/%s/releases/tag/%s).\n' \
+            "$MEASURED_REF" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$MEASURED_REF" >> "$GITHUB_STEP_SUMMARY"

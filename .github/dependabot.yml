@@ -9,3 +9,23 @@ updates:
     directory: /
     schedule:
       interval: weekly
+
+  - package-ecosystem: gomod
+    directory: /benchmark
+    schedule:
+      interval: weekly
+
+  # The Release benchmark's Contender and oha pins. contenders/divisor is the image under
+  # test, and backend/ and equivalentsetup/ move with the Go toolchain bump.
+  - package-ecosystem: docker
+    directories:
+      - /benchmark/contenders/haproxy
+      - /benchmark/contenders/nginx
+      - /benchmark/contenders/traefik
+      - /benchmark/loadgenerator
+    schedule:
+      interval: monthly
+    groups:
+      benchmark-pins:
+        patterns:
+          - "*"

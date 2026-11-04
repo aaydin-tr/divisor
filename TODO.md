@@ -397,8 +397,9 @@ Spec: `.scratch/docs/spec.md` — tickets in `.scratch/docs/issues/`.
   `integration-test/` and `integration-test/echobackend/` go.mod files and
   `.golangci.yml`, `1.27.3` in the five workflows, `golang:1.27-alpine` in
   the root and echobackend Dockerfiles, golangci-lint v2.9.0 → v2.15.0 (new
-  goconst/gosec/nolintlint findings cleared). `benchmark/` stays on 1.25
-  (separate tooling module). Ticket: `01-toolchain-and-deps.md` (done).
+  goconst/gosec/nolintlint findings cleared). Ticket:
+  `01-toolchain-and-deps.md` (done). `benchmark/` joined at 1.27 when the
+  Release benchmark rebuilt it; it moves with every bump since.
 - [x] Monitoring server coverage — shipped:
   `TestMonitoringReportsBackendLivenessAcrossRejoin` (`backend_alive` 0 → 1
   across zero-Alive-at-boot and Rejoin, `/stats` liveness in config order)

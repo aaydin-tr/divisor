@@ -1,0 +1,13 @@
+# Traefik's static config in the Equivalent setup (benchmark/README.md). The
+# access log, API, dashboard and metrics stay at their default: off.
+global:
+  # Asks traefik.io for a newer release: not proxy work, and not in a run.
+  checkNewVersion: false
+
+entryPoints:
+  web:
+    address: ":8080"
+
+providers:
+  file:
+    filename: /etc/traefik/dynamic.yml

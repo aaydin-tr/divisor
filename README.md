@@ -93,7 +93,8 @@ The full index is
 
 ## Benchmark
 
-See the [benchmark folder](benchmark/) for the setup and results.
+See the [benchmark folder](benchmark/) for how divisor is measured and how to
+run the benchmark yourself.
 
 ## Contributing
 

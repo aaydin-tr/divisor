@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -178,4 +179,28 @@ func TestPrepareServerHttpVersion(t *testing.T) {
 			assert.Contains(t, err.Error(), rejected)
 		})
 	}
+}
+
+// The Release benchmark runs this config on every divisor it measures; a renamed
+// key must fail this PR, not the next release's benchmark.
+func TestReleaseBenchmarkConfigStatesTheEquivalentSetup(t *testing.T) {
+	cfg, err := ParseConfigFile("../../benchmark/contenders/divisor/config.yaml")
+	require.NoError(t, err)
+	require.NoError(t, cfg.PrepareConfig())
+
+	backendAddresses := make([]string, 0, len(cfg.Backends))
+	for _, backend := range cfg.Backends {
+		backendAddresses = append(backendAddresses, backend.Url)
+	}
+	assert.Equal(t, RoundRobinType, cfg.Type)
+	assert.Equal(t, []string{"127.0.0.1:9001", "127.0.0.1:9002", "127.0.0.1:9003", "127.0.0.1:9004"}, backendAddresses)
+	assert.Equal(t, "8080", cfg.Port)
+	assert.Equal(t, Http1, cfg.Server.HttpVersion)
+	assert.Empty(t, cfg.Server.CertFile)
+	assert.Empty(t, cfg.Server.KeyFile)
+	assert.Equal(t, 30*time.Second, cfg.HealthCheckerTime)
+	assert.False(t, cfg.Logging.AccessLog)
+	assert.Empty(t, cfg.Middlewares)
+	assert.Empty(t, cfg.CustomHeaders)
+	assert.Equal(t, "localhost:8001", cfg.GetMonitoringAddr())
 }

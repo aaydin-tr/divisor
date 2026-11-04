@@ -1,0 +1,120 @@
+{
+  "plan": {
+    "trigger": "manual",
+    "mode": "full",
+    "ref": "v1.0.0",
+    "commit": "5e96045d0ffee000000000000000000000000001",
+    "benchmark_commit": "c0ffee0b18a318a475ea591120ef99e0a50eeae8",
+    "contenders": [
+      {
+        "id": "divisor",
+        "name": "divisor",
+        "version": "v1.0.0",
+        "image": "ghcr.io/aaydin-tr/divisor:v1.0.0",
+        "definition": "divisor",
+        "build_args": {
+          "DIVISOR_IMAGE": "ghcr.io/aaydin-tr/divisor:v1.0.0"
+        }
+      }
+    ],
+    "workloads": [
+      {
+        "id": "throughput",
+        "name": "Throughput",
+        "connections": 64
+      },
+      {
+        "id": "fixed-rate-latency",
+        "name": "Fixed-rate latency",
+        "connections": 64,
+        "requests_per_second": 5000,
+        "correct_coordinated_omission": true
+      }
+    ],
+    "schedule": {
+      "rounds": 3,
+      "warm_up_seconds": 5,
+      "measurement_seconds": 30,
+      "readiness_timeout_seconds": 30
+    },
+    "resources": {
+      "load_generator_cpus": "0,1",
+      "contender_cpus": "2",
+      "contender_memory_mb": 512,
+      "backend_cpus": "3"
+    },
+    "network": {
+      "contender_url": "http://127.0.0.1:8080/",
+      "benchmark_backends": [
+        {
+          "name": "backend-1",
+          "address": "127.0.0.1:9001"
+        },
+        {
+          "name": "backend-2",
+          "address": "127.0.0.1:9002"
+        },
+        {
+          "name": "backend-3",
+          "address": "127.0.0.1:9003"
+        },
+        {
+          "name": "backend-4",
+          "address": "127.0.0.1:9004"
+        }
+      ]
+    },
+    "baseline_release": {
+      "no_baseline_reason": "v0.6.0, the stable release before v1.0.0, is another major version, and divisor's config is only compatible within one major version"
+    }
+  },
+  "environment": {
+    "started_at": "2026-11-03T22:15:09.6655132Z",
+    "runner_image": "GitHub-hosted ubuntu24 20261027.1",
+    "workflow_run_url": "https://github.com/aaydin-tr/divisor/actions/runs/123456789",
+    "architecture": "amd64",
+    "cpu_model": "AMD EPYC 7763 64-Core Processor",
+    "load_generator": "oha 1.16.0",
+    "contender_image_ids": {
+      "divisor": "sha256:b09a3b7521e60d8dea89b90a7aa3b1d7e21d8b10abcb4a64d99390b0b5f77d6e"
+    }
+  },
+  "measurements": [
+    {
+      "round": 1,
+      "contender": "divisor",
+      "workload": "throughput",
+      "oha_output_file": "raw/round-1/divisor/throughput.json"
+    },
+    {
+      "round": 1,
+      "contender": "divisor",
+      "workload": "fixed-rate-latency",
+      "oha_output_file": "raw/round-1/divisor/fixed-rate-latency.json"
+    },
+    {
+      "round": 2,
+      "contender": "divisor",
+      "workload": "throughput",
+      "oha_output_file": "raw/round-2/divisor/throughput.json"
+    },
+    {
+      "round": 2,
+      "contender": "divisor",
+      "workload": "fixed-rate-latency",
+      "oha_output_file": "raw/round-2/divisor/fixed-rate-latency.json"
+    },
+    {
+      "round": 3,
+      "contender": "divisor",
+      "workload": "throughput",
+      "oha_output_file": "raw/round-3/divisor/throughput.json"
+    },
+    {
+      "round": 3,
+      "contender": "divisor",
+      "workload": "fixed-rate-latency",
+      "oha_output_file": "raw/round-3/divisor/fixed-rate-latency.json"
+    }
+  ]
+}
