@@ -46,6 +46,8 @@ jobs:
       # commit, so an old tag is measured with today's method.
       - name: Checkout the benchmark
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Checkout the measured ref
         uses: actions/checkout@v4
@@ -53,8 +55,9 @@ jobs:
           ref: ${{ env.MEASURED_REF }}
           path: measured
           fetch-depth: 0
+          persist-credentials: false
 
-      # actions/checkout can leave an annotated tag without its message.
+      # actions/checkout can leave an annotated tag without its message; the repo is public, so no credentials.
       - name: Fetch every tag
         run: git -C measured fetch --force --tags
 
