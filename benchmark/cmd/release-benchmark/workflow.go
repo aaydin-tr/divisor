@@ -38,22 +38,27 @@ func workflowRunInputs(ctx context.Context, command *commandLine, logOutput io.W
 		Commit:                        refCommit,
 		CheckoutHasUncommittedChanges: hasUncommittedChanges,
 	}
-	if refIsTag {
-		inputs.TagMessage, err = annotatedTagMessage(ctx, command.checkoutDirectory, command.ref, logOutput)
+	if !refIsTag {
+		return inputs, nil
 	}
-	if err == nil && refIsTag && command.publish && command.trigger == plan.ManualTrigger {
-		inputs.RefHasGitHubRelease, err = githubReleaseExists(ctx, command.ref)
+	if inputs.TagMessage, err = annotatedTagMessage(ctx, command.checkoutDirectory, command.ref, logOutput); err != nil {
+		return plan.Inputs{}, err
 	}
-	return inputs, err
+	if command.publish && command.trigger == plan.ManualTrigger {
+		if inputs.RefHasGitHubRelease, err = githubReleaseExists(ctx, command.ref); err != nil {
+			return plan.Inputs{}, err
+		}
+	}
+	return inputs, nil
 }
 
-func resolveRef(ctx context.Context, checkoutDirectory, ref string) (refIsTag bool, commit string, err error) {
-	if commit, err := gitOutput(ctx, checkoutDirectory, "rev-parse", "--verify", "--quiet", "refs/tags/"+ref+"^{commit}"); err == nil {
-		return true, commit, nil
+func resolveRef(ctx context.Context, checkoutDirectory, ref string) (refIsTag bool, refCommit string, err error) {
+	if refCommit, err = gitOutput(ctx, checkoutDirectory, "rev-parse", "--verify", "--quiet", "refs/tags/"+ref+"^{commit}"); err == nil {
+		return true, refCommit, nil
 	}
 	for _, branch := range []string{"refs/heads/" + ref, "refs/remotes/origin/" + ref} {
-		if commit, err := gitOutput(ctx, checkoutDirectory, "rev-parse", "--verify", "--quiet", branch+"^{commit}"); err == nil {
-			return false, commit, nil
+		if refCommit, err = gitOutput(ctx, checkoutDirectory, "rev-parse", "--verify", "--quiet", branch+"^{commit}"); err == nil {
+			return false, refCommit, nil
 		}
 	}
 	return false, "", fmt.Errorf("%s is neither a tag nor a branch in %s", ref, checkoutDirectory)

@@ -14,6 +14,8 @@ import (
 
 const (
 	FileName = "recording.json"
+	// RawDirectory holds every round's raw output, under the results directory.
+	RawDirectory = "raw"
 
 	resultsFilePermissions      = 0o600
 	resultsDirectoryPermissions = 0o750
@@ -68,8 +70,12 @@ func OhaOutputFile(round int, contenderID, workloadID string) string {
 	return path.Join(RoundDirectory(round, contenderID), workloadID+".json")
 }
 
+func ContenderLogFile(round int, contenderID string) string {
+	return path.Join(RoundDirectory(round, contenderID), "contender.log")
+}
+
 func RoundDirectory(round int, contenderID string) string {
-	return path.Join("raw", fmt.Sprintf("round-%d", round), contenderID)
+	return path.Join(RawDirectory, fmt.Sprintf("round-%d", round), contenderID)
 }
 
 func Save(resultsDirectory string, recorded *Recording) error {

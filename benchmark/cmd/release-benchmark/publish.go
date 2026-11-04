@@ -14,8 +14,6 @@ import (
 	"github.com/aaydin-tr/divisor/benchmark/report"
 )
 
-const releaseNotesFilePermissions = 0o600
-
 // spliceReleaseNotes is the publish job's step between reading the release
 // notes with gh and writing them back.
 func spliceReleaseNotes(arguments []string) error {
@@ -40,7 +38,7 @@ func spliceReleaseNotes(arguments []string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(*splicedFile, []byte(spliced), releaseNotesFilePermissions) //nolint:gosec
+	return os.WriteFile(*splicedFile, []byte(spliced), writtenFilePermissions) //nolint:gosec
 }
 
 // githubReleaseExists asks gh, so the benchmark workflow's run step needs GH_TOKEN and GH_REPO.

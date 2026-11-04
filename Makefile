@@ -11,30 +11,30 @@ BINARY := $(BUILD_DIR)/$(BINARY_NAME)$(BINARY_EXT)
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build run install generate fmt fmt-check vet lint test tidy check clean release release-check
+.PHONY: help build run install generate fmt fmt-check vet lint test benchmark benchmark-smoke tidy check clean release release-check tag
 
 help: ## Show available targets
 	@printf "%s\n" \
 		"Usage: make <target>" \
 		"" \
 		"Targets:" \
-		"  help       Show available targets" \
-		"  build      Build the application into $(BINARY)" \
-		"  run        Run the application" \
-		"  install    Install the application" \
-		"  generate   Run Go code generation" \
-		"  fmt        Format Go source files" \
-		"  fmt-check  Check Go source formatting" \
-		"  vet        Run go vet" \
-		"  lint       Run golangci-lint" \
-		"  test       Run all tests verbosely" \
-		"  benchmark  Run the Release benchmark on this checkout (Docker; never publishes)" \
+		"  help             Show available targets" \
+		"  build            Build the application into $(BINARY)" \
+		"  run              Run the application" \
+		"  install          Install the application" \
+		"  generate         Run Go code generation" \
+		"  fmt              Format Go source files" \
+		"  fmt-check        Check Go source formatting" \
+		"  vet              Run go vet" \
+		"  lint             Run golangci-lint" \
+		"  test             Run all tests verbosely" \
+		"  benchmark        Run the Release benchmark on this checkout (Docker; never publishes)" \
 		"  benchmark-smoke  Run the PR check's short smoke run of the Release benchmark (Docker)" \
-		"  tidy       Tidy Go module dependencies" \
-		"  check      Run formatting, vet, lint, and tests" \
-		"  clean      Remove build artifacts" \
-		"  release    Validate and build a snapshot release" \
-		"  tag        Create and push a release tag: VERSION=vX.Y.Z[-rc.N] [BENCHMARK=publish] [DRY_RUN=1]"
+		"  tidy             Tidy Go module dependencies" \
+		"  check            Run formatting, vet, lint, and tests" \
+		"  clean            Remove build artifacts" \
+		"  release          Validate and build a snapshot release" \
+		"  tag              Create and push a release tag: VERSION=vX.Y.Z[-rc.N] [BENCHMARK=publish] [DRY_RUN=1]"
 
 build: ## Build the application
 	@mkdir -p "$(BUILD_DIR)"
@@ -64,11 +64,9 @@ lint: ## Run golangci-lint
 test: ## Run all tests verbosely
 	$(GO) test -v ./...
 
-.PHONY: benchmark
 benchmark: ## Run the Release benchmark on this checkout; results in benchmark/results
 	$(GO) -C benchmark run ./cmd/release-benchmark --checkout .. --results results
 
-.PHONY: benchmark-smoke
 benchmark-smoke: ## Run the smoke run the PR check runs: fails when a Contender is not in the Equivalent setup
 	$(GO) -C benchmark run ./cmd/release-benchmark --checkout .. --results results --smoke
 
@@ -88,7 +86,6 @@ release: release-check ## Build a snapshot release
 
 # The Release benchmark publishes when the tag message has the line `benchmark: publish` (ADR 0009).
 # git ls-remote --exit-code exits 2 when origin has no such tag.
-.PHONY: tag
 tag: ## Create and push a release tag: VERSION=vX.Y.Z[-rc.N] [BENCHMARK=publish] [DRY_RUN=1]
 	@refuse() { printf 'make tag: %s\n' "$$1" >&2; exit 1; }; \
 	printf '%s\n' "$$VERSION" | grep -Eqx 'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.[1-9][0-9]*)?' \

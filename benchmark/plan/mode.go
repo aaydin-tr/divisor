@@ -1,9 +1,5 @@
 package plan
 
-// SmokeTrigger is a PR check: a short run that proves every Contender is in
-// the Equivalent setup, never numbers anyone reads.
-const SmokeTrigger Trigger = "smoke"
-
 const SmokeMode Mode = "smoke"
 
 // EquivalentSetupCheck sends Requests through each Contender over a few
@@ -21,7 +17,7 @@ var smokeSchedule = Schedule{
 	EquivalentSetupCheck:    &EquivalentSetupCheck{Requests: 2000, Connections: 8},
 }
 
-func withSmokeMode(decided *Plan, inputs *Inputs) {
+func applySmokeMode(decided *Plan, inputs *Inputs) {
 	if inputs.Trigger != SmokeTrigger {
 		return
 	}

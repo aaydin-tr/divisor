@@ -1,10 +1,6 @@
 // Package plan decides what a Release benchmark run measures. It is pure: every input arrives in Inputs.
 package plan
 
-type Trigger string
-
-const LocalTrigger Trigger = "local"
-
 type Mode string
 
 const FullMode Mode = "full"
@@ -77,8 +73,8 @@ func Decide(inputs *Inputs) (Plan, error) {
 		Network:         hostNetwork,
 		Publish:         publish,
 	}
-	withBaselineRelease(&decided, inputs)
-	withSmokeMode(&decided, inputs)
+	addBaselineRelease(&decided, inputs)
+	applySmokeMode(&decided, inputs)
 	return decided, nil
 }
 

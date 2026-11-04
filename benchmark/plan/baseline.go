@@ -87,9 +87,9 @@ func baselineReleaseFor(inputs *Inputs) BaselineRelease {
 	return BaselineRelease{Tag: baseline.tag}
 }
 
-// withBaselineRelease records the run's Baseline release and puts its row
+// addBaselineRelease records the run's Baseline release and puts its row
 // directly under divisor.
-func withBaselineRelease(decided *Plan, inputs *Inputs) {
+func addBaselineRelease(decided *Plan, inputs *Inputs) {
 	decided.BaselineRelease = baselineReleaseFor(inputs)
 	if decided.BaselineRelease.Exists() {
 		divisorRow := slices.IndexFunc(decided.Contenders, func(contender Contender) bool { return contender.ID == DivisorContenderID })

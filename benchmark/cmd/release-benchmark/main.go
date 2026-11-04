@@ -29,7 +29,7 @@ const (
 	benchmarkJSONFileName = "benchmark.json"
 	benchmarkDirectory    = "."
 
-	summaryFilePermissions = 0o600
+	writtenFilePermissions = 0o600
 )
 
 const commandUsage = `Usage:
@@ -248,7 +248,7 @@ func verifyEquivalentSetup(recorded *recording.Recording) error {
 // clearResultsDirectory removes only what a run writes, so a mistyped
 // --results never deletes anything else.
 func clearResultsDirectory(resultsDirectory string) error {
-	for _, written := range []string{"raw", recording.FileName, benchmarkJSONFileName, sectionFileName} {
+	for _, written := range []string{recording.RawDirectory, recording.FileName, benchmarkJSONFileName, sectionFileName} {
 		if err := os.RemoveAll(filepath.Join(resultsDirectory, written)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
@@ -291,7 +291,7 @@ func gitOutput(ctx context.Context, directory string, arguments ...string) (stri
 }
 
 func appendToFile(path, content string) error {
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, summaryFilePermissions)
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, writtenFilePermissions)
 	if err != nil {
 		return err
 	}

@@ -164,7 +164,7 @@ func (r *runner) stopContender(turn *plan.Turn) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	if logs, err := r.docker.combinedOutput(ctx, "logs", contenderContainer); err == nil {
-		_ = recording.WriteResultsFile(r.options.ResultsDirectory, recording.RoundDirectory(turn.Round, turn.Contender.ID)+"/contender.log", logs)
+		_ = recording.WriteResultsFile(r.options.ResultsDirectory, recording.ContenderLogFile(turn.Round, turn.Contender.ID), logs)
 	}
 	r.docker.removeContainers(contenderContainer)
 }

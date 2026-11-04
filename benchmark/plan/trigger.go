@@ -2,7 +2,14 @@ package plan
 
 import "fmt"
 
+type Trigger string
+
 const (
+	// LocalTrigger is `make benchmark` on someone's own checkout.
+	LocalTrigger Trigger = "local"
+	// SmokeTrigger is a PR check: a short run that proves every Contender is in
+	// the Equivalent setup, never numbers anyone reads.
+	SmokeTrigger Trigger = "smoke"
 	// ReleaseTrigger is the benchmark workflow started by a successful release workflow run on a tag.
 	ReleaseTrigger Trigger = "release"
 	// ManualTrigger is the benchmark workflow started by hand for any tag or branch.
