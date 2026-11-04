@@ -33,10 +33,15 @@ func receiveAppliedPlan(t *testing.T, target planReceivingTarget) *config.Reload
 
 func assertNoReloadApplied(t *testing.T, target planReceivingTarget) {
 	t.Helper()
+	assertNoReloadAppliedWithin(t, target, 5*quietPeriodForTests)
+}
+
+func assertNoReloadAppliedWithin(t *testing.T, target planReceivingTarget, window time.Duration) {
+	t.Helper()
 	select {
 	case plan := <-target:
 		t.Fatalf("unexpected Reload applied: %+v", plan)
-	case <-time.After(5 * quietPeriodForTests):
+	case <-time.After(window):
 	}
 }
 
@@ -88,7 +93,8 @@ func TestConfigFileWatchReloadsOnceForABurstOfEdits(t *testing.T) {
 	writeConfigFile(t, configPath, threeBackendsYAML)
 
 	assert.Equal(t, []int{2}, receiveAppliedPlan(t, target).AddedBackendNextPositions, "the burst Reloads once, with the last edit")
-	assertNoReloadApplied(t, target)
+	// A Reload split off a burst spread over up to one quiet period fires up to one quiet period later.
+	assertNoReloadAppliedWithin(t, target, 2*ConfigFileQuietPeriod)
 }
 
 // kubelet updates a ConfigMap volume by writing a new data directory and

@@ -152,16 +152,16 @@ func runReleaseBenchmark(ctx context.Context, command *commandLine, logOutput io
 	if err := recording.Save(command.resultsDirectory, recorded); err != nil {
 		return summary, verdict, err
 	}
-	built, err := writeReport(command.resultsDirectory, recorded)
+	benchmarkReport, err := writeReport(command.resultsDirectory, recorded)
 	if err != nil {
 		return summary, verdict, err
 	}
-	verdict = built.PublishVerdict()
-	summary = appendMarkdownBlock(built.Markdown(), verdict.SummaryLine())
+	verdict = benchmarkReport.PublishVerdict()
+	summary = appendMarkdownBlock(benchmarkReport.Markdown(), verdict.SummaryLine())
 	if err := verifyEquivalentSetup(recorded); err != nil {
 		return summary, verdict, err
 	}
-	return summary, verdict, failedRowsError(built)
+	return summary, verdict, failedRowsError(benchmarkReport)
 }
 
 func runInputs(ctx context.Context, command *commandLine, logOutput io.Writer) (plan.Inputs, error) {
@@ -206,15 +206,15 @@ func reportSavedRecording(resultsDirectory string) error {
 }
 
 func writeReport(resultsDirectory string, recorded *recording.Recording) (*report.Report, error) {
-	built, err := report.Build(recorded)
+	benchmarkReport, err := report.Build(recorded)
 	if err != nil {
 		return nil, err
 	}
-	benchmarkJSON, err := built.BenchmarkJSON()
+	benchmarkJSON, err := benchmarkReport.BenchmarkJSON()
 	if err != nil {
 		return nil, err
 	}
-	section := built.Markdown()
+	section := benchmarkReport.Markdown()
 	if err := recording.WriteResultsFile(resultsDirectory, benchmarkJSONFileName, benchmarkJSON); err != nil {
 		return nil, err
 	}
@@ -222,7 +222,7 @@ func writeReport(resultsDirectory string, recorded *recording.Recording) (*repor
 		return nil, err
 	}
 	fmt.Print(section)
-	return built, nil
+	return benchmarkReport, nil
 }
 
 // verifyEquivalentSetup fails a recording whose Plan checks the Equivalent

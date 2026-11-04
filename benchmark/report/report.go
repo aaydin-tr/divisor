@@ -121,13 +121,13 @@ func buildRoundResult(recorded *recording.Recording, round int, contender *plan.
 	}
 	return RoundResult{Round: round, Numbers: Numbers{
 		RequestsPerSecond: result.RequestsPerSecond,
-		P50Milliseconds:   inMillisecondUnits(result.P50),
-		P99Milliseconds:   inMillisecondUnits(result.P99),
-		P999Milliseconds:  inMillisecondUnits(result.P999),
+		P50Milliseconds:   millisecondsOf(result.P50),
+		P99Milliseconds:   millisecondsOf(result.P99),
+		P999Milliseconds:  millisecondsOf(result.P999),
 	}}, nil
 }
 
-func inMillisecondUnits(latency time.Duration) float64 {
+func millisecondsOf(latency time.Duration) float64 {
 	return float64(latency) / float64(time.Millisecond)
 }
 

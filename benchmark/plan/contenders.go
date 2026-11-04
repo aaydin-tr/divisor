@@ -37,13 +37,13 @@ var upstreamContenders = []struct{ id, name string }{
 }
 
 func contendersFor(inputs *Inputs) ([]Contender, error) {
-	decided := []Contender{divisorUnderTest(inputs)}
+	decidedContenders := []Contender{divisorUnderTest(inputs)}
 	for _, upstream := range upstreamContenders {
 		pinned, err := contenders.PinnedUpstreamImage(upstream.id)
 		if err != nil {
 			return nil, err
 		}
-		decided = append(decided, Contender{
+		decidedContenders = append(decidedContenders, Contender{
 			ID:         upstream.id,
 			Name:       upstream.name,
 			Version:    pinned.Version,
@@ -51,7 +51,7 @@ func contendersFor(inputs *Inputs) ([]Contender, error) {
 			Definition: upstream.id,
 		})
 	}
-	return decided, nil
+	return decidedContenders, nil
 }
 
 func divisorContender(id, name, version, image string) Contender {

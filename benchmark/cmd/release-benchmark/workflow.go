@@ -94,8 +94,8 @@ func failedRunSummary(err error) string {
 
 // failedRowsError fails the run once its report is written: a failed row
 // means a Contender's Equivalent setup is broken.
-func failedRowsError(built *report.Report) error {
-	failed := built.FailedRows()
+func failedRowsError(benchmarkReport *report.Report) error {
+	failed := benchmarkReport.FailedRows()
 	if len(failed) == 0 {
 		return nil
 	}

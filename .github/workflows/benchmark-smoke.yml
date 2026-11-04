@@ -20,6 +20,7 @@ jobs:
           fetch-depth: 0
 
       # Quoted so git matches the pathspec, which also catches a deleted benchmark workflow.
+      # The benchmark rebuilds the release image from Dockerfile, main.go and .goreleaser.yaml's ldflags.
       - name: Detect benchmark changes
         id: changes
         env:
@@ -27,7 +28,10 @@ jobs:
         run: |
           if git diff --quiet "$BASE_SHA" HEAD -- \
             benchmark/ \
-            '.github/workflows/benchmark*.yml'; then
+            '.github/workflows/benchmark*.yml' \
+            Dockerfile \
+            main.go \
+            .goreleaser.yaml; then
             echo "benchmark=false" >> "$GITHUB_OUTPUT"
           else
             echo "benchmark=true" >> "$GITHUB_OUTPUT"

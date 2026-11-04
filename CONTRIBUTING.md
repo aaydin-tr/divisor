@@ -143,8 +143,8 @@ history. Point to the ADR from the code it constrains in a one-line comment.
    the integration suite, and, when the PR touches release files
    (`.goreleaser.yaml`, `Dockerfile`, `main.go`, `charts/`, `.github/scripts/`
    or the release workflows), a release dry-run, and, when it touches
-   `benchmark/` or the benchmark workflows, a Benchmark smoke run
-   (`make benchmark-smoke`).
+   `benchmark/`, the benchmark workflows, `Dockerfile`, `main.go` or
+   `.goreleaser.yaml`, a Benchmark smoke run (`make benchmark-smoke`).
 
 Instructions for AI coding agents working in this repo are in
 [`development/agents/`](development/agents/).

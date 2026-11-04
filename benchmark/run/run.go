@@ -33,8 +33,8 @@ type runner struct {
 	equivalentSetupSamples []recording.EquivalentSetupSample
 }
 
-func Execute(ctx context.Context, executed *plan.Plan, options Options) (*recording.Recording, error) {
-	r := &runner{plan: executed, options: options, contendersWithoutImage: map[string]string{}}
+func Execute(ctx context.Context, decidedPlan *plan.Plan, options Options) (*recording.Recording, error) {
+	r := &runner{plan: decidedPlan, options: options, contendersWithoutImage: map[string]string{}}
 	startedAt := time.Now()
 
 	r.docker.removeContainers(r.containerNames()...)
@@ -52,7 +52,7 @@ func Execute(ctx context.Context, executed *plan.Plan, options Options) (*record
 	}
 
 	var measurements []recording.Measurement
-	turns := executed.Turns()
+	turns := decidedPlan.Turns()
 	for i := range turns {
 		turnMeasurements, err := r.runTurn(ctx, &turns[i])
 		if err != nil {
@@ -61,7 +61,7 @@ func Execute(ctx context.Context, executed *plan.Plan, options Options) (*record
 		measurements = append(measurements, turnMeasurements...)
 	}
 	return &recording.Recording{
-		Plan:                   *executed,
+		Plan:                   *decidedPlan,
 		Environment:            environment,
 		Measurements:           measurements,
 		EquivalentSetupSamples: r.equivalentSetupSamples,
