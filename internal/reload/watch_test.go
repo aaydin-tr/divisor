@@ -78,7 +78,10 @@ func TestConfigFileWatchReloadsAnEditedConfigFile(t *testing.T) {
 func TestConfigFileWatchReloadsOnceForABurstOfEdits(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	writeConfigFile(t, configPath, twoBackendsYAML)
-	target := watchConfigFileAsMainDoes(t, configPath)
+	// The burst must land within one quiet period however a loaded -race runner schedules the writes.
+	watch, err := WatchConfigFile(configPath, ConfigFileQuietPeriod)
+	require.NoError(t, err)
+	target := startReloadingUntilTestEnds(t, watch, configPath, prepareRunningConfig(t, configPath))
 
 	writeConfigFile(t, configPath, fourBackendsYAML)
 	writeConfigFile(t, configPath, twoBackendsYAML)
