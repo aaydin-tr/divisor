@@ -83,11 +83,6 @@ func TestAccessLogOneJSONLinePerRequestOnStdout(t *testing.T) {
 		AccessLog: true,
 	})
 
-	// startScenario's readiness probing already answered requests, so count
-	// the pre-existing lines and assert on the delta.
-	stdoutBefore, _ := divisorStreams(t, s.Divisor)
-	linesBefore := len(nonBlankLines(stdoutBefore))
-
 	const requestCount = 5
 	for i := 0; i < requestCount; i++ {
 		res, err := s.Request(http.MethodGet, fmt.Sprintf("/access-log-test?n=%d", i), nil, nil)
@@ -99,19 +94,37 @@ func TestAccessLogOneJSONLinePerRequestOnStdout(t *testing.T) {
 		}
 	}
 
-	var newLines []string
+	// startScenario's readiness probing also answered requests, and docker
+	// delivers their lines with a lag, so pick this test's lines by path.
+	var stdoutLines, testRequestLines []string
 	eventually(t, 10*time.Second, "access log lines arrive on stdout", func() error {
 		stdout, _ := divisorStreams(t, s.Divisor)
-		newLines = nonBlankLines(stdout)[linesBefore:]
-		if len(newLines) != requestCount {
-			return fmt.Errorf("got %d new stdout lines, want %d", len(newLines), requestCount)
+		stdoutLines = nonBlankLines(stdout)
+		testRequestLines = nil
+		for _, line := range stdoutLines {
+			if strings.Contains(line, "/access-log-test") {
+				testRequestLines = append(testRequestLines, line)
+			}
+		}
+		if len(testRequestLines) != requestCount {
+			return fmt.Errorf("got %d stdout lines for the test's requests, want %d", len(testRequestLines), requestCount)
 		}
 		return nil
 	})
 
+	for _, line := range stdoutLines {
+		var entry map[string]any
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatalf("stdout line is not a JSON access log line: %q", line)
+		}
+		if _, ok := entry["msg"]; ok {
+			t.Errorf("stdout carries an app-log line: %q", line)
+		}
+	}
+
 	backendAddr := s.Backend("b1").Name + ":" + containerPort
 	var previousSequence float64
-	for i, line := range newLines {
+	for i, line := range testRequestLines {
 		var entry map[string]any
 		if err := json.Unmarshal([]byte(line), &entry); err != nil {
 			t.Fatalf("access log line is not JSON: %q", line)
@@ -120,9 +133,6 @@ func TestAccessLogOneJSONLinePerRequestOnStdout(t *testing.T) {
 			if _, ok := entry[field]; !ok {
 				t.Fatalf("access log line is missing %q: %q", field, line)
 			}
-		}
-		if _, ok := entry["msg"]; ok {
-			t.Errorf("access log line carries an app-log msg field: %q", line)
 		}
 		if entry["method"] != "GET" || entry["status"] != float64(200) || entry["backend"] != backendAddr {
 			t.Errorf("unexpected access log values in %q", line)
