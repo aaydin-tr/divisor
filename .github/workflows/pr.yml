@@ -24,6 +24,11 @@ jobs:
     uses: ./.github/workflows/release-dry-run.yml
     needs: linter
 
+  benchmark-smoke:
+    name: Benchmark smoke
+    uses: ./.github/workflows/benchmark-smoke.yml
+    needs: linter
+
   review:
     if: github.event.pull_request.user.login != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository
     permissions:
@@ -31,7 +36,7 @@ jobs:
       pull-requests: write
       id-token: write
     name: Review
-    needs: [test, linter, integration, release-dry-run]
+    needs: [test, linter, integration, release-dry-run, benchmark-smoke]
     uses: ./.github/workflows/review.yml
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

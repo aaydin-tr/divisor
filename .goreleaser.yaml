@@ -63,8 +63,12 @@ changelog:
       - "^test:"
 
 release:
-  footer: >-
+  prerelease: auto
+  # The benchmark workflow splices its section between the markers.
+  footer: |-
+
+    <!-- release-benchmark:begin -->
+    <!-- release-benchmark:end -->
 
     ---
-
     Released by [GoReleaser](https://github.com/goreleaser/goreleaser).

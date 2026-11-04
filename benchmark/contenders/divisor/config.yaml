@@ -1,0 +1,14 @@
+# divisor in the Equivalent setup every Contender states in its own config
+# language (benchmark/README.md). The Monitoring server stays at its default.
+type: round-robin
+port: 8080
+backends:
+  - url: 127.0.0.1:9001
+  - url: 127.0.0.1:9002
+  - url: 127.0.0.1:9003
+  - url: 127.0.0.1:9004
+health_checker_time: 30s
+server:
+  http_version: http1
+logging:
+  access_log: false

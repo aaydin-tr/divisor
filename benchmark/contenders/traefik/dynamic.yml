@@ -1,0 +1,20 @@
+# Read by Traefik's file provider. X-Forwarded-For stays at its default (set).
+http:
+  routers:
+    benchmark:
+      entryPoints:
+        - web
+      rule: PathPrefix(`/`)
+      service: benchmark-backends
+
+  services:
+    benchmark-backends:
+      loadBalancer:
+        servers:
+          - url: http://127.0.0.1:9001
+          - url: http://127.0.0.1:9002
+          - url: http://127.0.0.1:9003
+          - url: http://127.0.0.1:9004
+        healthCheck:
+          path: /
+          interval: 30s

@@ -47,6 +47,46 @@ go test -run TestFunctionName ./package/path
 DIVISOR_INTEGRATION=1 go -C integration-test test -v -timeout 20m .
 ```
 
+### Release benchmark
+```bash
+# Full local Release benchmark of this checkout (Docker; ~4 min per Contender;
+# never publishes). Prints the Markdown section, results in benchmark/results/
+make benchmark
+
+# Smoke run (1 round, no warm-up, 3s per Workload): exits non-zero when a
+# Contender is not in the Equivalent setup. The "Benchmark smoke" PR check runs it
+make benchmark-smoke
+
+# The benchmark module's own tests (its own Go module, like integration-test;
+# CI runs them with -race)
+go -C benchmark test -race ./...
+
+# Re-render section.md and benchmark.json from a saved results directory
+go -C benchmark run ./cmd/release-benchmark report --results results
+```
+`benchmark/` (see its README): `plan` (pure: Contenders, Workloads, schedule,
+resources), `run` (Docker + oha, records `recording.json` and `raw/`),
+`report` (pure: medians, spread, failed rows, Markdown in `markdown.go`,
+`benchmark.json` in `benchmarkjson.go`; tested against `report/testdata/`
+recorded runs, `-update` rewrites them), `oha` (oha's flags and JSON fields),
+`backend` (the Benchmark backend), `contenders/<name>/` (Dockerfile + config
+per Contender: divisor, haproxy, nginx, traefik; an upstream Dockerfile's `FROM`
+tag is its only version pin and, embedded by `contenders.PinnedUpstreamImage`,
+the Version column), `loadgenerator/Dockerfile` (the oha pin), `equivalentsetup`
+(smoke mode's checks: `Check`/`Verify` pure, `Collect` sends the requests from
+the `cmd/equivalent-setup-sampler` container on the host network),
+`releasenotes` (Splice: the section between the `release-benchmark:begin`/`end`
+markers of a release's notes; `release-benchmark splice` runs it).
+
+### Go toolchain bump
+A bump moves the `go` line of every module (`go.mod`, `integration-test/`,
+`integration-test/echobackend/`, `benchmark/`) and `.golangci.yml`, the
+workflows' `go-version`, and the `golang:` base images
+(`integration-test/divisor.Dockerfile`, `integration-test/echobackend/Dockerfile`,
+`benchmark/backend/Dockerfile`, `benchmark/equivalentsetup/Dockerfile`). Dependabot's
+monthly docker entry (`.github/dependabot.yml`) bumps only the upstream Contender and oha
+pins, in one grouped PR: never these bases, nor `contenders/divisor` (the image under test).
+
 ### Install
 ```bash
 go install github.com/aaydin-tr/divisor@latest
@@ -236,7 +276,8 @@ Implemented in `performGracefulShutdown()`:
 A `v*` tag runs `.github/workflows/goreleaser.yml`:
 - goreleaser (`.goreleaser.yaml`) builds the binaries (ldflags set `main.version`/`main.commit`)
   and, via `dockers_v2`, a `linux/amd64`+`linux/arm64` image pushed to `aaydintr/divisor` and
-  `ghcr.io/aaydin-tr/divisor`, tagged `vX.Y.Z`, plus `vX.Y` and `latest` unless a prerelease
+  `ghcr.io/aaydin-tr/divisor`, tagged `vX.Y.Z`, plus `vX.Y` and `latest` unless a prerelease;
+  a prerelease tag (`vX.Y.Z-rc.N`) also becomes a GitHub prerelease, never the "Latest" release
 - The root `Dockerfile` is that release image: it copies goreleaser's prebuilt binary onto
   distroless `static-debian13:nonroot` (no shell). The integration suite builds its own Alpine
   image from `integration-test/divisor.Dockerfile`; never point the suite at the root one
@@ -246,6 +287,27 @@ A `v*` tag runs `.github/workflows/goreleaser.yml`:
 - The chart and `examples/kubernetes` ship the same divisor config and manifests; change both.
   `TestHelmChartConfigMatchesTheKubernetesExample` (`pkg/config/config_strict_test.go`)
   guards the config
+- `.github/workflows/benchmark.yml` runs the Release benchmark (ADR 0009), its own workflow so
+  a benchmark failure never touches the release. Triggers: `workflow_run` of `goreleaser`
+  completing successfully (ref = that run's `head_branch`, the tag; `--trigger release`: Plan
+  skips a prerelease tag and the summary says so) and `workflow_dispatch` with a `ref` input
+  (any tag or branch; `--trigger manual`, an rc runs). The tool and Contender definitions come
+  from the workflow's own commit; the measured ref is a second checkout in `measured/` (full
+  history plus `git fetch --force --tags`, for tag messages and the Baseline). A tag runs its
+  published `ghcr.io/aaydin-tr/divisor:<tag>`; a branch is built into the release image shape,
+  so no `setup-buildx-action` (the default `docker` driver must see that local image).
+  The run job is read-only, one concurrency group per ref, 60-minute timeout. The tool appends the
+  section, or the skip/failure reason, to `$GITHUB_STEP_SUMMARY` (`--summary`), closed by the
+  publish verdict line; a failed row exits non-zero after everything is written;
+  `benchmark/results` is always uploaded as the `release-benchmark-results` artifact
+- Publishing (ADR 0009): Plan requests it when a release run's annotated tag message has the line
+  `benchmark: publish` (`make tag ... BENCHMARK=publish`), or a manual run on a release tag with a
+  GitHub release ticks the `publish` input (ticked on a branch: an error before anything runs).
+  Report's verdict is requested and no failed row; the tool writes `publish=true|false` to
+  `$GITHUB_OUTPUT` (`--publish-verdict`). Only then does the `publish` job run, the only job with
+  `contents: write`: it splices `section.md` into the notes (`release-benchmark splice`, between
+  the markers `.goreleaser.yaml`'s footer writes, else above GoReleaser's footer) with `gh release
+  edit` and uploads `benchmark.json` with `--clobber`, so publishing again replaces both
 
 PRs touching release files (`.goreleaser.yaml`, `Dockerfile`, `main.go`, `charts/`,
 `.github/scripts/`, the release workflows) run the "Release dry-run" job
@@ -303,6 +365,7 @@ When `server.http_version: http2`, divisor serves via `net/http` (its built-in H
 - Config validation tested in `pkg/config/config_test.go`; the Reload classifier in `pkg/config/reload_test.go` (YAML tables through `PlanReload`)
 - `internal/reload/reload_test.go` drives the Reloader against a temp config file with a recording Target and an observed zap logger; `watch_test.go` drives the config file watch through real file edits (in place, bursts, a ConfigMap `..data` swap — skipped where symlinks need privileges, e.g. Windows) with a short quiet period and a channel Target
 - Proxy behavior tested in `internal/proxy/proxy_test.go`; Streamed responses in `streaming_test.go` and `access_log_test.go`, each test run on every listener stack (`onEveryListenerStack`: fasthttp, net/http HTTP/2, net/http HTTP/1.1) against `httptest` Backends that emit delayed frames (or flood a client that stops reading), asserting what reaches the client and what the Backend sees
+- The benchmark module (`benchmark/`, its own Go module) runs its unit tests with `-race` and its own golangci-lint step in the Test and Linter workflows. The "Benchmark smoke" PR check (`.github/workflows/benchmark-smoke.yml`, wired into `pr.yml` like the Release dry-run: a detect job runs it only when `benchmark/` or `.github/workflows/benchmark*.yml` changed) builds the PR's divisor and runs `release-benchmark --smoke`: every Contender must be ready, answer only 2xx, spread evenly over the 4 Benchmark backends, forward `X-Forwarded-For` and keep its Backend connections alive (`benchmark/equivalentsetup`), else the job fails naming the Contender and the check
 - `integration-test/` is a black-box Docker suite (dockertest): divisor and
   purpose-built echo backends run as containers (divisor from the suite's own
   Alpine `integration-test/divisor.Dockerfile`, since scenarios need
