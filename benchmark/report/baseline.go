@@ -9,7 +9,7 @@ import (
 )
 
 // NoiseFloor is the smallest change against the Baseline release that can
-// mean anything on a shared runner, whatever the rounds' spread.
+// mean anything on a shared runner, whatever the rounds' spread (ADR 0009).
 const NoiseFloor = 0.03
 
 type Verdict string
@@ -50,9 +50,9 @@ type ComparedNumber struct {
 
 var comparedNumbers = []ComparedNumber{
 	{WorkloadID: plan.Throughput.ID, Name: "req/s", JSONName: "requests_per_second",
-		valueOf: func(n Numbers) float64 { return n.RequestsPerSecond }, spreadOf: func(s Spread) float64 { return s.RequestsPerSecond }},
+		valueOf: func(numbers Numbers) float64 { return numbers.RequestsPerSecond }, spreadOf: func(spread Spread) float64 { return spread.RequestsPerSecond }},
 	{WorkloadID: plan.FixedRateLatency.ID, Name: "p99", JSONName: "p99_ms",
-		valueOf: func(n Numbers) float64 { return n.P99Milliseconds }, spreadOf: func(s Spread) float64 { return s.P99 }, lowerIsBetter: true},
+		valueOf: func(numbers Numbers) float64 { return numbers.P99Milliseconds }, spreadOf: func(spread Spread) float64 { return spread.P99 }, lowerIsBetter: true},
 }
 
 func compareWithBaseline(r *Report) BaselineComparison {

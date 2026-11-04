@@ -2,11 +2,14 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aaydin-tr/divisor/benchmark/plan"
 )
 
 // The workflow passes the run summary file; these runs end before Docker is needed.
@@ -98,6 +101,29 @@ func TestManualRunPublishingABranchFailsBeforeAnythingRuns(t *testing.T) {
 	}
 	if written, _ := os.ReadDir(results); len(written) != 0 {
 		t.Errorf("results directory has %d entries, want nothing measured", len(written))
+	}
+}
+
+func TestRunInputsSayWhetherTheCheckoutHasUncommittedChanges(t *testing.T) {
+	checkout := checkoutOnAnnotatedTag(t, "v1.1.0", "v1.1.0")
+	manualRun := &commandLine{trigger: plan.ManualTrigger, ref: "v1.1.0", checkoutDirectory: checkout}
+
+	for _, uncommittedChanges := range []bool{false, true} {
+		if uncommittedChanges {
+			writeFile(t, filepath.Join(checkout, "main.go"), "package main\n")
+		}
+		localInputs, err := localRunInputs(context.Background(), checkout)
+		if err != nil {
+			t.Fatal(err)
+		}
+		workflowInputs, err := workflowRunInputs(context.Background(), manualRun, &bytes.Buffer{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if localInputs.CheckoutHasUncommittedChanges != uncommittedChanges || workflowInputs.CheckoutHasUncommittedChanges != uncommittedChanges {
+			t.Errorf("CheckoutHasUncommittedChanges: local %v, workflow %v, want %v",
+				localInputs.CheckoutHasUncommittedChanges, workflowInputs.CheckoutHasUncommittedChanges, uncommittedChanges)
+		}
 	}
 }
 

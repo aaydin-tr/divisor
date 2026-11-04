@@ -148,10 +148,10 @@ func medianAndSpread(rounds []RoundResult) (median Numbers, spread Spread) {
 		}
 		return values
 	}
-	median.RequestsPerSecond, spread.RequestsPerSecond = medianAndSpreadOf(numbersOf(func(n Numbers) float64 { return n.RequestsPerSecond }))
-	median.P50Milliseconds, spread.P50 = medianAndSpreadOf(numbersOf(func(n Numbers) float64 { return n.P50Milliseconds }))
-	median.P99Milliseconds, spread.P99 = medianAndSpreadOf(numbersOf(func(n Numbers) float64 { return n.P99Milliseconds }))
-	median.P999Milliseconds, spread.P999 = medianAndSpreadOf(numbersOf(func(n Numbers) float64 { return n.P999Milliseconds }))
+	median.RequestsPerSecond, spread.RequestsPerSecond = medianAndSpreadOf(numbersOf(func(numbers Numbers) float64 { return numbers.RequestsPerSecond }))
+	median.P50Milliseconds, spread.P50 = medianAndSpreadOf(numbersOf(func(numbers Numbers) float64 { return numbers.P50Milliseconds }))
+	median.P99Milliseconds, spread.P99 = medianAndSpreadOf(numbersOf(func(numbers Numbers) float64 { return numbers.P99Milliseconds }))
+	median.P999Milliseconds, spread.P999 = medianAndSpreadOf(numbersOf(func(numbers Numbers) float64 { return numbers.P999Milliseconds }))
 	return median, spread
 }
 

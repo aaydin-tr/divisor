@@ -11,6 +11,7 @@ type Schedule struct {
 	EquivalentSetupCheck *EquivalentSetupCheck `json:"equivalent_setup_check,omitempty"`
 }
 
+// fullSchedule's three interleaved rounds give the median (ADR 0009).
 var fullSchedule = Schedule{
 	Rounds:                  3,
 	WarmUpSeconds:           5,

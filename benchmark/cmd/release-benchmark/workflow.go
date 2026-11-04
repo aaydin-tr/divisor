@@ -20,14 +20,14 @@ func workflowRunInputs(ctx context.Context, command *commandLine, logOutput io.W
 	if err != nil {
 		return plan.Inputs{}, err
 	}
-	checkoutCommit, err := git(ctx, command.checkoutDirectory, "rev-parse", "HEAD")
+	checkoutCommit, err := gitOutput(ctx, command.checkoutDirectory, "rev-parse", "HEAD")
 	if err != nil {
 		return plan.Inputs{}, err
 	}
 	if checkoutCommit != refCommit {
 		return plan.Inputs{}, fmt.Errorf("the checkout %s is on %s, not on %s (%s)", command.checkoutDirectory, checkoutCommit, command.ref, refCommit)
 	}
-	uncommittedChanges, err := git(ctx, command.checkoutDirectory, "status", "--porcelain")
+	hasUncommittedChanges, err := checkoutHasUncommittedChanges(ctx, command.checkoutDirectory)
 	if err != nil {
 		return plan.Inputs{}, err
 	}
@@ -36,7 +36,7 @@ func workflowRunInputs(ctx context.Context, command *commandLine, logOutput io.W
 		Trigger:                       command.trigger,
 		Ref:                           command.ref,
 		Commit:                        refCommit,
-		CheckoutHasUncommittedChanges: uncommittedChanges != "",
+		CheckoutHasUncommittedChanges: hasUncommittedChanges,
 	}
 	if refIsTag {
 		inputs.TagMessage, err = annotatedTagMessage(ctx, command.checkoutDirectory, command.ref, logOutput)
@@ -48,11 +48,11 @@ func workflowRunInputs(ctx context.Context, command *commandLine, logOutput io.W
 }
 
 func resolveRef(ctx context.Context, checkoutDirectory, ref string) (refIsTag bool, commit string, err error) {
-	if commit, err := git(ctx, checkoutDirectory, "rev-parse", "--verify", "--quiet", "refs/tags/"+ref+"^{commit}"); err == nil {
+	if commit, err := gitOutput(ctx, checkoutDirectory, "rev-parse", "--verify", "--quiet", "refs/tags/"+ref+"^{commit}"); err == nil {
 		return true, commit, nil
 	}
 	for _, branch := range []string{"refs/heads/" + ref, "refs/remotes/origin/" + ref} {
-		if commit, err := git(ctx, checkoutDirectory, "rev-parse", "--verify", "--quiet", branch+"^{commit}"); err == nil {
+		if commit, err := gitOutput(ctx, checkoutDirectory, "rev-parse", "--verify", "--quiet", branch+"^{commit}"); err == nil {
 			return false, commit, nil
 		}
 	}
@@ -63,7 +63,7 @@ func resolveRef(ctx context.Context, checkoutDirectory, ref string) (refIsTag bo
 // be its commit's message.
 func annotatedTagMessage(ctx context.Context, checkoutDirectory, tag string, logOutput io.Writer) (string, error) {
 	tagRef := "refs/tags/" + tag
-	objectType, err := git(ctx, checkoutDirectory, "for-each-ref", "--format=%(objecttype)", tagRef)
+	objectType, err := gitOutput(ctx, checkoutDirectory, "for-each-ref", "--format=%(objecttype)", tagRef)
 	if err != nil {
 		return "", err
 	}
@@ -71,7 +71,7 @@ func annotatedTagMessage(ctx context.Context, checkoutDirectory, tag string, log
 		fmt.Fprintf(logOutput, "%s is a lightweight tag: it has no message\n", tag)
 		return "", nil
 	}
-	message, err := git(ctx, checkoutDirectory, "for-each-ref", "--format=%(contents)", tagRef)
+	message, err := gitOutput(ctx, checkoutDirectory, "for-each-ref", "--format=%(contents)", tagRef)
 	if err != nil {
 		return "", err
 	}

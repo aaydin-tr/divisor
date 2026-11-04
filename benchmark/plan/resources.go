@@ -6,7 +6,7 @@ import (
 )
 
 // Resources are cpusets on the 4-vCPU runner: the load generator needs two
-// cores and the Benchmark backends one so that neither limits a Contender.
+// cores and the Benchmark backends one so that neither limits a Contender (ADR 0009).
 type Resources struct {
 	LoadGeneratorCPUs string `json:"load_generator_cpus"`
 	ContenderCPUs     string `json:"contender_cpus"`

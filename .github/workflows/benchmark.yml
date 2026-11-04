@@ -105,8 +105,8 @@ jobs:
     # The only job that can write: it edits the release notes and assets.
     permissions:
       contents: write
+    # GH_TOKEN goes only on the steps that run gh, never on one that runs compiled code.
     env:
-      GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
       - name: Checkout the benchmark
@@ -127,27 +127,42 @@ jobs:
           path: results
 
       # --template, unlike --jq, adds no newline, so publishing again leaves the notes as they are.
-      # gh sends make_latest only when --latest is given, so it is always given, to keep Latest where it is.
-      - name: Splice the section into the release notes
+      - name: Read the release notes
+        id: release-before
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           latest_release_before="$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name)"
+          echo "latest=$latest_release_before" >> "$GITHUB_OUTPUT"
+          gh release view "$MEASURED_REF" --json body --template '{{.body}}' > "$RUNNER_TEMP/release-notes.md"
+
+      - name: Splice the section into the release notes
+        run: >-
+          go -C benchmark run ./cmd/release-benchmark splice
+          --notes "$RUNNER_TEMP/release-notes.md" --section "$GITHUB_WORKSPACE/results/section.md"
+          --out "$RUNNER_TEMP/spliced-release-notes.md"
+
+      # gh sends make_latest only when --latest is given, so it is always given, to keep Latest where it is.
+      - name: Edit the release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST_RELEASE_BEFORE: ${{ steps.release-before.outputs.latest }}
+        run: |
           measured_ref_is_latest=false
-          if [ "$latest_release_before" = "$MEASURED_REF" ]; then
+          if [ "$LATEST_RELEASE_BEFORE" = "$MEASURED_REF" ]; then
             measured_ref_is_latest=true
           fi
-          gh release view "$MEASURED_REF" --json body --template '{{.body}}' > "$RUNNER_TEMP/release-notes.md"
-          go -C benchmark run ./cmd/release-benchmark splice \
-            --notes "$RUNNER_TEMP/release-notes.md" --section "$GITHUB_WORKSPACE/results/section.md" \
-            --out "$RUNNER_TEMP/spliced-release-notes.md"
           gh release edit "$MEASURED_REF" --notes-file "$RUNNER_TEMP/spliced-release-notes.md" \
             --latest="$measured_ref_is_latest"
           latest_release_after="$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name)"
-          if [ "$latest_release_after" != "$latest_release_before" ]; then
-            echo "::error::Publishing to $MEASURED_REF moved the Latest release from $latest_release_before to $latest_release_after; mark $latest_release_before as Latest again by hand"
+          if [ "$latest_release_after" != "$LATEST_RELEASE_BEFORE" ]; then
+            echo "::error::Publishing to $MEASURED_REF moved the Latest release from $LATEST_RELEASE_BEFORE to $latest_release_after; mark $LATEST_RELEASE_BEFORE as Latest again by hand"
             exit 1
           fi
 
       - name: Attach benchmark.json
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: gh release upload "$MEASURED_REF" results/benchmark.json --clobber
 
       - name: Say where it was published

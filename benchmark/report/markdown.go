@@ -17,10 +17,10 @@ type column struct {
 }
 
 var (
-	requestsPerSecondColumn = column{"req/s", func(n Numbers) string { return withThousandsSeparators(n.RequestsPerSecond) }}
-	p50Column               = column{"p50", func(n Numbers) string { return inMilliseconds(n.P50Milliseconds) }}
-	p99Column               = column{"p99", func(n Numbers) string { return inMilliseconds(n.P99Milliseconds) }}
-	p999Column              = column{"p99.9", func(n Numbers) string { return inMilliseconds(n.P999Milliseconds) }}
+	requestsPerSecondColumn = column{"req/s", func(numbers Numbers) string { return withThousandsSeparators(numbers.RequestsPerSecond) }}
+	p50Column               = column{"p50", func(numbers Numbers) string { return inMilliseconds(numbers.P50Milliseconds) }}
+	p99Column               = column{"p99", func(numbers Numbers) string { return inMilliseconds(numbers.P99Milliseconds) }}
+	p999Column              = column{"p99.9", func(numbers Numbers) string { return inMilliseconds(numbers.P999Milliseconds) }}
 )
 
 var tableColumns = map[string][]column{

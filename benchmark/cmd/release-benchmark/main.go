@@ -185,12 +185,12 @@ func runInputs(ctx context.Context, command *commandLine, logOutput io.Writer) (
 		inputs.Trigger = plan.SmokeTrigger
 	}
 	inputs.PublishTicked = command.publish
-	tags, err := git(ctx, command.checkoutDirectory, "tag", "--list")
+	tags, err := gitOutput(ctx, command.checkoutDirectory, "tag", "--list")
 	if err != nil {
 		return plan.Inputs{}, err
 	}
 	inputs.Tags = strings.Fields(tags)
-	inputs.BenchmarkCommit, err = git(ctx, benchmarkDirectory, "rev-parse", "HEAD")
+	inputs.BenchmarkCommit, err = gitOutput(ctx, benchmarkDirectory, "rev-parse", "HEAD")
 	return inputs, err
 }
 
@@ -257,15 +257,15 @@ func clearResultsDirectory(resultsDirectory string) error {
 }
 
 func localRunInputs(ctx context.Context, checkoutDirectory string) (plan.Inputs, error) {
-	commit, err := git(ctx, checkoutDirectory, "rev-parse", "HEAD")
+	commit, err := gitOutput(ctx, checkoutDirectory, "rev-parse", "HEAD")
 	if err != nil {
 		return plan.Inputs{}, err
 	}
-	ref, err := git(ctx, checkoutDirectory, "symbolic-ref", "--short", "--quiet", "HEAD")
+	ref, err := gitOutput(ctx, checkoutDirectory, "symbolic-ref", "--short", "--quiet", "HEAD")
 	if err != nil {
-		ref, _ = git(ctx, checkoutDirectory, "describe", "--tags", "--exact-match")
+		ref, _ = gitOutput(ctx, checkoutDirectory, "describe", "--tags", "--exact-match")
 	}
-	uncommittedChanges, err := git(ctx, checkoutDirectory, "status", "--porcelain")
+	hasUncommittedChanges, err := checkoutHasUncommittedChanges(ctx, checkoutDirectory)
 	if err != nil {
 		return plan.Inputs{}, err
 	}
@@ -273,11 +273,16 @@ func localRunInputs(ctx context.Context, checkoutDirectory string) (plan.Inputs,
 		Trigger:                       plan.LocalTrigger,
 		Ref:                           ref,
 		Commit:                        commit,
-		CheckoutHasUncommittedChanges: uncommittedChanges != "",
+		CheckoutHasUncommittedChanges: hasUncommittedChanges,
 	}, nil
 }
 
-func git(ctx context.Context, directory string, arguments ...string) (string, error) {
+func checkoutHasUncommittedChanges(ctx context.Context, checkoutDirectory string) (bool, error) {
+	status, err := gitOutput(ctx, checkoutDirectory, "status", "--porcelain")
+	return status != "", err
+}
+
+func gitOutput(ctx context.Context, directory string, arguments ...string) (string, error) {
 	output, err := exec.CommandContext(ctx, "git", append([]string{"-C", directory}, arguments...)...).Output() //nolint:gosec
 	if err != nil {
 		return "", fmt.Errorf("git %s: %w", strings.Join(arguments, " "), err)
