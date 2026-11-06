@@ -45,6 +45,7 @@ var listenerStacks = []struct {
 	startFrontendServing func(t *testing.T, serve fasthttp.RequestHandler, writeTimeout time.Duration) frontend
 }{
 	{"fasthttp", newFasthttpFrontendServing},
+	{"fasthttp on one core", newFasthttpOneCoreFrontendServing},
 	{"net/http HTTP/2", newStreamingHTTP2Frontend},
 	{"net/http HTTP/1.1", newStreamingHTTP2FrontendForHTTP1Client},
 }
@@ -108,10 +109,21 @@ func newFasthttpFrontend(t *testing.T, p *ProxyClient, writeTimeout time.Duratio
 
 func newFasthttpFrontendServing(t *testing.T, serve fasthttp.RequestHandler, writeTimeout time.Duration) frontend {
 	t.Helper()
+	return startFasthttpFrontend(t, NewFasthttpHandler(&stubBalancer{handler: serve}, writeTimeout, false), writeTimeout)
+}
+
+// newFasthttpOneCoreFrontendServing is the HTTP/1.1 listener as divisor runs it on one core: it yields before each response write.
+func newFasthttpOneCoreFrontendServing(t *testing.T, serve fasthttp.RequestHandler, writeTimeout time.Duration) frontend {
+	t.Helper()
+	return startFasthttpFrontend(t, NewFasthttpHandler(&stubBalancer{handler: serve}, writeTimeout, true), writeTimeout)
+}
+
+func startFasthttpFrontend(t *testing.T, handler fasthttp.RequestHandler, writeTimeout time.Duration) frontend {
+	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	server := &fasthttp.Server{
-		Handler:      NewFasthttpHandler(&stubBalancer{handler: serve}, writeTimeout),
+		Handler:      handler,
 		WriteTimeout: writeTimeout,
 	}
 	go server.Serve(listener) //nolint:errcheck

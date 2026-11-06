@@ -47,5 +47,6 @@ server:
   tls_min_version: "" # Minimum accepted TLS version; "1.2" or "1.3". Empty keeps the runtime default; only matters when TLS is served. Default: empty
   dns_cache_duration: 60s # How long a resolved Backend IP is reused, by the proxy and by Probes. Set a few seconds when Backend IPs churn, e.g. Kubernetes pods. 0 means the default; negative is a startup error. Default: 60 seconds
   disable_keepalive: false # Close each client connection after its first response. Default: false
+  disable_response_batching: false # Turn off response batching: with GOMAXPROCS 1 (one CPU, a one-CPU cpuset, or GOMAXPROCS=1; a CPU limit under 2 gives Go 2) divisor sends the responses that are ready at the same time together, for more requests per second. Never used with 2 or more. HTTP/1.1 path only. Default: false
   http2: # HTTP/2 server tuning. HTTP/2 path only; idle HTTP/2 connections follow idle_timeout
     max_concurrent_streams: 250 # Max concurrent streams a client may open per HTTP/2 connection. 0 or negative means the default; above 2147483647 is a startup error. Default: 250

@@ -158,6 +158,14 @@ when `Pick` returns nil.
 - Forwards headers as the client sent them: no default `Content-Type` or `User-Agent`; URI userinfo becomes `Authorization: Basic` in `preReq` (a client Authorization header wins)
 - Supports custom headers with special variables: `$remote_addr`, `$time`, `$uuid`, `$incremental`
 - Tracks metrics: total requests, average response time, last use time, Pending requests (an open stream counts until it ends)
+- Response batching (`server.disable_response_batching`, on by default): `NewFasthttpHandler` calls
+  `runtime.Gosched()` before fasthttp writes a response that isn't streamed, so one netpoll batch's responses
+  go out back-to-back (measured +41-48% req/s on one core). The config owns the CPU rule: `prepareServer` sets
+  `DisableResponseBatching` to true whenever GOMAXPROCS at startup (`startupGOMAXPROCS`, read once so a Reload
+  compares like with like) is above 1, where the yield only delays the write (-7% at 4 cores); the handler just
+  takes the flag. The tests' "fasthttp on one core" listener stack covers it. Go rounds a CPU quota under 2 up
+  to GOMAXPROCS 2, so a `limits.cpu: 1` pod doesn't batch; a one-CPU cpuset (the Release benchmark's) or
+  `GOMAXPROCS=1` does
 - Keeps least-response-time's Score (`RecentResponseTime`, a lock-free moving average) and its
   Trial request state (`noTrialRequest` → `trialRequestDue` on `ExpireRecentResponseTime`, which
   leaves a due or claimed one alone → `trialRequestClaimed` on `ClaimTrialRequest`): the next sample replaces the Score instead of
@@ -397,7 +405,9 @@ When `server.http_version: http2`, divisor serves via `net/http` (its built-in H
   `streaming_test.go`, on `ScenarioSpec.Streaming` and the Echo backend's
   `/stream` SSE endpoint: frames arrive incrementally, knob off keeps the
   504, idle streams reaped, a client disconnect closes the Backend stream,
-  the Access log line at stream end.)
+  the Access log line at stream end; response batching — `responsebatching*_test.go`
+  runs each scenario on a one-CPU divisor (`ScenarioSpec.CPULimit: 1` adds `GOMAXPROCS=1`:
+  Go rounds a quota under 2 up to 2) with batching on and off, under the loads in `load_test.go`.)
 
 ## Agent skills
 

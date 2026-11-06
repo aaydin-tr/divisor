@@ -20,6 +20,8 @@
 //	                          every interval=<dur> (default 1s);
 //	                          client_gone_key=K counts the stream under K when
 //	                          its client (divisor) closes it before the last frame
+//	GET  /bytes?size=N&seed=S -> N pseudo-random bytes (ChaCha8 keyed by S) with a
+//	                          Content-Length, X-Body-Seed: S and X-Body-Sha256: their hex SHA-256
 //	*    /*                -> echo JSON, with query knobs:
 //	     delay=<dur>            sleep before responding
 //	     status=<code>          respond with this status code
@@ -31,10 +33,12 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"strconv"
@@ -146,6 +150,33 @@ func (s *server) handleStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *server) handleBytes(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	size, err := strconv.Atoi(q.Get("size"))
+	if err != nil || size < 0 {
+		http.Error(w, "size must be a non-negative integer", http.StatusBadRequest)
+		return
+	}
+	seed, err := strconv.ParseUint(q.Get("seed"), 10, 64)
+	if err != nil {
+		http.Error(w, "seed must be a non-negative integer", http.StatusBadRequest)
+		return
+	}
+
+	var key [32]byte
+	binary.LittleEndian.PutUint64(key[:], seed)
+	body := make([]byte, size)
+	_, _ = rand.NewChaCha8(key).Read(body)
+	sum := sha256.Sum256(body)
+
+	w.Header().Set("X-Backend-Id", s.id)
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.Itoa(size))
+	w.Header().Set("X-Body-Seed", strconv.FormatUint(seed, 10))
+	w.Header().Set("X-Body-Sha256", hex.EncodeToString(sum[:]))
+	_, _ = w.Write(body)
+}
+
 func (s *server) handleEcho(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
@@ -246,6 +277,7 @@ func main() {
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/counters", s.handleCounters)
 	mux.HandleFunc("/stream", s.handleStream)
+	mux.HandleFunc("/bytes", s.handleBytes)
 	mux.HandleFunc("/", s.handleEcho)
 
 	// Port 8080 is the harness's fixed contract (containerPort); a knob here
