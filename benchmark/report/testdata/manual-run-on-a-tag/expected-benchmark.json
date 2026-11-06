@@ -127,11 +127,5 @@
         }
       ]
     }
-  ],
-  "baseline_comparison": {
-    "baseline_release": null,
-    "no_baseline_reason": "v0.6.0, the stable release before v1.0.0, is another major version, and divisor's config is only compatible within one major version",
-    "noise_floor": 0.03,
-    "changes": []
-  }
+  ]
 }

@@ -3,12 +3,13 @@
     "trigger": "local",
     "mode": "full",
     "ref": "main",
-    "commit": "aa36fa6b18a318a475ea591120ef99e0a50eeae8",
+    "commit": "4ae9ae22644305c1a01c4393127980e901a10965",
+    "benchmark_commit": "4ae9ae22644305c1a01c4393127980e901a10965",
     "contenders": [
       {
         "id": "divisor",
         "name": "divisor",
-        "version": "main@aa36fa6",
+        "version": "main@4ae9ae2-dirty",
         "image": "divisor-benchmark/divisor:checkout",
         "image_from_checkout": true,
         "definition": "divisor",
@@ -17,11 +18,11 @@
         }
       },
       {
-        "id": "haproxy",
-        "name": "HAProxy",
-        "version": "3.4.7",
-        "image": "haproxy:3.4.7",
-        "definition": "haproxy"
+        "id": "caddy",
+        "name": "Caddy",
+        "version": "2.11.7",
+        "image": "caddy:2.11.7",
+        "definition": "caddy"
       },
       {
         "id": "nginx",
@@ -85,21 +86,22 @@
         }
       ]
     },
-    "baseline_release": {
-      "no_baseline_reason": "the checkout has no stable release tag"
+    "publish": {
+      "requested": false,
+      "reason": "a local run never publishes"
     }
   },
   "environment": {
-    "started_at": "2026-11-03T22:15:09.6655132Z",
+    "started_at": "2026-11-06T17:32:45.4271093Z",
     "runner_image": "local machine running Docker Desktop (containerized)",
     "architecture": "amd64",
     "cpu_model": "AMD Ryzen 5 5500",
     "load_generator": "oha 1.16.0",
     "contender_image_ids": {
-      "divisor": "sha256:b09a3b7521e60d8dea89b90a7aa3b1d7e21d8b10abcb4a64d99390b0b5f77d6e",
-      "haproxy": "sha256:64378482a9ad183747a0416fcaaae7f5f46bd7dac9ddd6805aa5db806a2a83ad",
-      "nginx": "sha256:5ab5b0b01097420873a3f3330f44248e34a3c2a3e8d5ee30658aeae8cb7435da",
-      "traefik": "sha256:68ae5fe5b64ca166704b746a9e8afcd385e36b3f569a5691401bf652d57b3748"
+      "caddy": "sha256:36c24ad91a7ff7bc4c87fe22bfa8df3c4b18da0773d73fc12ee2c52b98c0bb7e",
+      "divisor": "sha256:a31963c0fee2123c11eb92ef8b03142978817a95f822a5711eed0f35b4b6b799",
+      "nginx": "sha256:165ddde8751e75a1c907d24ef10d9f6deb08b57e0fe56caf67512486aff76d82",
+      "traefik": "sha256:f4bb143d1135a579b630ed491e17ec50f6f7c9c6a30585ff3d385471d2a86f5a"
     }
   },
   "measurements": [
@@ -117,15 +119,15 @@
     },
     {
       "round": 1,
-      "contender": "haproxy",
+      "contender": "caddy",
       "workload": "throughput",
-      "oha_output_file": "raw/round-1/haproxy/throughput.json"
+      "oha_output_file": "raw/round-1/caddy/throughput.json"
     },
     {
       "round": 1,
-      "contender": "haproxy",
+      "contender": "caddy",
       "workload": "fixed-rate-latency",
-      "oha_output_file": "raw/round-1/haproxy/fixed-rate-latency.json"
+      "oha_output_file": "raw/round-1/caddy/fixed-rate-latency.json"
     },
     {
       "round": 1,
@@ -165,15 +167,15 @@
     },
     {
       "round": 2,
-      "contender": "haproxy",
+      "contender": "caddy",
       "workload": "throughput",
-      "oha_output_file": "raw/round-2/haproxy/throughput.json"
+      "oha_output_file": "raw/round-2/caddy/throughput.json"
     },
     {
       "round": 2,
-      "contender": "haproxy",
+      "contender": "caddy",
       "workload": "fixed-rate-latency",
-      "oha_output_file": "raw/round-2/haproxy/fixed-rate-latency.json"
+      "oha_output_file": "raw/round-2/caddy/fixed-rate-latency.json"
     },
     {
       "round": 2,
@@ -213,15 +215,15 @@
     },
     {
       "round": 3,
-      "contender": "haproxy",
+      "contender": "caddy",
       "workload": "throughput",
-      "oha_output_file": "raw/round-3/haproxy/throughput.json"
+      "oha_output_file": "raw/round-3/caddy/throughput.json"
     },
     {
       "round": 3,
-      "contender": "haproxy",
+      "contender": "caddy",
       "workload": "fixed-rate-latency",
-      "oha_output_file": "raw/round-3/haproxy/fixed-rate-latency.json"
+      "oha_output_file": "raw/round-3/caddy/fixed-rate-latency.json"
     },
     {
       "round": 3,

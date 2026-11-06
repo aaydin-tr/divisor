@@ -1,7 +1,5 @@
 ## Performance
 
-**No Baseline release:** v0.6.0, the stable release before v1.0.0, is another major version, and divisor's config is only compatible within one major version.
-
 Runner: GitHub-hosted ubuntu24 20261027.1, amd64, AMD EPYC 7763 64-Core Processor. Each proxy gets 1 core and 512 MB and balances round-robin over 4 backends, HTTP/1.1 without TLS. Each number is the median of 3 rounds. [How this is measured](https://github.com/aaydin-tr/divisor/blob/c0ffee0b18a318a475ea591120ef99e0a50eeae8/benchmark/README.md) · [Workflow run](https://github.com/aaydin-tr/divisor/actions/runs/123456789)
 
 ### Throughput

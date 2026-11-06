@@ -131,12 +131,8 @@ The performance comparison run for each stable divisor release: every Contender 
 _Avoid_: perf test, load test, benchmark suite
 
 **Contender**:
-One proxy measured in a Release benchmark, configured by the Equivalent setup: the divisor being released, the Baseline release, nginx, HAProxy and Traefik.
+One proxy measured in a Release benchmark, configured by the Equivalent setup: the divisor being released, Caddy, nginx and Traefik.
 _Avoid_: competitor, target, subject
-
-**Baseline release**:
-The previous stable divisor release, run as a Contender next to the one being released; what changed in a release is always the difference between the two within the same run.
-_Avoid_: previous version, reference build
 
 **Equivalent setup**:
 How every Contender is configured so they all do the same work: round-robin over the same Backends, HTTP/1.1 without TLS towards clients and Backends with keep-alive on both sides, `X-Forwarded-For` added, no access logging, the same CPU and memory, active health checks at the same interval where the proxy has them, and otherwise each proxy's own defaults. No config file is shared; each proxy states the same setup in its own config language.

@@ -21,8 +21,6 @@ type benchmarkJSON struct {
 	Method        methodJSON      `json:"method"`
 	Contenders    []contenderJSON `json:"contenders"`
 	Workloads     []workloadJSON  `json:"workloads"`
-
-	BaselineComparison baselineComparisonJSON `json:"baseline_comparison"`
 }
 
 type runJSON struct {
@@ -134,7 +132,6 @@ func (r *Report) BenchmarkJSON() ([]byte, error) {
 	for i := range r.Workloads {
 		document.Workloads = append(document.Workloads, workloadAsJSON(&r.Workloads[i]))
 	}
-	document.BaselineComparison = baselineComparisonAsJSON(r.BaselineComparison)
 
 	encoded, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {

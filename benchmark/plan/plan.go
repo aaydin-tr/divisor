@@ -39,9 +39,6 @@ type Plan struct {
 	Resources  Resources   `json:"resources"`
 	Network    Network     `json:"network"`
 
-	// BaselineRelease is also a Contender when it exists.
-	BaselineRelease BaselineRelease `json:"baseline_release"`
-
 	Publish PublishRequest `json:"publish"`
 }
 
@@ -73,7 +70,6 @@ func Decide(inputs *Inputs) (Plan, error) {
 		Network:         hostNetwork,
 		Publish:         publish,
 	}
-	addBaselineRelease(&decided, inputs)
 	applySmokeMode(&decided, inputs)
 	return decided, nil
 }

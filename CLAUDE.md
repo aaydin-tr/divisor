@@ -70,7 +70,7 @@ resources), `run` (Docker + oha, records `recording.json` and `raw/`),
 `benchmark.json` in `benchmarkjson.go`; tested against `report/testdata/`
 recorded runs, `-update` rewrites them), `oha` (oha's flags and JSON fields),
 `backend` (the Benchmark backend), `contenders/<name>/` (Dockerfile + config
-per Contender: divisor, haproxy, nginx, traefik; an upstream Dockerfile's `FROM`
+per Contender: divisor, caddy, nginx, traefik; an upstream Dockerfile's `FROM`
 tag is its only version pin and, embedded by `contenders.PinnedUpstreamImage`,
 the Version column), `loadgenerator/Dockerfile` (the oha pin), `equivalentsetup`
 (smoke mode's checks: `Check`/`Verify` pure, `Collect` sends the requests from
@@ -301,7 +301,7 @@ A `v*` tag runs `.github/workflows/goreleaser.yml`:
   skips a prerelease tag and the summary says so) and `workflow_dispatch` with a `ref` input
   (any tag or branch; `--trigger manual`, an rc runs). The tool and Contender definitions come
   from the workflow's own commit; the measured ref is a second checkout in `measured/` (full
-  history plus `git fetch --force --tags`, for tag messages and the Baseline). A tag runs its
+  history plus `git fetch --force --tags`, for tag messages and the release tag check). A tag runs its
   published `ghcr.io/aaydin-tr/divisor:<tag>`; a branch is built into the release image shape,
   so no `setup-buildx-action` (the default `docker` driver must see that local image).
   The run job is read-only, one concurrency group per ref, 60-minute timeout. The tool appends the

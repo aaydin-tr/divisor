@@ -101,11 +101,5 @@
         }
       ]
     }
-  ],
-  "baseline_comparison": {
-    "baseline_release": null,
-    "no_baseline_reason": "the checkout has no stable release tag",
-    "noise_floor": 0.03,
-    "changes": []
-  }
+  ]
 }

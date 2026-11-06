@@ -63,9 +63,6 @@
           "address": "127.0.0.1:9004"
         }
       ]
-    },
-    "baseline_release": {
-      "no_baseline_reason": "v0.6.0, the stable release before v1.0.0, is another major version, and divisor's config is only compatible within one major version"
     }
   },
   "environment": {
