@@ -2,14 +2,14 @@
   "plan": {
     "trigger": "smoke",
     "mode": "smoke",
-    "ref": "",
-    "commit": "aa36fa6b18a318a475ea591120ef99e0a50eeae8",
-    "benchmark_commit": "aa36fa6b18a318a475ea591120ef99e0a50eeae8",
+    "ref": "main",
+    "commit": "4ae9ae22644305c1a01c4393127980e901a10965",
+    "benchmark_commit": "4ae9ae22644305c1a01c4393127980e901a10965",
     "contenders": [
       {
         "id": "divisor",
         "name": "divisor",
-        "version": "aa36fa6-dirty",
+        "version": "main@4ae9ae2-dirty",
         "image": "divisor-benchmark/divisor:checkout",
         "image_from_checkout": true,
         "definition": "divisor",
@@ -18,21 +18,11 @@
         }
       },
       {
-        "id": "divisor-baseline",
-        "name": "divisor (Baseline)",
-        "version": "v1.0.0",
-        "image": "ghcr.io/aaydin-tr/divisor:v1.0.0",
-        "definition": "divisor",
-        "build_args": {
-          "DIVISOR_IMAGE": "ghcr.io/aaydin-tr/divisor:v1.0.0"
-        }
-      },
-      {
-        "id": "haproxy",
-        "name": "HAProxy",
-        "version": "3.4.7",
-        "image": "haproxy:3.4.7",
-        "definition": "haproxy"
+        "id": "caddy",
+        "name": "Caddy",
+        "version": "2.11.7",
+        "image": "caddy:2.11.7",
+        "definition": "caddy"
       },
       {
         "id": "nginx",
@@ -100,26 +90,22 @@
         }
       ]
     },
-    "baseline_release": {
-      "tag": "v1.0.0"
-    },
     "publish": {
       "requested": false,
       "reason": "a smoke run never publishes"
     }
   },
   "environment": {
-    "started_at": "2026-11-03T23:42:21.2028623Z",
+    "started_at": "2026-11-06T17:30:40.0215691Z",
     "runner_image": "local machine running Docker Desktop (containerized)",
     "architecture": "amd64",
     "cpu_model": "AMD Ryzen 5 5500",
     "load_generator": "oha 1.16.0",
     "contender_image_ids": {
-      "divisor": "sha256:1a7a49560088de874a6673f610f75aa3a0638306be721aa02e8b79a817ec6698",
-      "divisor-baseline": "sha256:79530eb3f18a1ea5f0d11cb503529d426b34f41e36e75b41272c52ca3e029a49",
-      "haproxy": "sha256:64378482a9ad183747a0416fcaaae7f5f46bd7dac9ddd6805aa5db806a2a83ad",
-      "nginx": "sha256:5ab5b0b01097420873a3f3330f44248e34a3c2a3e8d5ee30658aeae8cb7435da",
-      "traefik": "sha256:68ae5fe5b64ca166704b746a9e8afcd385e36b3f569a5691401bf652d57b3748"
+      "caddy": "sha256:36c24ad91a7ff7bc4c87fe22bfa8df3c4b18da0773d73fc12ee2c52b98c0bb7e",
+      "divisor": "sha256:78065856904207e431d416fe09f7898b2eb2d697c3c0d0e3a8d531c909461215",
+      "nginx": "sha256:165ddde8751e75a1c907d24ef10d9f6deb08b57e0fe56caf67512486aff76d82",
+      "traefik": "sha256:f4bb143d1135a579b630ed491e17ec50f6f7c9c6a30585ff3d385471d2a86f5a"
     }
   },
   "measurements": [
@@ -137,27 +123,15 @@
     },
     {
       "round": 1,
-      "contender": "divisor-baseline",
+      "contender": "caddy",
       "workload": "throughput",
-      "oha_output_file": "raw/round-1/divisor-baseline/throughput.json"
+      "oha_output_file": "raw/round-1/caddy/throughput.json"
     },
     {
       "round": 1,
-      "contender": "divisor-baseline",
+      "contender": "caddy",
       "workload": "fixed-rate-latency",
-      "oha_output_file": "raw/round-1/divisor-baseline/fixed-rate-latency.json"
-    },
-    {
-      "round": 1,
-      "contender": "haproxy",
-      "workload": "throughput",
-      "oha_output_file": "raw/round-1/haproxy/throughput.json"
-    },
-    {
-      "round": 1,
-      "contender": "haproxy",
-      "workload": "fixed-rate-latency",
-      "oha_output_file": "raw/round-1/haproxy/fixed-rate-latency.json"
+      "oha_output_file": "raw/round-1/caddy/fixed-rate-latency.json"
     },
     {
       "round": 1,

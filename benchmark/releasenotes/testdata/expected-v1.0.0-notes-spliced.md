@@ -5,8 +5,6 @@
 
 ## Performance
 
-**No Baseline release:** v0.6.0, the stable release before v1.0.0, is another major version, and divisor's config is only compatible within one major version.
-
 Runner: local machine running Docker Desktop (containerized), amd64, AMD Ryzen 5 5500. Each proxy gets 1 core and 512 MB and balances round-robin over 4 backends, HTTP/1.1 without TLS. Each number is the median of 3 rounds. [How this is measured](https://github.com/aaydin-tr/divisor/blob/v1.0.0/benchmark/README.md)
 
 ### Throughput

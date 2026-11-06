@@ -2,8 +2,8 @@
   "schema_version": 1,
   "run": {
     "ref": "main",
-    "commit": "aa36fa6b18a318a475ea591120ef99e0a50eeae8",
-    "date": "2026-11-03T22:15:09.6655132Z",
+    "commit": "4ae9ae22644305c1a01c4393127980e901a10965",
+    "date": "2026-11-06T17:32:45.4271093Z",
     "trigger": "local",
     "mode": "full",
     "runner_image": "local machine running Docker Desktop (containerized)",
@@ -26,30 +26,30 @@
     {
       "id": "divisor",
       "name": "divisor",
-      "version": "main@aa36fa6",
+      "version": "main@4ae9ae2-dirty",
       "image": "divisor-benchmark/divisor:checkout",
-      "image_id": "sha256:b09a3b7521e60d8dea89b90a7aa3b1d7e21d8b10abcb4a64d99390b0b5f77d6e"
+      "image_id": "sha256:a31963c0fee2123c11eb92ef8b03142978817a95f822a5711eed0f35b4b6b799"
     },
     {
-      "id": "haproxy",
-      "name": "HAProxy",
-      "version": "3.4.7",
-      "image": "haproxy:3.4.7",
-      "image_id": "sha256:64378482a9ad183747a0416fcaaae7f5f46bd7dac9ddd6805aa5db806a2a83ad"
+      "id": "caddy",
+      "name": "Caddy",
+      "version": "2.11.7",
+      "image": "caddy:2.11.7",
+      "image_id": "sha256:36c24ad91a7ff7bc4c87fe22bfa8df3c4b18da0773d73fc12ee2c52b98c0bb7e"
     },
     {
       "id": "nginx",
       "name": "nginx",
       "version": "1.31.8",
       "image": "nginx:1.31.8",
-      "image_id": "sha256:5ab5b0b01097420873a3f3330f44248e34a3c2a3e8d5ee30658aeae8cb7435da"
+      "image_id": "sha256:165ddde8751e75a1c907d24ef10d9f6deb08b57e0fe56caf67512486aff76d82"
     },
     {
       "id": "traefik",
       "name": "Traefik",
       "version": "v3.7.17",
       "image": "traefik:v3.7.17",
-      "image_id": "sha256:68ae5fe5b64ca166704b746a9e8afcd385e36b3f569a5691401bf652d57b3748"
+      "image_id": "sha256:f4bb143d1135a579b630ed491e17ec50f6f7c9c6a30585ff3d385471d2a86f5a"
     }
   ],
   "workloads": [
@@ -65,76 +65,76 @@
           "rounds": [
             {
               "round": 1,
-              "requests_per_second": 23574.8,
-              "p50_ms": 2.5375,
-              "p99_ms": 5.269,
-              "p99_9_ms": 7.2141
+              "requests_per_second": 31968.5,
+              "p50_ms": 1.8623,
+              "p99_ms": 3.5618,
+              "p99_9_ms": 5.2408
             },
             {
               "round": 2,
-              "requests_per_second": 23551.9,
-              "p50_ms": 2.5413,
-              "p99_ms": 5.2855,
-              "p99_9_ms": 7.2291
+              "requests_per_second": 31034.6,
+              "p50_ms": 1.9006,
+              "p99_ms": 3.8702,
+              "p99_9_ms": 5.4723
             },
             {
               "round": 3,
-              "requests_per_second": 23772.2,
-              "p50_ms": 2.5142,
-              "p99_ms": 5.2387,
-              "p99_9_ms": 7.1298
+              "requests_per_second": 31019.1,
+              "p50_ms": 1.919,
+              "p99_ms": 3.7201,
+              "p99_9_ms": 5.2561
             }
           ],
           "median": {
-            "requests_per_second": 23574.8,
-            "p50_ms": 2.5375,
-            "p99_ms": 5.269,
-            "p99_9_ms": 7.2141
+            "requests_per_second": 31034.6,
+            "p50_ms": 1.9006,
+            "p99_ms": 3.7201,
+            "p99_9_ms": 5.2561
           },
           "spread": {
-            "requests_per_second": 0.0093,
-            "p50": 0.0107,
-            "p99": 0.0089,
-            "p99_9": 0.0138
+            "requests_per_second": 0.0306,
+            "p50": 0.0298,
+            "p99": 0.0829,
+            "p99_9": 0.0441
           }
         },
         {
-          "contender": "haproxy",
+          "contender": "caddy",
           "status": "ok",
           "rounds": [
             {
               "round": 1,
-              "requests_per_second": 32055.4,
-              "p50_ms": 1.8722,
-              "p99_ms": 3.5712,
-              "p99_9_ms": 4.8032
+              "requests_per_second": 7065.1,
+              "p50_ms": 8.1285,
+              "p99_ms": 18.7748,
+              "p99_9_ms": 22.4958
             },
             {
               "round": 2,
-              "requests_per_second": 31355.8,
-              "p50_ms": 1.9079,
-              "p99_ms": 3.6954,
-              "p99_9_ms": 4.8674
+              "requests_per_second": 6964.9,
+              "p50_ms": 8.2512,
+              "p99_ms": 19.4792,
+              "p99_9_ms": 24.0383
             },
             {
               "round": 3,
-              "requests_per_second": 31759,
-              "p50_ms": 1.8991,
-              "p99_ms": 3.5341,
-              "p99_9_ms": 4.7921
+              "requests_per_second": 6883.9,
+              "p50_ms": 8.441,
+              "p99_ms": 19.4029,
+              "p99_9_ms": 23.8169
             }
           ],
           "median": {
-            "requests_per_second": 31759,
-            "p50_ms": 1.8991,
-            "p99_ms": 3.5712,
-            "p99_9_ms": 4.8032
+            "requests_per_second": 6964.9,
+            "p50_ms": 8.2512,
+            "p99_ms": 19.4029,
+            "p99_9_ms": 23.8169
           },
           "spread": {
-            "requests_per_second": 0.022,
-            "p50": 0.0188,
-            "p99": 0.0452,
-            "p99_9": 0.0157
+            "requests_per_second": 0.026,
+            "p50": 0.0379,
+            "p99": 0.0363,
+            "p99_9": 0.0648
           }
         },
         {
@@ -143,37 +143,37 @@
           "rounds": [
             {
               "round": 1,
-              "requests_per_second": 26089.2,
-              "p50_ms": 2.3502,
-              "p99_ms": 4.1189,
-              "p99_9_ms": 5.4281
+              "requests_per_second": 25549.2,
+              "p50_ms": 2.4062,
+              "p99_ms": 4.0479,
+              "p99_9_ms": 5.6276
             },
             {
               "round": 2,
-              "requests_per_second": 26408,
-              "p50_ms": 2.3238,
-              "p99_ms": 3.9647,
-              "p99_9_ms": 5.3133
+              "requests_per_second": 26183.5,
+              "p50_ms": 2.3454,
+              "p99_ms": 4.1187,
+              "p99_9_ms": 6.8469
             },
             {
               "round": 3,
-              "requests_per_second": 26179.3,
-              "p50_ms": 2.3305,
-              "p99_ms": 4.1202,
-              "p99_9_ms": 5.2141
+              "requests_per_second": 25719.5,
+              "p50_ms": 2.398,
+              "p99_ms": 3.9173,
+              "p99_9_ms": 5.5423
             }
           ],
           "median": {
-            "requests_per_second": 26179.3,
-            "p50_ms": 2.3305,
-            "p99_ms": 4.1189,
-            "p99_9_ms": 5.3133
+            "requests_per_second": 25719.5,
+            "p50_ms": 2.398,
+            "p99_ms": 4.0479,
+            "p99_9_ms": 5.6276
           },
           "spread": {
-            "requests_per_second": 0.0122,
-            "p50": 0.0113,
-            "p99": 0.0377,
-            "p99_9": 0.0403
+            "requests_per_second": 0.0247,
+            "p50": 0.0254,
+            "p99": 0.0497,
+            "p99_9": 0.2318
           }
         },
         {
@@ -182,37 +182,37 @@
           "rounds": [
             {
               "round": 1,
-              "requests_per_second": 6879.4,
-              "p50_ms": 7.2344,
-              "p99_ms": 34.143,
-              "p99_9_ms": 50.6005
+              "requests_per_second": 8765.5,
+              "p50_ms": 6.7643,
+              "p99_ms": 16.3024,
+              "p99_9_ms": 22.1875
             },
             {
               "round": 2,
-              "requests_per_second": 8869.7,
-              "p50_ms": 6.6579,
-              "p99_ms": 16.6515,
-              "p99_9_ms": 21.8255
+              "requests_per_second": 8440.5,
+              "p50_ms": 6.8722,
+              "p99_ms": 17.2866,
+              "p99_9_ms": 23.9303
             },
             {
               "round": 3,
-              "requests_per_second": 8748.2,
-              "p50_ms": 6.7014,
-              "p99_ms": 17.109,
-              "p99_9_ms": 22.5015
+              "requests_per_second": 8404,
+              "p50_ms": 6.8829,
+              "p99_ms": 17.3659,
+              "p99_9_ms": 23.0309
             }
           ],
           "median": {
-            "requests_per_second": 8748.2,
-            "p50_ms": 6.7014,
-            "p99_ms": 17.109,
-            "p99_9_ms": 22.5015
+            "requests_per_second": 8440.5,
+            "p50_ms": 6.8722,
+            "p99_ms": 17.2866,
+            "p99_9_ms": 23.0309
           },
           "spread": {
-            "requests_per_second": 0.2275,
-            "p50": 0.086,
-            "p99": 1.0224,
-            "p99_9": 1.2788
+            "requests_per_second": 0.0428,
+            "p50": 0.0173,
+            "p99": 0.0615,
+            "p99_9": 0.0757
           }
         }
       ]
@@ -230,76 +230,76 @@
           "rounds": [
             {
               "round": 1,
-              "requests_per_second": 4999.6,
-              "p50_ms": 0.3227,
-              "p99_ms": 0.6903,
-              "p99_9_ms": 6.1943
+              "requests_per_second": 4999.7,
+              "p50_ms": 0.3389,
+              "p99_ms": 0.7388,
+              "p99_9_ms": 4.4648
             },
             {
               "round": 2,
-              "requests_per_second": 4999.7,
-              "p50_ms": 0.3125,
-              "p99_ms": 0.6235,
-              "p99_9_ms": 5.0896
+              "requests_per_second": 4999.6,
+              "p50_ms": 0.3459,
+              "p99_ms": 0.7779,
+              "p99_9_ms": 8.1087
             },
             {
               "round": 3,
-              "requests_per_second": 4999.6,
-              "p50_ms": 0.3134,
-              "p99_ms": 0.7117,
-              "p99_9_ms": 8.9967
+              "requests_per_second": 4999.5,
+              "p50_ms": 0.3729,
+              "p99_ms": 1.6876,
+              "p99_9_ms": 28.7406
             }
           ],
           "median": {
             "requests_per_second": 4999.6,
-            "p50_ms": 0.3134,
-            "p99_ms": 0.6903,
-            "p99_9_ms": 6.1943
+            "p50_ms": 0.3459,
+            "p99_ms": 0.7779,
+            "p99_9_ms": 8.1087
           },
           "spread": {
             "requests_per_second": 0,
-            "p50": 0.0327,
-            "p99": 0.1278,
-            "p99_9": 0.6307
+            "p50": 0.0985,
+            "p99": 1.2197,
+            "p99_9": 2.9938
           }
         },
         {
-          "contender": "haproxy",
+          "contender": "caddy",
           "status": "ok",
           "rounds": [
             {
               "round": 1,
-              "requests_per_second": 4999.7,
-              "p50_ms": 0.3225,
-              "p99_ms": 0.7791,
-              "p99_9_ms": 5.7801
+              "requests_per_second": 4999.6,
+              "p50_ms": 0.99,
+              "p99_ms": 6.3144,
+              "p99_9_ms": 10.5176
             },
             {
               "round": 2,
-              "requests_per_second": 4999.6,
-              "p50_ms": 0.325,
-              "p99_ms": 0.7164,
-              "p99_9_ms": 4.5337
+              "requests_per_second": 4999.2,
+              "p50_ms": 1.0231,
+              "p99_ms": 7.4969,
+              "p99_9_ms": 14.255
             },
             {
               "round": 3,
               "requests_per_second": 4999.7,
-              "p50_ms": 0.3191,
-              "p99_ms": 0.6733,
-              "p99_9_ms": 3.2739
+              "p50_ms": 0.9939,
+              "p99_ms": 6.9405,
+              "p99_9_ms": 14.1661
             }
           ],
           "median": {
-            "requests_per_second": 4999.7,
-            "p50_ms": 0.3225,
-            "p99_ms": 0.7164,
-            "p99_9_ms": 4.5337
+            "requests_per_second": 4999.6,
+            "p50_ms": 0.9939,
+            "p99_ms": 6.9405,
+            "p99_9_ms": 14.1661
           },
           "spread": {
-            "requests_per_second": 0,
-            "p50": 0.0184,
-            "p99": 0.1476,
-            "p99_9": 0.5528
+            "requests_per_second": 0.0001,
+            "p50": 0.0333,
+            "p99": 0.1704,
+            "p99_9": 0.2638
           }
         },
         {
@@ -308,37 +308,37 @@
           "rounds": [
             {
               "round": 1,
-              "requests_per_second": 4999.6,
-              "p50_ms": 0.3025,
-              "p99_ms": 0.7305,
-              "p99_9_ms": 5.9012
+              "requests_per_second": 4999.7,
+              "p50_ms": 0.3019,
+              "p99_ms": 0.5943,
+              "p99_9_ms": 4.0579
             },
             {
               "round": 2,
               "requests_per_second": 4999.6,
-              "p50_ms": 0.2953,
-              "p99_ms": 0.6176,
-              "p99_9_ms": 6.0853
+              "p50_ms": 0.2995,
+              "p99_ms": 0.5968,
+              "p99_9_ms": 5.7411
             },
             {
               "round": 3,
               "requests_per_second": 4999.7,
-              "p50_ms": 0.298,
-              "p99_ms": 0.6462,
-              "p99_9_ms": 4.5685
+              "p50_ms": 0.3044,
+              "p99_ms": 0.6296,
+              "p99_9_ms": 2.549
             }
           ],
           "median": {
-            "requests_per_second": 4999.6,
-            "p50_ms": 0.298,
-            "p99_ms": 0.6462,
-            "p99_9_ms": 5.9012
+            "requests_per_second": 4999.7,
+            "p50_ms": 0.3019,
+            "p99_ms": 0.5968,
+            "p99_9_ms": 4.0579
           },
           "spread": {
             "requests_per_second": 0,
-            "p50": 0.024,
-            "p99": 0.1748,
-            "p99_9": 0.257
+            "p50": 0.0165,
+            "p99": 0.0592,
+            "p99_9": 0.7867
           }
         },
         {
@@ -347,46 +347,40 @@
           "rounds": [
             {
               "round": 1,
-              "requests_per_second": 4999.6,
-              "p50_ms": 0.8793,
-              "p99_ms": 125.3091,
-              "p99_9_ms": 157.0638
+              "requests_per_second": 4999.7,
+              "p50_ms": 0.7423,
+              "p99_ms": 6.05,
+              "p99_9_ms": 10.1979
             },
             {
               "round": 2,
               "requests_per_second": 4999.6,
-              "p50_ms": 0.7592,
-              "p99_ms": 6.801,
-              "p99_9_ms": 14.5183
+              "p50_ms": 0.8027,
+              "p99_ms": 7.7578,
+              "p99_9_ms": 12.5261
             },
             {
               "round": 3,
-              "requests_per_second": 4999.4,
-              "p50_ms": 0.7637,
-              "p99_ms": 8.2639,
-              "p99_9_ms": 17.7193
+              "requests_per_second": 4999.7,
+              "p50_ms": 0.7706,
+              "p99_ms": 6.4123,
+              "p99_9_ms": 12.7178
             }
           ],
           "median": {
-            "requests_per_second": 4999.6,
-            "p50_ms": 0.7637,
-            "p99_ms": 8.2639,
-            "p99_9_ms": 17.7193
+            "requests_per_second": 4999.7,
+            "p50_ms": 0.7706,
+            "p99_ms": 6.4123,
+            "p99_9_ms": 12.5261
           },
           "spread": {
             "requests_per_second": 0,
-            "p50": 0.1573,
-            "p99": 14.3404,
-            "p99_9": 8.0446
+            "p50": 0.0784,
+            "p99": 0.2663,
+            "p99_9": 0.2012
           }
         }
       ]
     }
-  ],
-  "baseline_comparison": {
-    "baseline_release": null,
-    "no_baseline_reason": "the checkout has no stable release tag",
-    "noise_floor": 0.03,
-    "changes": []
-  }
+  ]
 }

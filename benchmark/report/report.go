@@ -17,13 +17,11 @@ type Report struct {
 	Plan        plan.Plan
 	Environment recording.Environment
 	Workloads   []WorkloadResults
-
-	BaselineComparison BaselineComparison
 }
 
 type WorkloadResults struct {
 	Workload plan.Workload
-	// Rows follow the Plan's Contender order, the fixed row order.
+	// Rows follow the Plan's Contender order; the Markdown tables rank them (rowsInRankOrder).
 	Rows []Row
 }
 
@@ -84,7 +82,6 @@ func Build(recorded *recording.Recording) (*Report, error) {
 		}
 		built.Workloads = append(built.Workloads, results)
 	}
-	built.BaselineComparison = compareWithBaseline(built)
 	return built, nil
 }
 

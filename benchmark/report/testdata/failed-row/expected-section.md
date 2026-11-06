@@ -1,7 +1,5 @@
 ## Performance
 
-**No Baseline release:** the checkout has no stable release tag.
-
 Runner: local machine running Docker Desktop (containerized), amd64, AMD Ryzen 5 5500. Each proxy gets 1 core and 512 MB and balances round-robin over 4 backends, HTTP/1.1 without TLS. Each number is the median of 3 rounds. [How this is measured](https://github.com/aaydin-tr/divisor/blob/main/benchmark/README.md)
 
 ### Throughput

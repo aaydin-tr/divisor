@@ -103,6 +103,17 @@ type ScenarioSpec struct {
 	// ConfigMapVolume lays the config out the way kubelet mounts a ConfigMap
 	// volume (see configMapPublishScript); publishConfigMapUpdate edits it.
 	ConfigMapVolume bool
+	// CPULimit caps divisor's container at this many CPUs with a CFS quota,
+	// as a Kubernetes limits.cpu does, and divisor runs with GOMAXPROCS at
+	// that count. 0 means no limit.
+	CPULimit int
+	// DisableResponseBatching renders server.disable_response_batching: true.
+	DisableResponseBatching bool
+	// DisableKeepalive renders server.disable_keepalive: true.
+	DisableKeepalive bool
+	// DNSCacheDuration renders server.dns_cache_duration: how long divisor
+	// reuses a Backend's resolved IP, for Probes and proxying alike.
+	DNSCacheDuration time.Duration
 }
 
 type Echo struct {
@@ -214,6 +225,10 @@ func startScenario(t *testing.T, spec ScenarioSpec) *Scenario {
 	if mwFile != "" {
 		env = append(env, "DIVISOR_MW="+mwFile)
 	}
+	if spec.CPULimit == 1 {
+		// Go rounds a CPU quota under 2 up to GOMAXPROCS 2; a pod gets 1 by passing limits.cpu as GOMAXPROCS.
+		env = append(env, "GOMAXPROCS=1")
+	}
 
 	// "-lb" distinguishes the divisor container from its backends in
 	// `docker ps`; cleanup itself uses exact-name matching (see
@@ -235,7 +250,7 @@ func startScenario(t *testing.T, spec ScenarioSpec) *Scenario {
 		Cmd:          []string{startScript},
 		ExposedPorts: exposedPorts,
 		Networks:     []*dockertest.Network{s.Network},
-	}, publishPorts)
+	}, publishPorts, limitCPUs(spec.CPULimit))
 	if err != nil {
 		t.Fatalf("starting divisor container: %v", err)
 	}
@@ -439,6 +454,15 @@ func renderConfig(t *testing.T, s *Scenario) (string, string) {
 	if s.Spec.TLSMinVersion != "" {
 		server["tls_min_version"] = s.Spec.TLSMinVersion
 	}
+	if s.Spec.DisableResponseBatching {
+		server["disable_response_batching"] = true
+	}
+	if s.Spec.DisableKeepalive {
+		server["disable_keepalive"] = true
+	}
+	if s.Spec.DNSCacheDuration > 0 {
+		server["dns_cache_duration"] = s.Spec.DNSCacheDuration.String()
+	}
 
 	cfg := map[string]any{
 		"port":                containerPort,
@@ -507,6 +531,21 @@ func publishPorts(hc *dc.HostConfig) {
 	hc.PublishAllPorts = true
 	hc.AutoRemove = false
 	hc.RestartPolicy = dc.NeverRestart()
+}
+
+// cfsPeriodMicroseconds is the CFS period Docker's --cpus and Kubernetes'
+// limits.cpu pair their quota with.
+const cfsPeriodMicroseconds = 100_000
+
+// limitCPUs sets the quota `docker run --cpus` would: dockertest's HostConfig
+// has no NanoCPUs field, and both end up as the same cgroup cpu.max.
+func limitCPUs(cpuLimit int) func(*dc.HostConfig) {
+	return func(hc *dc.HostConfig) {
+		if cpuLimit > 0 {
+			hc.CPUPeriod = cfsPeriodMicroseconds
+			hc.CPUQuota = int64(cpuLimit) * cfsPeriodMicroseconds
+		}
+	}
 }
 
 // buildImage shells out to the docker CLI instead of using the go-dockerclient

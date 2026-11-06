@@ -187,6 +187,19 @@ func (s *Scenario) KillBackend(t *testing.T, id string) {
 	}
 }
 
+// RestartBackend starts a killed Backend's container again. Docker may give
+// it another IP, as Kubernetes gives a new pod one; its HostAddr goes stale.
+func (s *Scenario) RestartBackend(t *testing.T, id string) {
+	t.Helper()
+	e := s.Backend(id)
+	if e == nil {
+		t.Fatalf("no backend %q", id)
+	}
+	if err := pool.Client.StartContainer(e.Resource.Container.ID, nil); err != nil {
+		t.Fatalf("restarting backend %s: %v", id, err)
+	}
+}
+
 func (s *Scenario) PauseBackend(t *testing.T, id string) {
 	t.Helper()
 	e := s.Backend(id)

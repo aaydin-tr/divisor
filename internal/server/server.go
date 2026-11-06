@@ -42,7 +42,7 @@ func (s fasthttpServer) OpenConnectionsCount() int32        { return s.GetOpenCo
 
 func startFasthttp(cfg *config.Config, balancer types.IBalancer, ln net.Listener) (Server, <-chan error, error) {
 	srv := &fasthttp.Server{
-		Handler:               proxy.NewFasthttpHandler(balancer, cfg.Server.WriteTimeout),
+		Handler:               proxy.NewFasthttpHandler(balancer, cfg.Server.WriteTimeout, !cfg.Server.DisableResponseBatching),
 		MaxIdleWorkerDuration: cfg.Server.MaxIdleWorkerDuration,
 		Concurrency:           cfg.Server.Concurrency,
 		ReadTimeout:           cfg.Server.ReadTimeout,

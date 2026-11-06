@@ -31,12 +31,17 @@ func workflowRunInputs(ctx context.Context, command *commandLine, logOutput io.W
 	if err != nil {
 		return plan.Inputs{}, err
 	}
+	tags, err := gitOutput(ctx, command.checkoutDirectory, "tag", "--list")
+	if err != nil {
+		return plan.Inputs{}, err
+	}
 
 	inputs := plan.Inputs{
 		Trigger:                       command.trigger,
 		Ref:                           command.ref,
 		Commit:                        refCommit,
 		CheckoutHasUncommittedChanges: hasUncommittedChanges,
+		Tags:                          strings.Fields(tags),
 	}
 	if !refIsTag {
 		return inputs, nil

@@ -22,12 +22,6 @@ func TestReportOfARecordedRun(t *testing.T) {
 		"failed-row",
 		"never-ready",
 		"manual-run-on-a-tag",
-		"baseline-improvement",
-		"baseline-regression",
-		"baseline-within-noise-by-floor",
-		"baseline-within-noise-by-spread",
-		"baseline-failed",
-		"no-baseline-release",
 		"smoke-run",
 	}
 	for _, recordedRun := range recordedRuns {

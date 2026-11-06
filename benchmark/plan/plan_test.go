@@ -39,19 +39,19 @@ func TestLocalRunMeasuresTheCheckoutFirst(t *testing.T) {
 	}
 }
 
-func TestRowsAreDivisorThenHAProxyNginxAndTraefik(t *testing.T) {
+func TestRowsAreDivisorThenCaddyNginxAndTraefik(t *testing.T) {
 	var rows []string
 	for _, contender := range decideLocalRun(t, Inputs{Ref: "main"}).Contenders {
 		rows = append(rows, contender.Name)
 	}
 
-	if got, want := strings.Join(rows, ", "), "divisor, HAProxy, nginx, Traefik"; got != want {
+	if got, want := strings.Join(rows, ", "), "divisor, Caddy, nginx, Traefik"; got != want {
 		t.Errorf("rows = %s, want %s", got, want)
 	}
 }
 
 func TestUpstreamContendersRunTheirPinnedOfficialImageAtItsVersion(t *testing.T) {
-	officialImageRepositories := map[string]string{"haproxy": "haproxy", "nginx": "nginx", "traefik": "traefik"}
+	officialImageRepositories := map[string]string{"caddy": "caddy", "nginx": "nginx", "traefik": "traefik"}
 
 	for _, contender := range decideLocalRun(t, Inputs{Ref: "main"}).Contenders[1:] {
 		repository, version, _ := strings.Cut(contender.Image, ":")
@@ -107,15 +107,15 @@ func TestFullScheduleIsThreeRoundsOfEveryContenderThroughBothWorkloads(t *testin
 	decided := decideLocalRun(t, Inputs{})
 
 	want := `round 1: divisor: throughput (5s warm-up, 30s measured), fixed-rate-latency (5s warm-up, 30s measured)
-round 1: haproxy: throughput (5s warm-up, 30s measured), fixed-rate-latency (5s warm-up, 30s measured)
+round 1: caddy: throughput (5s warm-up, 30s measured), fixed-rate-latency (5s warm-up, 30s measured)
 round 1: nginx: throughput (5s warm-up, 30s measured), fixed-rate-latency (5s warm-up, 30s measured)
 round 1: traefik: throughput (5s warm-up, 30s measured), fixed-rate-latency (5s warm-up, 30s measured)
 round 2: divisor: throughput (5s warm-up, 30s measured), fixed-rate-latency (5s warm-up, 30s measured)
-round 2: haproxy: throughput (5s warm-up, 30s measured), fixed-rate-latency (5s warm-up, 30s measured)
+round 2: caddy: throughput (5s warm-up, 30s measured), fixed-rate-latency (5s warm-up, 30s measured)
 round 2: nginx: throughput (5s warm-up, 30s measured), fixed-rate-latency (5s warm-up, 30s measured)
 round 2: traefik: throughput (5s warm-up, 30s measured), fixed-rate-latency (5s warm-up, 30s measured)
 round 3: divisor: throughput (5s warm-up, 30s measured), fixed-rate-latency (5s warm-up, 30s measured)
-round 3: haproxy: throughput (5s warm-up, 30s measured), fixed-rate-latency (5s warm-up, 30s measured)
+round 3: caddy: throughput (5s warm-up, 30s measured), fixed-rate-latency (5s warm-up, 30s measured)
 round 3: nginx: throughput (5s warm-up, 30s measured), fixed-rate-latency (5s warm-up, 30s measured)
 round 3: traefik: throughput (5s warm-up, 30s measured), fixed-rate-latency (5s warm-up, 30s measured)`
 	if got := describeSchedule(decided); got != want {
@@ -163,7 +163,7 @@ func TestSmokeScheduleIsOneShortRoundWithoutWarmUpThatChecksTheEquivalentSetup(t
 		t.Errorf("mode = %q, want %q", decided.Mode, SmokeMode)
 	}
 	want := `round 1: divisor: throughput (0s warm-up, 3s measured), fixed-rate-latency (0s warm-up, 3s measured)
-round 1: haproxy: throughput (0s warm-up, 3s measured), fixed-rate-latency (0s warm-up, 3s measured)
+round 1: caddy: throughput (0s warm-up, 3s measured), fixed-rate-latency (0s warm-up, 3s measured)
 round 1: nginx: throughput (0s warm-up, 3s measured), fixed-rate-latency (0s warm-up, 3s measured)
 round 1: traefik: throughput (0s warm-up, 3s measured), fixed-rate-latency (0s warm-up, 3s measured)`
 	if got := describeSchedule(decided); got != want {

@@ -5,10 +5,9 @@ results can appear on its release page. This directory holds everything that
 run uses: the backend every proxy forwards to, each proxy's config, the load
 generator pin, and the tool that runs it all and writes the results.
 
-Each proxy measured is called a **Contender**: the divisor being benchmarked,
-its Baseline release, the previous stable divisor release (see
-[What changed](#what-changed-the-baseline-release)), and
-[HAProxy, nginx and Traefik](#contenders), each configured to do the same work.
+Each proxy measured is called a **Contender**: the divisor being benchmarked
+and [Caddy, nginx and Traefik](#contenders), each configured to do the same
+work.
 
 ## What is measured
 
@@ -60,53 +59,20 @@ The machine:
 Absolute numbers depend on the machine, so they compare only within one
 release page: rows from one run are comparable, numbers on two release pages
 are not, because GitHub's shared runners change CPU model and neighbors
-between runs. This is why the previous release runs again in every run
-instead of having its old numbers reused.
-
-## What changed: the Baseline release
-
-Every run also measures the **Baseline release**, the previous stable divisor
-release, from its published image `ghcr.io/aaydin-tr/divisor:<tag>`. It is a
-Contender like any other: it shares one divisor config with the divisor being
-benchmarked, gets the same core and memory, and takes its turn in every round
-right after it, as the row "divisor (Baseline)" directly under it. If it fails,
-its row says so like any failed row.
-
-Which release is the Baseline:
-
-- For a stable release, the highest stable release below it. `v1.0.2`, shipped
-  after `v1.1.0`, is compared with `v1.0.1`, not `v1.1.0`.
-- For a branch or a release candidate (`v1.2.0-rc.1`), the latest stable
-  release.
-- None when that release has another major version: divisor's config is only
-  promised compatible within one major version, so `v1.0.0` has no Baseline
-  (`v0.6.0` cannot read the 1.0 config). None either for the first stable
-  release.
-
-The section starts with what changed, for Throughput req/s and for Fixed-rate
-latency p99: the change from the Baseline release's median to divisor's, each
-with its verdict, an improvement, a regression or within noise. Without a
-Baseline, it says "No Baseline release" and why.
-
-**The noise rule.** A change is **within noise** when it is smaller than 3%
-or smaller than the spread between rounds of either divisor row for that
-number, whichever is larger. A shared runner moves a few percent from minute
-to minute, so a 2% change says nothing; and when the rounds themselves spread
-by 6%, neither does a 5% change. The threshold used is printed next to each
-"within noise" verdict.
+between runs.
 
 ## Contenders
 
-The tables always list the Contenders in the same order: divisor, divisor
-(Baseline), then HAProxy, nginx and Traefik alphabetically. The order is not a
-ranking. Each row shows the Contender's exact version.
+Each table ranks the Contenders: Throughput by requests per second, highest
+first, and Fixed-rate latency by p50, lowest first. A Contender that failed
+comes last. Each row shows the Contender's exact version.
 
 Each Contender is a directory under [`contenders/`](contenders/): a Dockerfile
 whose `FROM` line pins the proxy's official image to an exact version, plus
 that proxy's config. The `FROM` line is the only place a version is written:
 the Version column is read from it, so the compared versions change only when
 a pull request changes that line. Once a month, one Dependabot pull request
-bumps the HAProxy, nginx, Traefik and oha pins together.
+bumps the Caddy, nginx, Traefik and oha pins together.
 
 ### The same work for every Contender
 
@@ -142,9 +108,7 @@ image `ghcr.io/aaydin-tr/divisor:<tag>`, never rebuilt. A branch, or your
 checkout, is built into a static `linux/amd64` binary in the repository's
 release [`Dockerfile`](../Dockerfile). Then
 [`contenders/divisor/Dockerfile`](contenders/divisor/Dockerfile) adds the
-benchmark config, [`contenders/divisor/config.yaml`](contenders/divisor/config.yaml),
-one divisor config for both divisor rows (the Baseline release gets it on its
-published image):
+benchmark config, [`contenders/divisor/config.yaml`](contenders/divisor/config.yaml):
 
 - `type: round-robin` over the four backends.
 - HTTP/1.1 without TLS, on port 8080.
@@ -157,23 +121,27 @@ published image):
 - The monitoring server at its default (`localhost:8001`). divisor cannot turn
   it off, so it runs, as in production.
 
-### HAProxy
+### Caddy
 
-The official `haproxy` image, pinned in
-[`contenders/haproxy/Dockerfile`](contenders/haproxy/Dockerfile), with
-[`contenders/haproxy/haproxy.cfg`](contenders/haproxy/haproxy.cfg):
+The official `caddy` image, pinned in
+[`contenders/caddy/Dockerfile`](contenders/caddy/Dockerfile), with
+[`contenders/caddy/Caddyfile`](contenders/caddy/Caddyfile):
 
-- `nbthread 1`: one thread.
-- `balance roundrobin` over the four backends.
-- `option forwardfor`: adds `X-Forwarded-For`.
-- `default-server check inter 30s`: a health check of every backend every 30
-  seconds (HAProxy's default check, a TCP connect).
-- No `log` lines, so HAProxy logs nothing.
-- Keep-alive and backend connection reuse at HAProxy's defaults: client and
-  backend connections are kept alive, and idle backend connections are reused
-  (`http-reuse safe`).
-- `timeout connect`, `client` and `server`, which HAProxy warns about when they
-  are missing. None of them is reached during a run.
+- One site on port 8080, HTTP/1.1 without TLS, whose `reverse_proxy` sends
+  every request to the four backends with `lb_policy round_robin` (Caddy's
+  default is random).
+- `health_uri /` with `health_interval 30s`: a health check of every backend
+  every 30 seconds.
+- No `log` directive, so Caddy writes no access log.
+- `X-Forwarded-For` at its default: Caddy sets it.
+- Keep-alive to the backends at its default: Caddy keeps up to 32 idle
+  connections open to each backend, more than the Throughput Workload's 64
+  client connections need over four backends.
+- One worker: Caddy is a Go program, and Go runs as many threads at once as
+  the CPUs it may use, here one.
+- `auto_https off` and `admin off`: Caddy manages no certificates and opens no
+  admin endpoint (`localhost:2019` by default), neither of which is proxying
+  work.
 
 ### nginx
 
@@ -227,15 +195,14 @@ with at least 4 CPUs available to it; Go; and git. From the repository root:
 make benchmark
 ```
 
-It builds the checkout, pulls the published images of the Baseline release
-and the other Contenders, runs
-the full schedule (about 4 minutes per Contender), prints the Markdown section and writes the results to
-`benchmark/results/`, which git ignores:
+It builds the checkout, pulls the published images of the other Contenders,
+runs the full schedule (about 4 minutes per Contender), prints the Markdown
+section and writes the results to `benchmark/results/`, which git ignores:
 
 | File | Contents |
 | --- | --- |
 | `section.md` | the Markdown section that was printed |
-| `benchmark.json` | the run's metadata, every Contender's version and image, per Workload and Contender each round's numbers, the median, the spread and the status, and the comparison with the Baseline release (each change as a fraction, its noise threshold and its verdict) |
+| `benchmark.json` | the run's metadata, every Contender's version and image, and per Workload and Contender each round's numbers, the median, the spread and the status |
 | `recording.json` | what the run observed; `section.md` and `benchmark.json` are made from it and the raw outputs |
 | `raw/round-N/<contender>/` | oha's JSON output for each Workload, and the Contender's log |
 
@@ -245,10 +212,6 @@ A local run never publishes anything. To render `section.md` and
 ```bash
 go -C benchmark run ./cmd/release-benchmark report --results results
 ```
-
-The Baseline release is picked from your checkout's tags. A clone without
-them (a shallow one, say) runs no Baseline and says "No Baseline release: the
-checkout has no stable release tag"; `git fetch --tags` fixes it.
 
 Local numbers only say something about your machine. On Docker Desktop:
 
@@ -284,5 +247,4 @@ checks, for every Contender, that:
 A failed check prints the Contender and the check, and the run exits
 non-zero. The answers it checked are in
 `benchmark/results/raw/round-1/<contender>/equivalent-setup-sample.json`. A smoke
-run is too short for its numbers to mean anything, so its section marks both
-changes against the Baseline release "not compared".
+run is too short for its numbers to mean anything, and its section says so.

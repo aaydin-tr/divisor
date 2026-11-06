@@ -42,5 +42,5 @@ func divisorUnderTest(inputs *Inputs) Contender {
 }
 
 func publishedDivisor(tag string) Contender {
-	return divisorContender(DivisorContenderID, divisorName, tag, publishedDivisorImage(tag))
+	return divisorContender(tag, publishedDivisorImage(tag))
 }

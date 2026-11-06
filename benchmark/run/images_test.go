@@ -6,7 +6,7 @@ import (
 )
 
 func TestAContenderImageThatCannotBeBuiltFailsWithDockersError(t *testing.T) {
-	dockerBuildError := errors.New(`docker build --quiet --tag divisor-benchmark/contender-divisor-baseline --build-arg DIVISOR_IMAGE=ghcr.io/aaydin-tr/divisor:v9.9.9 contenders/divisor: exit status 1: Dockerfile:4
+	dockerBuildError := errors.New(`docker build --quiet --tag divisor-benchmark/contender-divisor --build-arg DIVISOR_IMAGE=ghcr.io/aaydin-tr/divisor:v9.9.9 contenders/divisor: exit status 1: Dockerfile:4
 --------------------
    3 |     ARG DIVISOR_IMAGE
    4 | >>> FROM ${DIVISOR_IMAGE}

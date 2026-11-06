@@ -63,9 +63,6 @@
           "address": "127.0.0.1:9004"
         }
       ]
-    },
-    "baseline_release": {
-      "no_baseline_reason": "the checkout has no stable release tag"
     }
   },
   "environment": {
