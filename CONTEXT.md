@@ -102,6 +102,10 @@ _Avoid_: SSE mode, passthrough, chunked mode
 Applying an edited config file to a running divisor without restart: only the Backend set and Probe settings may change; an edit touching any other key — or an invalid new config — is rejected as a whole, divisor keeps serving with the old config and logs why. An entry left as it was keeps its Backend (liveness, stats) even if it moved in the list; a changed entry is a new Backend, so the old one is removed and the new one added. Triggered by SIGHUP or by a change to the config file, including a ConfigMap update (which replaces the file rather than writing it); a burst of changes is one Reload.
 _Avoid_: hot reload, live update, refresh
 
+**Graceful shutdown**:
+How divisor stops on SIGTERM or SIGINT: `/ready` answers 503, no new connections are taken, and divisor exits once every request it has begun to serve has its full response, within `server.graceful_shutdown_timeout`. It never forwards a request it cannot answer: a request that arrives on a connection divisor is closing is dropped unhandled, so it never reaches a Backend.
+_Avoid_: graceful stop, soft shutdown
+
 ### Integration testing
 
 **Integration suite**:

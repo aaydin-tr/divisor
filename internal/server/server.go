@@ -57,6 +57,7 @@ func startFasthttp(cfg *config.Config, balancer types.IBalancer, ln net.Listener
 		TLSConfig:             tlsConfig(cfg),
 		ErrorHandler:          proxy.ErrorHandler,
 		Name:                  "divisor",
+		CloseOnShutdown:       true,
 	}
 
 	// fasthttp returns nil from Serve once Shutdown closes the listener.

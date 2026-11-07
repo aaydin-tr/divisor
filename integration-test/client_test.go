@@ -61,6 +61,8 @@ type Result struct {
 	Body       []byte
 	TLS        *tls.ConnectionState
 	Echo       *EchoResp // non-nil when the response body parsed as an Echo backend reply
+	// Go moves a Connection: close response header out of Header and into this.
+	ConnectionClose bool
 }
 
 // NewClient builds an HTTP client wired for this Scenario's scheme: the
@@ -106,12 +108,13 @@ func (s *Scenario) Request(method, path string, body io.Reader, hdr http.Header)
 	}
 
 	res := &Result{
-		StatusCode: resp.StatusCode,
-		Proto:      resp.Proto,
-		ProtoMajor: resp.ProtoMajor,
-		Header:     resp.Header,
-		Body:       raw,
-		TLS:        resp.TLS,
+		StatusCode:      resp.StatusCode,
+		Proto:           resp.Proto,
+		ProtoMajor:      resp.ProtoMajor,
+		Header:          resp.Header,
+		ConnectionClose: resp.Close,
+		Body:            raw,
+		TLS:             resp.TLS,
 	}
 	if resp.Header.Get("X-Backend-Id") != "" {
 		var echo EchoResp
