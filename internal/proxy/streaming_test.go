@@ -112,7 +112,7 @@ func newFasthttpFrontendServing(t *testing.T, serve fasthttp.RequestHandler, wri
 	return startFasthttpFrontend(t, NewFasthttpHandler(&stubBalancer{handler: serve}, writeTimeout, false), writeTimeout)
 }
 
-// newFasthttpOneCoreFrontendServing is the HTTP/1.1 listener as divisor runs it on one core: it yields before each response write.
+// newFasthttpOneCoreFrontendServing is the HTTP/1.1 listener as divisor runs it on 2 cores or fewer: it yields before each response write.
 func newFasthttpOneCoreFrontendServing(t *testing.T, serve fasthttp.RequestHandler, writeTimeout time.Duration) frontend {
 	t.Helper()
 	return startFasthttpFrontend(t, NewFasthttpHandler(&stubBalancer{handler: serve}, writeTimeout, true), writeTimeout)

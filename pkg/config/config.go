@@ -475,10 +475,10 @@ func (s *Server) prepareServer() error {
 // compares two prepared configs, so both must see the same value.
 var startupGOMAXPROCS = runtime.GOMAXPROCS(0)
 
-// disableResponseBatchingAboveOneCPU keeps response batching off whatever the config says when Go
-// runs divisor on more than one CPU: there the yield only delays each response write.
-func (s *Server) disableResponseBatchingAboveOneCPU(gomaxprocs int) {
-	if gomaxprocs > 1 {
+// disableResponseBatchingAboveTwoCPUs keeps response batching off whatever the config says when Go
+// runs divisor on more than 2 CPUs: there the yield only delays each response write (-7% at 4).
+func (s *Server) disableResponseBatchingAboveTwoCPUs(gomaxprocs int) {
+	if gomaxprocs > 2 {
 		s.DisableResponseBatching = true
 	}
 }
@@ -570,7 +570,7 @@ func (s *Server) applyServerDefaults() error {
 		s.HTTP2.MaxConcurrentStreams = DefaultHTTP2MaxConcurrentStreams
 	}
 
-	s.disableResponseBatchingAboveOneCPU(startupGOMAXPROCS)
+	s.disableResponseBatchingAboveTwoCPUs(startupGOMAXPROCS)
 	return nil
 }
 

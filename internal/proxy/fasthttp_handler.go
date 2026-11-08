@@ -13,7 +13,7 @@ import (
 
 // NewFasthttpHandler serves balancer on the HTTP/1.1 listener, bounding a Streamed response's client writes and
 // watching its client connection: fasthttp notices a gone client only when a write fails.
-// The config keeps batchResponseWrites off unless divisor runs on one CPU.
+// The config keeps batchResponseWrites off unless divisor runs on 2 CPUs or fewer.
 func NewFasthttpHandler(balancer types.IBalancer, writeTimeout time.Duration, batchResponseWrites bool) fasthttp.RequestHandler {
 	serve := balancer.Serve()
 	return func(ctx *fasthttp.RequestCtx) {

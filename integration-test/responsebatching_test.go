@@ -16,8 +16,8 @@ import (
 	"time"
 )
 
-// Response batching: on one CPU, divisor yields before writing a response that is not streamed. The scenarios in
-// responsebatching*_test.go check the yield changes nothing a client, a Backend or an operator sees.
+// Response batching: on 2 CPUs or fewer, divisor yields before writing a response that is not streamed. The
+// scenarios in responsebatching*_test.go check the yield changes nothing a client, a Backend or an operator sees.
 var responseBatchingModes = []struct {
 	name             string
 	scenarioSuffix   string
@@ -31,17 +31,22 @@ var responseBatchingModes = []struct {
 // (the default) and one with server.disable_response_batching: both must pass the same assertions.
 func onOneCPUWithBatchingOnAndOff(t *testing.T, spec ScenarioSpec, scenarioBody func(t *testing.T, s *Scenario)) {
 	t.Helper()
+	onCPUsWithBatchingOnAndOff(t, 1, spec, scenarioBody)
+}
+
+func onCPUsWithBatchingOnAndOff(t *testing.T, cpuLimit int, spec ScenarioSpec, scenarioBody func(t *testing.T, s *Scenario)) {
+	t.Helper()
 	for _, mode := range responseBatchingModes {
 		t.Run(mode.name, func(t *testing.T) {
 			t.Parallel()
 			modeSpec := spec
 			modeSpec.Name = spec.Name + "-" + mode.scenarioSuffix
 			modeSpec.Backends = slices.Clone(spec.Backends)
-			modeSpec.CPULimit = 1
+			modeSpec.CPULimit = cpuLimit
 			modeSpec.DisableResponseBatching = mode.batchingDisabled
 			modeSpec.ExposeMonitoring = true
 			s := startScenario(t, modeSpec)
-			requireGOMAXPROCS(t, s, 1)
+			requireGOMAXPROCS(t, s, cpuLimit)
 			scenarioBody(t, s)
 		})
 	}
@@ -81,17 +86,27 @@ func TestOneCPUKeepAliveClientsGetTheirOwnResponses(t *testing.T) {
 	}, requireKeepAliveClientsGetTheirOwnResponses)
 }
 
-// On two CPUs divisor never batches; the same keep-alive traffic must be served all the same.
+// Two CPUs is the most divisor batches on: the GOMAXPROCS Go gives a Kubernetes limits.cpu of 2 or less.
 func TestTwoCPUsKeepAliveClientsGetTheirOwnResponses(t *testing.T) {
 	t.Parallel()
+	onCPUsWithBatchingOnAndOff(t, 2, ScenarioSpec{
+		Name:     "rb-twocpus-keepalive",
+		Type:     "round-robin",
+		Backends: []BackendSpec{{ID: "a"}, {ID: "b"}, {ID: "c"}},
+	}, requireKeepAliveClientsGetTheirOwnResponses)
+}
+
+// On three CPUs divisor never batches; the same keep-alive traffic must be served all the same.
+func TestThreeCPUsKeepAliveClientsGetTheirOwnResponses(t *testing.T) {
+	t.Parallel()
 	s := startScenario(t, ScenarioSpec{
-		Name:             "rb-twocpus",
+		Name:             "rb-threecpus",
 		Type:             "round-robin",
-		CPULimit:         2,
+		CPULimit:         3,
 		ExposeMonitoring: true,
 		Backends:         []BackendSpec{{ID: "a"}, {ID: "b"}, {ID: "c"}},
 	})
-	requireGOMAXPROCS(t, s, 2)
+	requireGOMAXPROCS(t, s, 3)
 	requireKeepAliveClientsGetTheirOwnResponses(t, s)
 }
 
@@ -126,25 +141,37 @@ func TestOneCPUPipelinedRequestsAreAnsweredInOrder(t *testing.T) {
 		Name:     "rb-pipeline",
 		Type:     "round-robin",
 		Backends: []BackendSpec{{ID: "a"}, {ID: "b"}},
-	}, func(t *testing.T, s *Scenario) {
-		// Several pipelining connections at once, so divisor has other requests to run when it yields.
-		const connectionCount, pipelinesPerConnection, pipelineDepth = 16, 3, 20
-		failures := make([]error, connectionCount)
-		var connectionsDone sync.WaitGroup
-		for connectionIndex := range connectionCount {
-			connectionsDone.Add(1)
-			go func() {
-				defer connectionsDone.Done()
-				failures[connectionIndex] = pipelineOnOneConnection(divisorAddress(s), pipelinesPerConnection, pipelineDepth)
-			}()
+	}, requirePipelinedRequestsAnsweredInOrder)
+}
+
+func TestTwoCPUsPipelinedRequestsAreAnsweredInOrder(t *testing.T) {
+	t.Parallel()
+	onCPUsWithBatchingOnAndOff(t, 2, ScenarioSpec{
+		Name:     "rb-twocpus-pipeline",
+		Type:     "round-robin",
+		Backends: []BackendSpec{{ID: "a"}, {ID: "b"}},
+	}, requirePipelinedRequestsAnsweredInOrder)
+}
+
+func requirePipelinedRequestsAnsweredInOrder(t *testing.T, s *Scenario) {
+	t.Helper()
+	// Several pipelining connections at once, so divisor has other requests to run when it yields.
+	const connectionCount, pipelinesPerConnection, pipelineDepth = 16, 3, 20
+	failures := make([]error, connectionCount)
+	var connectionsDone sync.WaitGroup
+	for connectionIndex := range connectionCount {
+		connectionsDone.Add(1)
+		go func() {
+			defer connectionsDone.Done()
+			failures[connectionIndex] = pipelineOnOneConnection(divisorAddress(s), pipelinesPerConnection, pipelineDepth)
+		}()
+	}
+	connectionsDone.Wait()
+	for connectionIndex, err := range failures {
+		if err != nil {
+			t.Errorf("pipelining connection %d: %v", connectionIndex, err)
 		}
-		connectionsDone.Wait()
-		for connectionIndex, err := range failures {
-			if err != nil {
-				t.Errorf("pipelining connection %d: %v", connectionIndex, err)
-			}
-		}
-	})
+	}
 }
 
 func pipelineOnOneConnection(address string, pipelineCount, pipelineDepth int) error {
