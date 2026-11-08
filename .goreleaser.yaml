@@ -53,14 +53,14 @@ archives:
 changelog:
   sort: asc
   filters:
+    # Scoped (feat(benchmark):) and breaking (feat!:) commits included too.
+    # goreleaser ignores exclude when include is set, so docs/test/chore/ci
+    # are left out by not being listed.
     include:
-      - "^feat:"
-      - "^fix:"
-      - "^perf:"
-      - "^refactor:"
-    exclude:
-      - "^docs:"
-      - "^test:"
+      - '^feat(\(.+\))?!?:'
+      - '^fix(\(.+\))?!?:'
+      - '^perf(\(.+\))?!?:'
+      - '^refactor(\(.+\))?!?:'
 
 release:
   prerelease: auto
