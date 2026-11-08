@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// SchemaVersion changes whenever a field of benchmark.json changes meaning
-// or goes away; adding a field keeps it.
+// SchemaVersion changes whenever a field of a published benchmark.json changes meaning
+// or goes away; adding a field keeps it. Version 1 holds until the first release publishes one.
 const SchemaVersion = 1
 
 const (
