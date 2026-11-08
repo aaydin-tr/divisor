@@ -167,7 +167,7 @@ when `Pick` returns nil.
   1- or 2-CPU quota). The config owns the CPU rule: `prepareServer` sets `DisableResponseBatching` to true
   whenever GOMAXPROCS at startup (`startupGOMAXPROCS`, read once so a Reload compares like with like) is above
   2, where the yield only delays the write (-7% at 4 cores); the handler just takes the flag. The tests'
-  "fasthttp on one core" listener stack covers it. Go rounds a CPU quota under 2 up to GOMAXPROCS 2, so a
+  "fasthttp with response batching" listener stack covers it. Go rounds a CPU quota under 2 up to GOMAXPROCS 2, so a
   `limits.cpu: 1` pod batches at GOMAXPROCS 2
 - Keeps least-response-time's Score (`RecentResponseTime`, a lock-free moving average) and its
   Trial request state (`noTrialRequest` → `trialRequestDue` on `ExpireRecentResponseTime`, which
@@ -273,7 +273,8 @@ Implemented in `performGracefulShutdown()`:
 - Closes the config file watch and the Reloader (`stopReloading`), waiting
   for a Reload in flight (it may be Probing the Backends it adds), so no
   Reload touches the Pool during shutdown
-- Stops accepting new connections
+- Stops accepting new connections; every response written during the drain carries `Connection: close`
+  (fasthttp's `CloseOnShutdown` in `internal/server`; net/http does it by itself)
 - Waits for in-flight requests to complete
 - Stops the monitoring server (poller first, then its listener) so nothing reads Pool stats after the next step
 - Stops the Probe loop and waits for a round in flight (capped by `types.HealthCheckerStopTimeout`)

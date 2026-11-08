@@ -29,8 +29,8 @@ type Contender struct {
 	BuildArgs  map[string]string `json:"build_args,omitempty"`
 }
 
-// upstreamContenders follow divisor, alphabetically, so the table reads as a
-// measurement, not a leaderboard.
+// upstreamContenders run after divisor in every round, in this order, which a
+// ranked table also keeps for rows with equal numbers.
 var upstreamContenders = []struct{ id, name string }{
 	{"caddy", "Caddy"},
 	{"nginx", "nginx"},

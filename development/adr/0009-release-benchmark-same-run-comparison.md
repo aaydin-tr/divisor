@@ -22,7 +22,9 @@ The benchmark runs on every stable tag, but its numbers reach the release notes 
 - Changing the method (cores, Workloads, rates, connection count) makes later release pages incomparable with earlier ones, so the release that changes it says so.
 - Only amd64 is measured, although the release image is multi-arch.
 
-## Amended 2026-11-06
+## Amended 2026-11-06 and 2026-11-08
 
 - **No Baseline release.** A run no longer measures the previous stable divisor release next to the divisor being released, and the section no longer opens with divisor's change against it (Throughput req/s and Fixed-rate latency p99, each judged an improvement, a regression or within noise). The maintainer does not want a percentage gain against the previous release on every release page. Rows still compare only within one run.
 - **Caddy replaces HAProxy** as a Contender, in the Equivalent setup like the others.
+- **Ranked tables.** Throughput rows are ranked by requests per second, Fixed-rate latency rows by p50, a failed row last; this replaces the fixed row order (divisor first, then the others alphabetically).
+- **Peak memory.** The Throughput table adds each Contender's peak memory, the cgroup v2 `memory.peak` of its container read after Throughput, n/a when unreadable. So that the page cache of a Contender's own files does not count in round 1, each Contender is started once, unmeasured, before round 1.

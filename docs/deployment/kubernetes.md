@@ -154,8 +154,9 @@ it from the CPUs the pod may use and from its CPU limit, and counts a limit
 under 2 CPUs as 2. That number matters to divisor:
 
 - **2 CPUs or fewer** (no limit on a node with 2 CPUs or fewer, or
-  `limits.cpu` of `2` or less): divisor batches its responses, which raises
-  the requests per second one pod serves. See
+  `limits.cpu` of `2` or less): divisor batches its responses: it sends
+  the responses that are ready at the same time together. This raises the
+  requests per second one pod serves. See
   [`server.disable_response_batching`](../configuration.md#connections).
 - **3 CPUs or more:** divisor never batches.
 
