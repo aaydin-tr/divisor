@@ -48,6 +48,7 @@ Service on port `80` in front of divisor's `port`. Its values
 | `image.repository` | `ghcr.io/aaydin-tr/divisor` | image to run |
 | `image.tag` | the chart's own release, e.g. `v1.0.0` | image tag |
 | `terminationGracePeriodSeconds` | `40` | see [Rolling updates and shutdown](#rolling-updates-and-shutdown) |
+| `resources` | none | the container's CPU and memory requests and limits, see [CPU and memory](#cpu-and-memory) |
 | `config` | the config shown in [`examples/kubernetes/configmap.yaml`](../../examples/kubernetes/configmap.yaml) | the divisor config, written out as `config.yaml` |
 
 A minimal `values.yaml` only replaces the Backend list:
@@ -140,6 +141,34 @@ Deployment delays `SIGTERM` with a 5-second `preStop` sleep, and
 drain before the kubelet sends `SIGKILL`. If you raise
 `graceful_shutdown_timeout`, raise the grace period with it (`terminationGracePeriodSeconds`
 in the chart's values).
+
+## CPU and memory
+
+Neither the chart nor the example manifest sets CPU or memory requests or
+limits. Set them for your load: in the chart's `resources` value, or in a
+`resources` block in [`deployment.yaml`](../../examples/kubernetes/deployment.yaml),
+which has a commented one to start from.
+
+Go's `GOMAXPROCS` is how many CPUs run divisor's code at the same time. Go sets
+it from the CPUs the pod may use and from its CPU limit, and counts a limit
+under 2 CPUs as 2. That number matters to divisor:
+
+- **2 CPUs or fewer** (no limit on a node with 2 CPUs or fewer, or
+  `limits.cpu` of `2` or less): divisor batches its responses: it sends
+  the responses that are ready at the same time together. This raises the
+  requests per second one pod serves. See
+  [`server.disable_response_batching`](../configuration.md#connections).
+- **3 CPUs or more:** divisor never batches.
+
+A CPU limit is a time budget: with `limits.cpu: 1` the container may use one
+CPU's worth of time in every 100 ms. When divisor uses up its budget, Linux
+pauses it until the next 100 ms starts, and every request waits for that
+pause. In a test at full load with `limits.cpu: 1`, the slowest 1% of requests
+took about 50 ms; below the limit they take a few milliseconds. Keep divisor below its CPU limit: add
+pods, or scale them with a HorizontalPodAutoscaler, before it reaches it.
+
+For memory, watch what divisor uses under your load on the
+[Monitoring server](#monitoring-and-logs) and set the limit with room above it.
 
 ## Reload by editing the ConfigMap
 

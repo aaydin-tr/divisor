@@ -62,8 +62,11 @@ type Measurement struct {
 	// OhaOutputFile is relative to the results directory, slash-separated.
 	OhaOutputFile string `json:"oha_output_file,omitempty"`
 	// Failure says why the Contender could not be measured at all.
-	Failure   string `json:"failure,omitempty"`
-	OhaOutput []byte `json:"-"`
+	Failure string `json:"failure,omitempty"`
+	// PeakMemoryBytes is the Contender cgroup's memory.peak read right after this measurement;
+	// nil when the Workload does not read it or the file could not be read.
+	PeakMemoryBytes *int64 `json:"peak_memory_bytes,omitempty"`
+	OhaOutput       []byte `json:"-"`
 }
 
 func OhaOutputFile(round int, contenderID, workloadID string) string {

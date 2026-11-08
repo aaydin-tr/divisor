@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"io"
 	"net"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/valyala/fasthttp"
 )
 
 // brokenListener fails every Accept permanently, the way a listener whose
@@ -29,11 +32,46 @@ func newConfig(t *testing.T, httpVersion string) *config.Config {
 	t.Helper()
 	cfg := &config.Config{Host: "127.0.0.1", Port: "0", Server: config.Server{HttpVersion: httpVersion}}
 	if httpVersion == config.Http2 {
-		certPath, keyPath, err := testcert.Write(t.TempDir())
-		assert.NoError(t, err)
-		cfg.Server.CertFile, cfg.Server.KeyFile = certPath, keyPath
+		addTestCertificate(t, cfg)
 	}
 	return cfg
+}
+
+func addTestCertificate(t *testing.T, cfg *config.Config) {
+	t.Helper()
+	certPath, keyPath, err := testcert.Write(t.TempDir())
+	assert.NoError(t, err)
+	cfg.Server.CertFile, cfg.Server.KeyFile = certPath, keyPath
+}
+
+func newFasthttpConfig(t *testing.T) *config.Config {
+	t.Helper()
+	return newConfig(t, config.Http1)
+}
+
+func newFasthttpOverTLSConfig(t *testing.T) *config.Config {
+	t.Helper()
+	cfg := newConfig(t, config.Http1)
+	addTestCertificate(t, cfg)
+	return cfg
+}
+
+func newNetHttpConfig(t *testing.T) *config.Config {
+	t.Helper()
+	return newConfig(t, config.Http2)
+}
+
+func enableHTTP1(protocols *http.Protocols) { protocols.SetHTTP1(true) }
+
+func enableHTTP2(protocols *http.Protocols) { protocols.SetHTTP2(true) }
+
+func newClientSpeaking(enableProtocol func(*http.Protocols)) *http.Client {
+	var protocols http.Protocols
+	enableProtocol(&protocols)
+	return &http.Client{Transport: &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		Protocols:       &protocols,
+	}}
 }
 
 func localListener(t *testing.T) net.Listener {
@@ -132,18 +170,11 @@ func TestNetHttpStackServesHTTP2AndHTTP1(t *testing.T) {
 		enableProtocol func(*http.Protocols)
 		wantProtoMajor int
 	}{
-		{"HTTP/2 client", func(p *http.Protocols) { p.SetHTTP2(true) }, 2},
-		{"HTTP/1.1 client", func(p *http.Protocols) { p.SetHTTP1(true) }, 1},
+		{"HTTP/2 client", enableHTTP2, 2},
+		{"HTTP/1.1 client", enableHTTP1, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var protocols http.Protocols
-			tc.enableProtocol(&protocols)
-			client := &http.Client{Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-				Protocols:       &protocols,
-			}}
-
-			res, err := client.Get("https://" + ln.Addr().String())
+			res, err := newClientSpeaking(tc.enableProtocol).Get("https://" + ln.Addr().String())
 			require.NoError(t, err)
 			defer res.Body.Close()
 			assert.Equal(t, tc.wantProtoMajor, res.ProtoMajor)
@@ -186,5 +217,102 @@ func TestCleanShutdownReportsNothing(t *testing.T) {
 	case got := <-errc:
 		t.Fatalf("clean shutdown reported an error: %v", got)
 	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// heldResponseBalancer answers a request only once the test releases it, so
+// its response can be written while Shutdown runs.
+type heldResponseBalancer struct {
+	mocks.MockBalancer
+	requestArrived  chan struct{}
+	releaseResponse chan struct{}
+}
+
+func newHeldResponseBalancer() *heldResponseBalancer {
+	return &heldResponseBalancer{requestArrived: make(chan struct{}), releaseResponse: make(chan struct{})}
+}
+
+func (b *heldResponseBalancer) Serve() func(ctx *fasthttp.RequestCtx) {
+	return func(ctx *fasthttp.RequestCtx) {
+		close(b.requestArrived)
+		<-b.releaseResponse
+		ctx.SetStatusCode(fasthttp.StatusOK)
+	}
+}
+
+// Both stacks mark themselves shutting down before they close their listener.
+type closeReportingListener struct {
+	net.Listener
+	closed    chan struct{}
+	closeOnce sync.Once
+}
+
+func (l *closeReportingListener) Close() error {
+	l.closeOnce.Do(func() { close(l.closed) })
+	return l.Listener.Close()
+}
+
+type receivedResponse struct {
+	statusCode      int
+	connectionClose bool
+	err             error
+}
+
+func getOverHTTP1(url string) receivedResponse {
+	res, err := newClientSpeaking(enableHTTP1).Get(url)
+	if err != nil {
+		return receivedResponse{err: err}
+	}
+	defer res.Body.Close()
+	_, err = io.Copy(io.Discard, res.Body)
+	// Go moves Connection: close out of Header and into Close.
+	return receivedResponse{statusCode: res.StatusCode, connectionClose: res.Close, err: err}
+}
+
+func receiveWithin[T any](t *testing.T, ch <-chan T, awaited string) T {
+	t.Helper()
+	select {
+	case value := <-ch:
+		return value
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for %s", awaited)
+		var zero T
+		return zero
+	}
+}
+
+// A client that reuses the connection after such a response would find it closed; Connection: close sends it to
+// open a new one instead.
+func TestResponseWrittenDuringShutdownClosesTheConnection(t *testing.T) {
+	for _, stack := range []struct {
+		name      string
+		newConfig func(t *testing.T) *config.Config
+		scheme    string
+	}{
+		{"fasthttp", newFasthttpConfig, "http"},
+		{"fasthttp over TLS", newFasthttpOverTLSConfig, "https"},
+		{"net/http", newNetHttpConfig, "https"},
+	} {
+		t.Run(stack.name, func(t *testing.T) {
+			balancer := newHeldResponseBalancer()
+			ln := &closeReportingListener{Listener: localListener(t), closed: make(chan struct{})}
+			srv, _, err := Start(stack.newConfig(t), balancer, ln)
+			require.NoError(t, err)
+
+			response := make(chan receivedResponse, 1)
+			go func() { response <- getOverHTTP1(stack.scheme + "://" + ln.Addr().String()) }()
+			receiveWithin(t, balancer.requestArrived, "the request to reach the balancer")
+
+			shutdownResult := make(chan error, 1)
+			go func() { shutdownResult <- srv.Shutdown(context.Background()) }()
+			receiveWithin(t, ln.closed, "Shutdown to close the listener")
+			close(balancer.releaseResponse)
+
+			got := receiveWithin(t, response, "the response")
+			require.NoError(t, got.err)
+			assert.Equal(t, http.StatusOK, got.statusCode)
+			assert.True(t, got.connectionClose, "a response written during shutdown must carry Connection: close")
+			assert.NoError(t, receiveWithin(t, shutdownResult, "Shutdown to return"))
+		})
 	}
 }

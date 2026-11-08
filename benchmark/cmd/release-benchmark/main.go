@@ -185,11 +185,6 @@ func runInputs(ctx context.Context, command *commandLine, logOutput io.Writer) (
 		inputs.Trigger = plan.SmokeTrigger
 	}
 	inputs.PublishTicked = command.publish
-	tags, err := gitOutput(ctx, command.checkoutDirectory, "tag", "--list")
-	if err != nil {
-		return plan.Inputs{}, err
-	}
-	inputs.Tags = strings.Fields(tags)
 	inputs.BenchmarkCommit, err = gitOutput(ctx, benchmarkDirectory, "rev-parse", "HEAD")
 	return inputs, err
 }

@@ -249,6 +249,7 @@ func (p *Pool) updateLiveness(backend *Backend, isAlive bool) {
 	}
 
 	if isAlive {
+		closeConnections(backend)
 		p.joinRotation(backend)
 		zap.S().Infof("Backend is Alive again, Rejoining rotation, Addr: %s", backend.Addr)
 		return

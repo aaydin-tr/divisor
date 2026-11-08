@@ -3,6 +3,7 @@ package proxy
 import (
 	"errors"
 	"net"
+	"runtime"
 	"sync/atomic"
 	"time"
 
@@ -12,7 +13,8 @@ import (
 
 // NewFasthttpHandler serves balancer on the HTTP/1.1 listener, bounding a Streamed response's client writes and
 // watching its client connection: fasthttp notices a gone client only when a write fails.
-func NewFasthttpHandler(balancer types.IBalancer, writeTimeout time.Duration) fasthttp.RequestHandler {
+// The config keeps batchResponseWrites off unless divisor runs on 2 CPUs or fewer.
+func NewFasthttpHandler(balancer types.IBalancer, writeTimeout time.Duration, batchResponseWrites bool) fasthttp.RequestHandler {
 	serve := balancer.Serve()
 	return func(ctx *fasthttp.RequestCtx) {
 		serve(ctx)
@@ -20,6 +22,12 @@ func NewFasthttpHandler(balancer types.IBalancer, writeTimeout time.Duration) fa
 			// A write deadline set by the handler replaces server.write_timeout's, so the bound carries it.
 			stream.boundClientWrites(ctx.SetWriteDeadline, writeTimeoutExpiresAt(time.Now(), writeTimeout))
 			stream.watchClientConn(ctx.Conn())
+			return
+		}
+		if batchResponseWrites {
+			// The other ready requests run first and the responses go out together; fasthttp still writes
+			// once per response. Measured on 1-2 CPUs for fan-in and independent clients alike (ADR 0010).
+			runtime.Gosched()
 		}
 	}
 }

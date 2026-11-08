@@ -65,12 +65,15 @@ go -C benchmark test -race ./...
 go -C benchmark run ./cmd/release-benchmark report --results results
 ```
 `benchmark/` (see its README): `plan` (pure: Contenders, Workloads, schedule,
-resources), `run` (Docker + oha, records `recording.json` and `raw/`),
+resources), `run` (Docker + oha, records `recording.json` and `raw/`;
+`peakmemory.go` reads the Contender's `memory.peak` after Throughput, n/a if unreadable;
+`warmPageCache` starts each Contender once, unmeasured, before round 1 so its files are cached),
 `report` (pure: medians, spread, failed rows, Markdown in `markdown.go`,
-`benchmark.json` in `benchmarkjson.go`; tested against `report/testdata/`
-recorded runs, `-update` rewrites them), `oha` (oha's flags and JSON fields),
+`benchmark.json` in `benchmarkjson.go`; one golden built from Go data,
+`report/testdata/expected-section.md` and `expected-benchmark.json`, which `-update` rewrites,
+plus table tests for the special cases; the "Benchmark smoke" PR check covers real runs), `oha` (oha's flags and JSON fields),
 `backend` (the Benchmark backend), `contenders/<name>/` (Dockerfile + config
-per Contender: divisor, haproxy, nginx, traefik; an upstream Dockerfile's `FROM`
+per Contender: divisor, caddy, nginx, traefik; an upstream Dockerfile's `FROM`
 tag is its only version pin and, embedded by `contenders.PinnedUpstreamImage`,
 the Version column), `loadgenerator/Dockerfile` (the oha pin), `equivalentsetup`
 (smoke mode's checks: `Check`/`Verify` pure, `Collect` sends the requests from
@@ -158,6 +161,14 @@ when `Pick` returns nil.
 - Forwards headers as the client sent them: no default `Content-Type` or `User-Agent`; URI userinfo becomes `Authorization: Basic` in `preReq` (a client Authorization header wins)
 - Supports custom headers with special variables: `$remote_addr`, `$time`, `$uuid`, `$incremental`
 - Tracks metrics: total requests, average response time, last use time, Pending requests (an open stream counts until it ends)
+- Response batching (`server.disable_response_batching`, on by default; ADR 0010 holds the measurements): `NewFasthttpHandler` calls
+  `runtime.Gosched()` before fasthttp writes a response that isn't streamed, so one netpoll batch's responses
+  go out back-to-back (measured +41-48% req/s on one core, +19-28% at GOMAXPROCS 2 with a 2-core cpuset or a
+  1- or 2-CPU quota). The config owns the CPU rule: `prepareServer` sets `DisableResponseBatching` to true
+  whenever GOMAXPROCS at startup (`startupGOMAXPROCS`, read once so a Reload compares like with like) is above
+  2, where the yield only delays the write (-7% at 4 cores); the handler just takes the flag. The tests'
+  "fasthttp with response batching" listener stack covers it. Go rounds a CPU quota under 2 up to GOMAXPROCS 2, so a
+  `limits.cpu: 1` pod batches at GOMAXPROCS 2
 - Keeps least-response-time's Score (`RecentResponseTime`, a lock-free moving average) and its
   Trial request state (`noTrialRequest` → `trialRequestDue` on `ExpireRecentResponseTime`, which
   leaves a due or claimed one alone → `trialRequestClaimed` on `ClaimTrialRequest`): the next sample replaces the Score instead of
@@ -262,7 +273,8 @@ Implemented in `performGracefulShutdown()`:
 - Closes the config file watch and the Reloader (`stopReloading`), waiting
   for a Reload in flight (it may be Probing the Backends it adds), so no
   Reload touches the Pool during shutdown
-- Stops accepting new connections
+- Stops accepting new connections; every response written during the drain carries `Connection: close`
+  (fasthttp's `CloseOnShutdown` in `internal/server`; net/http does it by itself)
 - Waits for in-flight requests to complete
 - Stops the monitoring server (poller first, then its listener) so nothing reads Pool stats after the next step
 - Stops the Probe loop and waits for a round in flight (capped by `types.HealthCheckerStopTimeout`)
@@ -293,7 +305,7 @@ A `v*` tag runs `.github/workflows/goreleaser.yml`:
   skips a prerelease tag and the summary says so) and `workflow_dispatch` with a `ref` input
   (any tag or branch; `--trigger manual`, an rc runs). The tool and Contender definitions come
   from the workflow's own commit; the measured ref is a second checkout in `measured/` (full
-  history plus `git fetch --force --tags`, for tag messages and the Baseline). A tag runs its
+  history plus `git fetch --force --tags`, for tag messages and the release tag check). A tag runs its
   published `ghcr.io/aaydin-tr/divisor:<tag>`; a branch is built into the release image shape,
   so no `setup-buildx-action` (the default `docker` driver must see that local image).
   The run job is read-only, one concurrency group per ref, 60-minute timeout. The tool appends the
@@ -313,7 +325,8 @@ PRs touching release files (`.goreleaser.yaml`, `Dockerfile`, `main.go`, `charts
 `.github/scripts/`, the release workflows) run the "Release dry-run" job
 (`.github/workflows/release-dry-run.yml`): a goreleaser snapshot, the snapshot image's
 `--version` against `dist/metadata.json`, and `.github/scripts/helm-chart-smoke-test.sh`
-(helm lint, kubeconform `-strict`, the default image tag).
+(helm lint, kubeconform `-strict` on the default render and on one with `resources` set, the default
+image tag).
 
 ## Code style
 
@@ -350,7 +363,7 @@ var balancers = map[string]func(*config.Config) pool.Balancer{
 A new balancer is one package implementing `Join`/`Leave`/`Pick` plus a map entry; it never touches liveness.
 
 ### Backend Health Checking
-The Pool owns it: one Probe loop per process, stopped by closing a channel and drained on `Shutdown`. A Down Backend stays registered (and in `Stats()`) and Rejoins when a Probe succeeds.
+The Pool owns it: one Probe loop per process, stopped by closing a channel and drained on `Shutdown`. A Down Backend stays registered (and in `Stats()`) and Rejoins when a Probe succeeds, its pooled connections closed first (it may have restarted while Down).
 
 ### Consistent Hashing (IP-Hash)
 Uses `pkg/consistent` package implementing consistent hashing ring for stable IP-to-backend mapping.
@@ -397,7 +410,10 @@ When `server.http_version: http2`, divisor serves via `net/http` (its built-in H
   `streaming_test.go`, on `ScenarioSpec.Streaming` and the Echo backend's
   `/stream` SSE endpoint: frames arrive incrementally, knob off keeps the
   504, idle streams reaped, a client disconnect closes the Backend stream,
-  the Access log line at stream end.)
+  the Access log line at stream end; response batching — `responsebatching*_test.go`
+  runs each scenario on a one-CPU divisor (`ScenarioSpec.CPULimit: 1` adds `GOMAXPROCS=1`:
+  Go rounds a quota under 2 up to 2) with batching on and off, under the loads in `load_test.go`;
+  keep-alive and pipelining also run on two CPUs, and keep-alive on three, where it never batches.)
 
 ## Agent skills
 

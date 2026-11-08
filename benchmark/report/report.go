@@ -17,13 +17,11 @@ type Report struct {
 	Plan        plan.Plan
 	Environment recording.Environment
 	Workloads   []WorkloadResults
-
-	BaselineComparison BaselineComparison
 }
 
 type WorkloadResults struct {
 	Workload plan.Workload
-	// Rows follow the Plan's Contender order, the fixed row order.
+	// Rows follow the Plan's Contender order; the Markdown tables rank them (rowsInRankOrder).
 	Rows []Row
 }
 
@@ -40,6 +38,8 @@ type Numbers struct {
 	P50Milliseconds   float64
 	P99Milliseconds   float64
 	P999Milliseconds  float64
+	// PeakMemoryMB is in MiB, like Docker's --memory 512m; nil when not read.
+	PeakMemoryMB *float64
 }
 
 // Spread is (max − min) / median over the rounds, a fraction per number.
@@ -48,6 +48,7 @@ type Spread struct {
 	P50               float64
 	P99               float64
 	P999              float64
+	PeakMemory        *float64
 }
 
 type RoundResult struct {
@@ -84,7 +85,6 @@ func Build(recorded *recording.Recording) (*Report, error) {
 		}
 		built.Workloads = append(built.Workloads, results)
 	}
-	built.BaselineComparison = compareWithBaseline(built)
 	return built, nil
 }
 
@@ -124,7 +124,18 @@ func buildRoundResult(recorded *recording.Recording, round int, contender *plan.
 		P50Milliseconds:   millisecondsOf(result.P50),
 		P99Milliseconds:   millisecondsOf(result.P99),
 		P999Milliseconds:  millisecondsOf(result.P999),
+		PeakMemoryMB:      mebibytesOf(measurement.PeakMemoryBytes),
 	}}, nil
+}
+
+const bytesPerMiB = 1 << 20
+
+func mebibytesOf(bytes *int64) *float64 {
+	if bytes == nil {
+		return nil
+	}
+	mebibytes := float64(*bytes) / bytesPerMiB
+	return &mebibytes
 }
 
 func millisecondsOf(latency time.Duration) float64 {
@@ -152,7 +163,24 @@ func medianAndSpread(rounds []RoundResult) (median Numbers, spread Spread) {
 	median.P50Milliseconds, spread.P50 = medianAndSpreadOf(numbersOf(func(numbers Numbers) float64 { return numbers.P50Milliseconds }))
 	median.P99Milliseconds, spread.P99 = medianAndSpreadOf(numbersOf(func(numbers Numbers) float64 { return numbers.P99Milliseconds }))
 	median.P999Milliseconds, spread.P999 = medianAndSpreadOf(numbersOf(func(numbers Numbers) float64 { return numbers.P999Milliseconds }))
+	median.PeakMemoryMB, spread.PeakMemory = peakMemoryMedianAndSpread(rounds)
 	return median, spread
+}
+
+// peakMemoryMedianAndSpread is nil unless every round read the peak memory.
+func peakMemoryMedianAndSpread(rounds []RoundResult) (median, spread *float64) {
+	peaks := make([]float64, 0, len(rounds))
+	for _, round := range rounds {
+		if round.Numbers.PeakMemoryMB == nil {
+			return nil, nil
+		}
+		peaks = append(peaks, *round.Numbers.PeakMemoryMB)
+	}
+	if len(peaks) == 0 {
+		return nil, nil
+	}
+	medianPeak, spreadPeak := medianAndSpreadOf(peaks)
+	return &medianPeak, &spreadPeak
 }
 
 func medianAndSpreadOf(values []float64) (median, spread float64) {

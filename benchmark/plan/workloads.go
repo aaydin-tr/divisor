@@ -8,12 +8,17 @@ type Workload struct {
 	// means every connection sends its next request as soon as one is answered.
 	RequestsPerSecond          int  `json:"requests_per_second,omitempty"`
 	CorrectCoordinatedOmission bool `json:"correct_coordinated_omission,omitempty"`
+	// ReadsPeakMemory: right after this Workload is measured, Run reads the Contender's
+	// highest memory use since it started.
+	ReadsPeakMemory bool `json:"reads_peak_memory,omitempty"`
 }
 
+// Throughput reads the peak memory: it is the heavier Workload, and the first in a Turn.
 var Throughput = Workload{
-	ID:          "throughput",
-	Name:        "Throughput",
-	Connections: 64,
+	ID:              "throughput",
+	Name:            "Throughput",
+	Connections:     64,
+	ReadsPeakMemory: true,
 }
 
 var FixedRateLatency = Workload{

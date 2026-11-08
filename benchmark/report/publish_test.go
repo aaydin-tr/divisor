@@ -15,12 +15,12 @@ func TestPublishVerdict(t *testing.T) {
 		wantPublish bool
 		wantLine    string
 	}{
-		{"requested, every row ok", requestedByTheTagMessage, []WorkloadResults{throughputWith(okRow("divisor"), okRow("divisor (Baseline)"))},
+		{"requested, every row ok", requestedByTheTagMessage, []WorkloadResults{throughputWith(okRow("divisor"), okRow("Caddy"))},
 			true, "**Release page:** publishing this section to the v1.2.0 release, because the v1.2.0 tag message has the line `benchmark: publish`.\n"},
 		{"requested, a row failed", requestedByTheTagMessage, []WorkloadResults{
-			throughputWith(okRow("divisor"), failedRow("divisor (Baseline)")),
-			fixedRateLatencyWith(okRow("divisor"), failedRow("divisor (Baseline)")),
-		}, false, "**Release page:** not published, because these rows failed: divisor (Baseline) in Throughput, divisor (Baseline) in Fixed-rate latency.\n"},
+			throughputWith(okRow("divisor"), failedRow("Caddy")),
+			fixedRateLatencyWith(okRow("divisor"), failedRow("Caddy")),
+		}, false, "**Release page:** not published, because these rows failed: Caddy in Throughput, Caddy in Fixed-rate latency.\n"},
 		{"not requested", plan.PublishRequest{Reason: "publish was not ticked for this manual run"}, []WorkloadResults{throughputWith(okRow("divisor"))},
 			false, "**Release page:** not published, because publish was not ticked for this manual run.\n"},
 		{"not requested, a row failed", plan.PublishRequest{Reason: "a local run never publishes"}, []WorkloadResults{throughputWith(failedRow("divisor"))},

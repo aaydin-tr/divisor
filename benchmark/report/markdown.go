@@ -3,6 +3,7 @@ package report
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -11,27 +12,53 @@ import (
 
 const methodDocumentationURL = "https://github.com/aaydin-tr/divisor/blob/%s/benchmark/README.md"
 
+const notAvailable = "n/a"
+
 type column struct {
 	heading string
 	value   func(Numbers) string
+	// notAvailableNote goes under the table when a row's value is notAvailable.
+	notAvailableNote string
 }
 
 var (
-	requestsPerSecondColumn = column{"req/s", func(numbers Numbers) string { return withThousandsSeparators(numbers.RequestsPerSecond) }}
-	p50Column               = column{"p50", func(numbers Numbers) string { return inMilliseconds(numbers.P50Milliseconds) }}
-	p99Column               = column{"p99", func(numbers Numbers) string { return inMilliseconds(numbers.P99Milliseconds) }}
-	p999Column              = column{"p99.9", func(numbers Numbers) string { return inMilliseconds(numbers.P999Milliseconds) }}
+	requestsPerSecondColumn = column{heading: "req/s", value: func(numbers Numbers) string { return withThousandsSeparators(numbers.RequestsPerSecond) }}
+	p50Column               = column{heading: "p50", value: func(numbers Numbers) string { return inMilliseconds(numbers.P50Milliseconds) }}
+	p99Column               = column{heading: "p99", value: func(numbers Numbers) string { return inMilliseconds(numbers.P99Milliseconds) }}
+	p999Column              = column{heading: "p99.9", value: func(numbers Numbers) string { return inMilliseconds(numbers.P999Milliseconds) }}
+	peakMemoryColumn        = column{
+		heading: "peak memory",
+		value: func(numbers Numbers) string {
+			if numbers.PeakMemoryMB == nil {
+				return notAvailable
+			}
+			return inMegabytes(*numbers.PeakMemoryMB)
+		},
+		notAvailableNote: "Peak memory n/a: the run could not read the proxy container's `memory.peak` file, which needs cgroup v2 and Linux 5.19 or later.",
+	}
 )
 
-var tableColumns = map[string][]column{
-	plan.Throughput.ID:       {requestsPerSecondColumn, p50Column, p99Column},
-	plan.FixedRateLatency.ID: {p50Column, p99Column, p999Column},
+type workloadTableLayout struct {
+	columns []column
+	// ranksAbove orders the table's rows: the better Contender comes first.
+	ranksAbove func(contender, other Numbers) bool
+}
+
+var workloadTableLayouts = map[string]workloadTableLayout{
+	plan.Throughput.ID: {
+		columns:    []column{requestsPerSecondColumn, p50Column, p99Column, peakMemoryColumn},
+		ranksAbove: func(contender, other Numbers) bool { return contender.RequestsPerSecond > other.RequestsPerSecond },
+	},
+	plan.FixedRateLatency.ID: {
+		columns:    []column{p50Column, p99Column, p999Column},
+		ranksAbove: func(contender, other Numbers) bool { return contender.P50Milliseconds < other.P50Milliseconds },
+	},
 }
 
 // Markdown is the section the release page carries: blocks in reading order,
 // separated by a blank line.
 func (r *Report) Markdown() string {
-	blocks := []string{"## Performance", r.leadLine(), r.environmentLine()}
+	blocks := []string{"## Performance", r.environmentLine()}
 	for i := range r.Workloads {
 		blocks = append(blocks, workloadTable(&r.Workloads[i]))
 	}
@@ -71,7 +98,8 @@ func (r *Report) methodRef() string {
 }
 
 func workloadTable(results *WorkloadResults) string {
-	columns := tableColumns[results.Workload.ID]
+	layout := workloadTableLayouts[results.Workload.ID]
+	columns := layout.columns
 	lines := []string{
 		"### " + results.Workload.Name,
 		"",
@@ -87,16 +115,19 @@ func workloadTable(results *WorkloadResults) string {
 	}
 	lines = append(lines, tableLine(headings), tableLine(alignments))
 
-	var failures []string
-	for i := range results.Rows {
-		row := &results.Rows[i]
+	var notes, failures []string
+	for _, row := range rowsInRankOrder(results.Rows, layout.ranksAbove) {
 		cells := []string{row.Contender.Name, row.Contender.Version}
 		for _, column := range columns {
 			if row.Failed() {
 				cells = append(cells, "failed")
-			} else {
-				cells = append(cells, column.value(row.Median))
+				continue
 			}
+			cell := column.value(row.Median)
+			if cell == notAvailable && !slices.Contains(notes, column.notAvailableNote) {
+				notes = append(notes, column.notAvailableNote)
+			}
+			cells = append(cells, cell)
 		}
 		lines = append(lines, tableLine(cells))
 		for _, failure := range row.Failures() {
@@ -104,11 +135,39 @@ func workloadTable(results *WorkloadResults) string {
 		}
 	}
 
+	for _, note := range notes {
+		lines = append(lines, "", note)
+	}
 	if len(failures) > 0 {
 		lines = append(lines, "", "Failed:", "")
 		lines = append(lines, failures...)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// rowsInRankOrder puts failed rows last; rows that tie, and failed rows, keep the Plan's Contender order.
+func rowsInRankOrder(rows []Row, ranksAbove func(contender, other Numbers) bool) []*Row {
+	ranked := make([]*Row, len(rows))
+	for i := range rows {
+		ranked[i] = &rows[i]
+	}
+	slices.SortStableFunc(ranked, func(row, other *Row) int {
+		switch {
+		case row.Failed() != other.Failed():
+			if row.Failed() {
+				return 1
+			}
+			return -1
+		case row.Failed():
+			return 0
+		case ranksAbove(row.Median, other.Median):
+			return -1
+		case ranksAbove(other.Median, row.Median):
+			return 1
+		}
+		return 0
+	})
+	return ranked
 }
 
 func workloadDescription(workload plan.Workload) string {
@@ -135,6 +194,10 @@ func cores(count int) string {
 
 func inMilliseconds(milliseconds float64) string {
 	return strconv.FormatFloat(milliseconds, 'f', 2, 64) + " ms"
+}
+
+func inMegabytes(megabytes float64) string {
+	return strconv.FormatFloat(megabytes, 'f', 1, 64) + " MB"
 }
 
 func withThousandsSeparators(value float64) string {

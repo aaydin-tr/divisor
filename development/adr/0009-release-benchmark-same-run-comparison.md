@@ -1,6 +1,6 @@
 # The Release benchmark compares within one run, one core per Contender, and publishes only on request
 
-Every stable release runs a Release benchmark (CONTEXT.md) on a GitHub-hosted `ubuntu-latest` runner: the divisor being released, the Baseline release, nginx, HAProxy and Traefik, each in the Equivalent setup, serve the same Workloads one after another, three interleaved rounds each, and the median is reported. Shared runners change CPU model and neighbors between runs, so numbers from two runs are never compared: the Baseline release runs again in every run instead of being read back from its own release, and a difference smaller than 3% or the spread between rounds, whichever is larger, is reported as within noise.
+Every stable release runs a Release benchmark (CONTEXT.md) on a GitHub-hosted `ubuntu-latest` runner: the divisor being released, Caddy, nginx and Traefik, each in the Equivalent setup, serve the same Workloads one after another, three interleaved rounds each, and the median is reported. Shared runners change CPU model and neighbors between runs, so numbers from two runs are never compared: only rows from the same run are.
 
 Each Contender is pinned to one core and 512 MB. On a 4-vCPU runner the load generator needs two cores and the Benchmark backends one so that neither limits a Contender, and one core makes "one worker per core" the same setting for every proxy, so the numbers read per core.
 
@@ -20,5 +20,11 @@ The benchmark runs on every stable tag, but its numbers reach the release notes 
 
 - Absolute numbers on two release pages are not comparable; only rows on one page are.
 - Changing the method (cores, Workloads, rates, connection count) makes later release pages incomparable with earlier ones, so the release that changes it says so.
-- A release whose Baseline cannot read the benchmark config (a major config break, or `v1.0.0` against `v0.6.0`) shows no Baseline row.
 - Only amd64 is measured, although the release image is multi-arch.
+
+## Amended 2026-11-06 and 2026-11-08
+
+- **No Baseline release.** A run no longer measures the previous stable divisor release next to the divisor being released, and the section no longer opens with divisor's change against it (Throughput req/s and Fixed-rate latency p99, each judged an improvement, a regression or within noise). The maintainer does not want a percentage gain against the previous release on every release page. Rows still compare only within one run.
+- **Caddy replaces HAProxy** as a Contender, in the Equivalent setup like the others.
+- **Ranked tables.** Throughput rows are ranked by requests per second, Fixed-rate latency rows by p50, a failed row last; this replaces the fixed row order (divisor first, then the others alphabetically).
+- **Peak memory.** The Throughput table adds each Contender's peak memory, the cgroup v2 `memory.peak` of its container read after Throughput, n/a when unreadable. So that the page cache of a Contender's own files does not count in round 1, each Contender is started once, unmeasured, before round 1.

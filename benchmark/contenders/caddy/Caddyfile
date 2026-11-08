@@ -1,0 +1,19 @@
+# Caddy in the Equivalent setup (benchmark/README.md). No log directive, so
+# no access log; keep-alive to the backends and X-Forwarded-For stay at their
+# defaults.
+{
+	admin off
+	auto_https off
+}
+
+:8080 {
+	reverse_proxy {
+		to 127.0.0.1:9001
+		to 127.0.0.1:9002
+		to 127.0.0.1:9003
+		to 127.0.0.1:9004
+		lb_policy round_robin
+		health_uri /
+		health_interval 30s
+	}
+}

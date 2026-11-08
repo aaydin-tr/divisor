@@ -7,8 +7,9 @@ import "github.com/aaydin-tr/divisor/benchmark/contenders"
 const CheckoutDivisorImage = "divisor-benchmark/divisor:checkout"
 
 const (
-	divisorName       = "divisor"
-	divisorDefinition = "divisor"
+	divisorContenderID = "divisor"
+	divisorName        = "divisor"
+	divisorDefinition  = "divisor"
 	// divisorImageBuildArg is the image contenders/divisor builds FROM.
 	divisorImageBuildArg = "DIVISOR_IMAGE"
 )
@@ -28,10 +29,10 @@ type Contender struct {
 	BuildArgs  map[string]string `json:"build_args,omitempty"`
 }
 
-// upstreamContenders follow divisor and its Baseline, alphabetically, so the
-// table reads as a measurement, not a leaderboard.
+// upstreamContenders run after divisor in every round, in this order, which a
+// ranked table also keeps for rows with equal numbers.
 var upstreamContenders = []struct{ id, name string }{
-	{"haproxy", "HAProxy"},
+	{"caddy", "Caddy"},
 	{"nginx", "nginx"},
 	{"traefik", "Traefik"},
 }
@@ -54,10 +55,10 @@ func contendersFor(inputs *Inputs) ([]Contender, error) {
 	return decidedContenders, nil
 }
 
-func divisorContender(id, name, version, image string) Contender {
+func divisorContender(version, image string) Contender {
 	return Contender{
-		ID:         id,
-		Name:       name,
+		ID:         divisorContenderID,
+		Name:       divisorName,
 		Version:    version,
 		Image:      image,
 		Definition: divisorDefinition,
@@ -66,7 +67,7 @@ func divisorContender(id, name, version, image string) Contender {
 }
 
 func divisorFromCheckout(inputs *Inputs) Contender {
-	divisor := divisorContender(DivisorContenderID, divisorName, checkoutVersion(inputs), CheckoutDivisorImage)
+	divisor := divisorContender(checkoutVersion(inputs), CheckoutDivisorImage)
 	divisor.ImageFromCheckout = true
 	return divisor
 }

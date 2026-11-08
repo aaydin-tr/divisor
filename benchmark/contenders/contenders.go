@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-//go:embed haproxy/Dockerfile nginx/Dockerfile traefik/Dockerfile
+//go:embed caddy/Dockerfile nginx/Dockerfile traefik/Dockerfile
 var upstreamContenderDockerfiles embed.FS
 
 // UpstreamImage is the proxy image a Contender definition is built on.

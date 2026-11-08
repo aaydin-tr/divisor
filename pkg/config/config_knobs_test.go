@@ -329,3 +329,32 @@ func TestStreamIdleTimeout(t *testing.T) {
 		}
 	})
 }
+
+// Response batching only helps on 2 CPUs or fewer, so above that the config keeps it off,
+// even when it is left on.
+func TestResponseBatchingStaysOffAboveTwoCPUs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                        string
+		gomaxprocs                  int
+		configuredDisable           bool
+		wantDisableResponseBatching bool
+	}{
+		{"left on, one CPU", 1, false, false},
+		{"turned off, one CPU", 1, true, true},
+		{"left on, two CPUs", 2, false, false},
+		{"turned off, two CPUs", 2, true, true},
+		{"left on, three CPUs", 3, false, true},
+		{"left on, four CPUs", 4, false, true},
+		{"turned off, four CPUs", 4, true, true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			server := Server{DisableResponseBatching: test.configuredDisable}
+			server.disableResponseBatchingAboveTwoCPUs(test.gomaxprocs)
+			assert.Equal(t, test.wantDisableResponseBatching, server.DisableResponseBatching)
+		})
+	}
+}

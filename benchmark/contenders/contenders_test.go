@@ -9,8 +9,8 @@ func TestTheVersionIsThePinnedTagOfTheDockerfilesUpstreamImage(t *testing.T) {
 		want       UpstreamImage
 	}{
 		{"official image", "FROM nginx:1.31.8\n", UpstreamImage{Reference: "nginx:1.31.8", Version: "1.31.8"}},
-		{"after comments", "# a comment\n\nfrom haproxy:3.4.7\nCOPY haproxy.cfg /usr/local/etc/haproxy/haproxy.cfg\n",
-			UpstreamImage{Reference: "haproxy:3.4.7", Version: "3.4.7"}},
+		{"after comments", "# a comment\n\nfrom caddy:2.11.7\nCOPY Caddyfile /etc/caddy/Caddyfile\n",
+			UpstreamImage{Reference: "caddy:2.11.7", Version: "2.11.7"}},
 		{"a platform flag", "FROM --platform=linux/amd64 traefik:v3.7.17\n", UpstreamImage{Reference: "traefik:v3.7.17", Version: "v3.7.17"}},
 		{"a digest next to the tag", "FROM traefik:v3.7.17@sha256:68ae5fe5\n",
 			UpstreamImage{Reference: "traefik:v3.7.17@sha256:68ae5fe5", Version: "v3.7.17"}},
@@ -44,7 +44,7 @@ func TestAnUpstreamImageWithoutAnExactVersionIsRefused(t *testing.T) {
 }
 
 func TestEveryUpstreamContenderPinsAnExactVersion(t *testing.T) {
-	for _, definition := range []string{"haproxy", "nginx", "traefik"} {
+	for _, definition := range []string{"caddy", "nginx", "traefik"} {
 		pinned, err := PinnedUpstreamImage(definition)
 		if err != nil {
 			t.Errorf("%s: %v", definition, err)

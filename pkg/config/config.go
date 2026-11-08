@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -182,6 +183,7 @@ type Server struct {
 	GracefulShutdownTimeout time.Duration `yaml:"graceful_shutdown_timeout"`
 	DNSCacheDuration        time.Duration `yaml:"dns_cache_duration"`
 	DisableKeepalive        bool          `yaml:"disable_keepalive"`
+	DisableResponseBatching bool          `yaml:"disable_response_batching"`
 	HTTP2                   HTTP2Config   `yaml:"http2"`
 	// Opt-in for 1.0 (ADR 0007); see CONTEXT.md, Streamed response.
 	Streaming         bool          `yaml:"streaming"`
@@ -469,6 +471,18 @@ func (s *Server) prepareServer() error {
 	return s.applyServerDefaults()
 }
 
+// startupGOMAXPROCS is read once: Go can change GOMAXPROCS later (a new CPU limit), and a Reload
+// compares two prepared configs, so both must see the same value.
+var startupGOMAXPROCS = runtime.GOMAXPROCS(0)
+
+// disableResponseBatchingAboveTwoCPUs keeps response batching off whatever the config says when Go
+// runs divisor on more than 2 CPUs: there the yield only delays each response write (-7% at 4).
+func (s *Server) disableResponseBatchingAboveTwoCPUs(gomaxprocs int) {
+	if gomaxprocs > 2 {
+		s.DisableResponseBatching = true
+	}
+}
+
 func (s *Server) prepareTLS() error {
 	if err := helper.IsFileExist(s.CertFile); err != nil && s.CertFile != "" {
 		return err
@@ -556,6 +570,7 @@ func (s *Server) applyServerDefaults() error {
 		s.HTTP2.MaxConcurrentStreams = DefaultHTTP2MaxConcurrentStreams
 	}
 
+	s.disableResponseBatchingAboveTwoCPUs(startupGOMAXPROCS)
 	return nil
 }
 

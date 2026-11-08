@@ -30,6 +30,15 @@ spec:
         - name: divisor
           image: ghcr.io/aaydin-tr/divisor:latest
           args: ["--config", "/etc/divisor/config.yaml"]
+          # No requests or limits, as in the chart; set them for your load. A CPU limit also sets how many CPUs
+          # Go runs divisor on, and so whether it batches responses: see "CPU and memory" in docs/deployment/kubernetes.md.
+          # resources:
+          #   requests:
+          #     cpu: "1"
+          #     memory: 128Mi
+          #   limits:
+          #     cpu: "2"
+          #     memory: 256Mi
           ports:
             - name: http
               containerPort: 8080

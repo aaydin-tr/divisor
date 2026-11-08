@@ -19,7 +19,7 @@ updates:
   # test, and backend/ and equivalentsetup/ move with the Go toolchain bump.
   - package-ecosystem: docker
     directories:
-      - /benchmark/contenders/haproxy
+      - /benchmark/contenders/caddy
       - /benchmark/contenders/nginx
       - /benchmark/contenders/traefik
       - /benchmark/loadgenerator

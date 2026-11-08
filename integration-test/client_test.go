@@ -61,6 +61,8 @@ type Result struct {
 	Body       []byte
 	TLS        *tls.ConnectionState
 	Echo       *EchoResp // non-nil when the response body parsed as an Echo backend reply
+	// Go moves a Connection: close response header out of Header and into this.
+	ConnectionClose bool
 }
 
 // NewClient builds an HTTP client wired for this Scenario's scheme: the
@@ -106,12 +108,13 @@ func (s *Scenario) Request(method, path string, body io.Reader, hdr http.Header)
 	}
 
 	res := &Result{
-		StatusCode: resp.StatusCode,
-		Proto:      resp.Proto,
-		ProtoMajor: resp.ProtoMajor,
-		Header:     resp.Header,
-		Body:       raw,
-		TLS:        resp.TLS,
+		StatusCode:      resp.StatusCode,
+		Proto:           resp.Proto,
+		ProtoMajor:      resp.ProtoMajor,
+		Header:          resp.Header,
+		ConnectionClose: resp.Close,
+		Body:            raw,
+		TLS:             resp.TLS,
 	}
 	if resp.Header.Get("X-Backend-Id") != "" {
 		var echo EchoResp
@@ -184,6 +187,19 @@ func (s *Scenario) KillBackend(t *testing.T, id string) {
 			t.Fatalf("backend %s still running 10s after docker kill", id)
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// RestartBackend starts a killed Backend's container again. Docker may give
+// it another IP, as Kubernetes gives a new pod one; its HostAddr goes stale.
+func (s *Scenario) RestartBackend(t *testing.T, id string) {
+	t.Helper()
+	e := s.Backend(id)
+	if e == nil {
+		t.Fatalf("no backend %q", id)
+	}
+	if err := pool.Client.StartContainer(e.Resource.Container.ID, nil); err != nil {
+		t.Fatalf("restarting backend %s: %v", id, err)
 	}
 }
 

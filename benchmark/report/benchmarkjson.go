@@ -6,12 +6,13 @@ import (
 	"time"
 )
 
-// SchemaVersion changes whenever a field of benchmark.json changes meaning
-// or goes away; adding a field keeps it.
+// SchemaVersion changes whenever a field of a published benchmark.json changes meaning
+// or goes away; adding a field keeps it. Version 1 holds until the first release publishes one.
 const SchemaVersion = 1
 
 const (
 	millisecondDecimals = 4
+	megabyteDecimals    = 2
 	spreadDecimals      = 4
 )
 
@@ -21,8 +22,6 @@ type benchmarkJSON struct {
 	Method        methodJSON      `json:"method"`
 	Contenders    []contenderJSON `json:"contenders"`
 	Workloads     []workloadJSON  `json:"workloads"`
-
-	BaselineComparison baselineComparisonJSON `json:"baseline_comparison"`
 }
 
 type runJSON struct {
@@ -86,14 +85,17 @@ type numbersJSON struct {
 	P50Milliseconds   float64 `json:"p50_ms"`
 	P99Milliseconds   float64 `json:"p99_ms"`
 	P999Milliseconds  float64 `json:"p99_9_ms"`
+	// PeakMemoryMB is in MiB, like contender_memory_mb.
+	PeakMemoryMB *float64 `json:"peak_memory_mb,omitempty"`
 }
 
 // spreadJSON is (max - min) / median over the rounds, a fraction per number.
 type spreadJSON struct {
-	RequestsPerSecond float64 `json:"requests_per_second"`
-	P50               float64 `json:"p50"`
-	P99               float64 `json:"p99"`
-	P999              float64 `json:"p99_9"`
+	RequestsPerSecond float64  `json:"requests_per_second"`
+	P50               float64  `json:"p50"`
+	P99               float64  `json:"p99"`
+	P999              float64  `json:"p99_9"`
+	PeakMemory        *float64 `json:"peak_memory,omitempty"`
 }
 
 func (r *Report) BenchmarkJSON() ([]byte, error) {
@@ -134,7 +136,6 @@ func (r *Report) BenchmarkJSON() ([]byte, error) {
 	for i := range r.Workloads {
 		document.Workloads = append(document.Workloads, workloadAsJSON(&r.Workloads[i]))
 	}
-	document.BaselineComparison = baselineComparisonAsJSON(r.BaselineComparison)
 
 	encoded, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {
@@ -178,6 +179,7 @@ func numbersAsJSON(numbers Numbers) *numbersJSON {
 		P50Milliseconds:   roundedTo(numbers.P50Milliseconds, millisecondDecimals),
 		P99Milliseconds:   roundedTo(numbers.P99Milliseconds, millisecondDecimals),
 		P999Milliseconds:  roundedTo(numbers.P999Milliseconds, millisecondDecimals),
+		PeakMemoryMB:      roundedIfPresent(numbers.PeakMemoryMB, megabyteDecimals),
 	}
 }
 
@@ -187,10 +189,19 @@ func spreadAsJSON(spread Spread) *spreadJSON {
 		P50:               roundedTo(spread.P50, spreadDecimals),
 		P99:               roundedTo(spread.P99, spreadDecimals),
 		P999:              roundedTo(spread.P999, spreadDecimals),
+		PeakMemory:        roundedIfPresent(spread.PeakMemory, spreadDecimals),
 	}
 }
 
 func roundedTo(value float64, decimals int) float64 {
 	scale := math.Pow10(decimals)
 	return math.Round(value*scale) / scale
+}
+
+func roundedIfPresent(value *float64, decimals int) *float64 {
+	if value == nil {
+		return nil
+	}
+	rounded := roundedTo(*value, decimals)
+	return &rounded
 }
