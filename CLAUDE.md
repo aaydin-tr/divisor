@@ -69,8 +69,9 @@ resources), `run` (Docker + oha, records `recording.json` and `raw/`;
 `peakmemory.go` reads the Contender's `memory.peak` after Throughput, n/a if unreadable;
 `warmPageCache` starts each Contender once, unmeasured, before round 1 so its files are cached),
 `report` (pure: medians, spread, failed rows, Markdown in `markdown.go`,
-`benchmark.json` in `benchmarkjson.go`; tested against `report/testdata/`
-recorded runs, `-update` rewrites them), `oha` (oha's flags and JSON fields),
+`benchmark.json` in `benchmarkjson.go`; one golden built from Go data,
+`report/testdata/expected-section.md` and `expected-benchmark.json`, which `-update` rewrites,
+plus table tests for the special cases; the "Benchmark smoke" PR check covers real runs), `oha` (oha's flags and JSON fields),
 `backend` (the Benchmark backend), `contenders/<name>/` (Dockerfile + config
 per Contender: divisor, caddy, nginx, traefik; an upstream Dockerfile's `FROM`
 tag is its only version pin and, embedded by `contenders.PinnedUpstreamImage`,

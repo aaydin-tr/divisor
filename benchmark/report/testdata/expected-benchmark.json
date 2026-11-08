@@ -1,0 +1,406 @@
+{
+  "schema_version": 1,
+  "run": {
+    "ref": "main",
+    "commit": "aa36fa6c0ffee0000000000000000000000000ee",
+    "date": "2026-11-08T19:30:00Z",
+    "trigger": "local",
+    "mode": "full",
+    "runner_image": "local machine running Docker Desktop (containerized)",
+    "architecture": "amd64",
+    "cpu_model": "AMD Ryzen 5 5500",
+    "load_generator": "oha 1.16.0"
+  },
+  "method": {
+    "rounds": 3,
+    "warm_up_seconds": 5,
+    "measurement_seconds": 30,
+    "contender_cores": 1,
+    "contender_memory_mb": 512,
+    "load_generator_cores": 2,
+    "benchmark_backends": 4,
+    "balancing": "round-robin",
+    "protocol": "HTTP/1.1 without TLS"
+  },
+  "contenders": [
+    {
+      "id": "divisor",
+      "name": "divisor",
+      "version": "main@aa36fa6",
+      "image": "divisor-benchmark/divisor:checkout",
+      "image_id": "sha256:divisor"
+    },
+    {
+      "id": "caddy",
+      "name": "Caddy",
+      "version": "2.11.7",
+      "image": "caddy:2.11.7",
+      "image_id": "sha256:caddy"
+    },
+    {
+      "id": "nginx",
+      "name": "nginx",
+      "version": "1.31.8",
+      "image": "nginx:1.31.8",
+      "image_id": "sha256:nginx"
+    },
+    {
+      "id": "traefik",
+      "name": "Traefik",
+      "version": "v3.7.17",
+      "image": "traefik:v3.7.17",
+      "image_id": "sha256:traefik"
+    }
+  ],
+  "workloads": [
+    {
+      "id": "throughput",
+      "name": "Throughput",
+      "connections": 64,
+      "correct_coordinated_omission": false,
+      "results": [
+        {
+          "contender": "divisor",
+          "status": "ok",
+          "rounds": [
+            {
+              "round": 1,
+              "requests_per_second": 21000,
+              "p50_ms": 3,
+              "p99_ms": 5.2,
+              "p99_9_ms": 10,
+              "peak_memory_mb": 12.5
+            },
+            {
+              "round": 2,
+              "requests_per_second": 20000,
+              "p50_ms": 3.2,
+              "p99_ms": 5,
+              "p99_9_ms": 11,
+              "peak_memory_mb": 12
+            },
+            {
+              "round": 3,
+              "requests_per_second": 19000,
+              "p50_ms": 2.8,
+              "p99_ms": 4.8,
+              "p99_9_ms": 9,
+              "peak_memory_mb": 11.5
+            }
+          ],
+          "median": {
+            "requests_per_second": 20000,
+            "p50_ms": 3,
+            "p99_ms": 5,
+            "p99_9_ms": 10,
+            "peak_memory_mb": 12
+          },
+          "spread": {
+            "requests_per_second": 0.1,
+            "p50": 0.1333,
+            "p99": 0.08,
+            "p99_9": 0.2,
+            "peak_memory": 0.0833
+          }
+        },
+        {
+          "contender": "caddy",
+          "status": "ok",
+          "rounds": [
+            {
+              "round": 1,
+              "requests_per_second": 7000,
+              "p50_ms": 9,
+              "p99_ms": 20,
+              "p99_9_ms": 40,
+              "peak_memory_mb": 24
+            },
+            {
+              "round": 2,
+              "requests_per_second": 7200,
+              "p50_ms": 8.8,
+              "p99_ms": 19,
+              "p99_9_ms": 38,
+              "peak_memory_mb": 24.5
+            },
+            {
+              "round": 3,
+              "requests_per_second": 6800,
+              "p50_ms": 9.2,
+              "p99_ms": 21,
+              "p99_9_ms": 42,
+              "peak_memory_mb": 23.5
+            }
+          ],
+          "median": {
+            "requests_per_second": 7000,
+            "p50_ms": 9,
+            "p99_ms": 20,
+            "p99_9_ms": 40,
+            "peak_memory_mb": 24
+          },
+          "spread": {
+            "requests_per_second": 0.0571,
+            "p50": 0.0444,
+            "p99": 0.1,
+            "p99_9": 0.1,
+            "peak_memory": 0.0417
+          }
+        },
+        {
+          "contender": "nginx",
+          "status": "ok",
+          "rounds": [
+            {
+              "round": 1,
+              "requests_per_second": 24000,
+              "p50_ms": 2.6,
+              "p99_ms": 4.7,
+              "p99_9_ms": 9.5,
+              "peak_memory_mb": 6.5
+            },
+            {
+              "round": 2,
+              "requests_per_second": 26000,
+              "p50_ms": 2.4,
+              "p99_ms": 4.3,
+              "p99_9_ms": 8.5,
+              "peak_memory_mb": 5.5
+            },
+            {
+              "round": 3,
+              "requests_per_second": 25000,
+              "p50_ms": 2.5,
+              "p99_ms": 4.5,
+              "p99_9_ms": 9,
+              "peak_memory_mb": 6
+            }
+          ],
+          "median": {
+            "requests_per_second": 25000,
+            "p50_ms": 2.5,
+            "p99_ms": 4.5,
+            "p99_9_ms": 9,
+            "peak_memory_mb": 6
+          },
+          "spread": {
+            "requests_per_second": 0.08,
+            "p50": 0.08,
+            "p99": 0.0889,
+            "p99_9": 0.1111,
+            "peak_memory": 0.1667
+          }
+        },
+        {
+          "contender": "traefik",
+          "status": "ok",
+          "rounds": [
+            {
+              "round": 1,
+              "requests_per_second": 8800,
+              "p50_ms": 7.2,
+              "p99_ms": 16.5,
+              "p99_9_ms": 31,
+              "peak_memory_mb": 41
+            },
+            {
+              "round": 2,
+              "requests_per_second": 9000,
+              "p50_ms": 7,
+              "p99_ms": 16,
+              "p99_9_ms": 30,
+              "peak_memory_mb": 40
+            },
+            {
+              "round": 3,
+              "requests_per_second": 9200,
+              "p50_ms": 6.8,
+              "p99_ms": 15.5,
+              "p99_9_ms": 29,
+              "peak_memory_mb": 39
+            }
+          ],
+          "median": {
+            "requests_per_second": 9000,
+            "p50_ms": 7,
+            "p99_ms": 16,
+            "p99_9_ms": 30,
+            "peak_memory_mb": 40
+          },
+          "spread": {
+            "requests_per_second": 0.0444,
+            "p50": 0.0571,
+            "p99": 0.0625,
+            "p99_9": 0.0667,
+            "peak_memory": 0.05
+          }
+        }
+      ]
+    },
+    {
+      "id": "fixed-rate-latency",
+      "name": "Fixed-rate latency",
+      "connections": 64,
+      "requests_per_second": 5000,
+      "correct_coordinated_omission": true,
+      "results": [
+        {
+          "contender": "divisor",
+          "status": "ok",
+          "rounds": [
+            {
+              "round": 1,
+              "requests_per_second": 4999.6,
+              "p50_ms": 0.35,
+              "p99_ms": 0.9,
+              "p99_9_ms": 5
+            },
+            {
+              "round": 2,
+              "requests_per_second": 4999.8,
+              "p50_ms": 0.37,
+              "p99_ms": 1,
+              "p99_9_ms": 6
+            },
+            {
+              "round": 3,
+              "requests_per_second": 4999.7,
+              "p50_ms": 0.33,
+              "p99_ms": 0.8,
+              "p99_9_ms": 4
+            }
+          ],
+          "median": {
+            "requests_per_second": 4999.7,
+            "p50_ms": 0.35,
+            "p99_ms": 0.9,
+            "p99_9_ms": 5
+          },
+          "spread": {
+            "requests_per_second": 0,
+            "p50": 0.1143,
+            "p99": 0.2222,
+            "p99_9": 0.4
+          }
+        },
+        {
+          "contender": "caddy",
+          "status": "ok",
+          "rounds": [
+            {
+              "round": 1,
+              "requests_per_second": 4999.5,
+              "p50_ms": 0.8,
+              "p99_ms": 20,
+              "p99_9_ms": 60
+            },
+            {
+              "round": 2,
+              "requests_per_second": 4999.4,
+              "p50_ms": 0.85,
+              "p99_ms": 22,
+              "p99_9_ms": 70
+            },
+            {
+              "round": 3,
+              "requests_per_second": 4999.6,
+              "p50_ms": 0.75,
+              "p99_ms": 18,
+              "p99_9_ms": 50
+            }
+          ],
+          "median": {
+            "requests_per_second": 4999.5,
+            "p50_ms": 0.8,
+            "p99_ms": 20,
+            "p99_9_ms": 60
+          },
+          "spread": {
+            "requests_per_second": 0,
+            "p50": 0.125,
+            "p99": 0.2,
+            "p99_9": 0.3333
+          }
+        },
+        {
+          "contender": "nginx",
+          "status": "ok",
+          "rounds": [
+            {
+              "round": 1,
+              "requests_per_second": 4999.9,
+              "p50_ms": 0.32,
+              "p99_ms": 0.65,
+              "p99_9_ms": 4.2
+            },
+            {
+              "round": 2,
+              "requests_per_second": 4999.8,
+              "p50_ms": 0.3,
+              "p99_ms": 0.6,
+              "p99_9_ms": 4
+            },
+            {
+              "round": 3,
+              "requests_per_second": 4999.7,
+              "p50_ms": 0.28,
+              "p99_ms": 0.55,
+              "p99_9_ms": 3.8
+            }
+          ],
+          "median": {
+            "requests_per_second": 4999.8,
+            "p50_ms": 0.3,
+            "p99_ms": 0.6,
+            "p99_9_ms": 4
+          },
+          "spread": {
+            "requests_per_second": 0,
+            "p50": 0.1333,
+            "p99": 0.1667,
+            "p99_9": 0.1
+          }
+        },
+        {
+          "contender": "traefik",
+          "status": "ok",
+          "rounds": [
+            {
+              "round": 1,
+              "requests_per_second": 4999.6,
+              "p50_ms": 0.9,
+              "p99_ms": 15,
+              "p99_9_ms": 45
+            },
+            {
+              "round": 2,
+              "requests_per_second": 4999.5,
+              "p50_ms": 0.95,
+              "p99_ms": 16,
+              "p99_9_ms": 50
+            },
+            {
+              "round": 3,
+              "requests_per_second": 4999.7,
+              "p50_ms": 0.85,
+              "p99_ms": 14,
+              "p99_9_ms": 40
+            }
+          ],
+          "median": {
+            "requests_per_second": 4999.6,
+            "p50_ms": 0.9,
+            "p99_ms": 15,
+            "p99_9_ms": 45
+          },
+          "spread": {
+            "requests_per_second": 0,
+            "p50": 0.1111,
+            "p99": 0.1333,
+            "p99_9": 0.2222
+          }
+        }
+      ]
+    }
+  ]
+}
