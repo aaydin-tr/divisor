@@ -21,7 +21,8 @@
       {
         "id": "throughput",
         "name": "Throughput",
-        "connections": 64
+        "connections": 64,
+        "reads_peak_memory": true
       },
       {
         "id": "fixed-rate-latency",

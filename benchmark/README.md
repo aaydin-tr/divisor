@@ -17,7 +17,7 @@ the [oha](https://github.com/hatoo/oha) load generator, pinned in
 
 | Workload | Traffic | Reported |
 | --- | --- | --- |
-| Throughput | 64 keep-alive connections, each sending its next request as soon as the last one is answered | requests per second, p50 and p99 latency |
+| Throughput | 64 keep-alive connections, each sending its next request as soon as the last one is answered | requests per second, p50 and p99 latency, peak memory |
 | Fixed-rate latency | a constant 5,000 requests per second over 64 keep-alive connections, well below any Contender's maximum | p50, p99 and p99.9 latency |
 
 Both send `GET /` without a body over HTTP/1.1 without TLS. Fixed-rate latency
@@ -25,6 +25,24 @@ uses oha's coordinated-omission correction: a request's latency counts from
 when it was due to be sent, so a stall shows up in the percentiles instead of
 quietly lowering the request rate. Requests still in flight when a measurement
 ends are waited for, not cut off.
+
+**Peak memory** is the highest memory use of the Contender's container since
+it started: the cgroup v2 `memory.peak` file, read in every round right after
+the Throughput measurement. It covers the readiness check, the warm-up and the
+Throughput Workload, the heavier of the two, which runs first. It counts
+everything the kernel charges to the container, not only the proxy's own
+allocations: kernel buffers such as socket buffers, and the page cache of
+files the container is the first to read, such as its own binary when the
+machine has not cached it yet, which can make a round several times the usual
+peak. So before round 1 the run starts each Contender once, waits until it is
+ready, and stops it, unmeasured: every measured round, a smoke run's single
+round included, finds the Contender's files already cached.
+A helper container reads the file from the host's cgroup tree, since the
+divisor image has no shell. A MB is 2^20 bytes (a MiB), as in Docker's
+`--memory 512m` and the 512 MB each Contender gets, in the table and in
+`benchmark.json` (`peak_memory_mb`). `memory.peak` needs cgroup v2 and Linux
+5.19 or later: when a round could not read it, the table shows n/a with a note
+under it, and the run goes on.
 
 The schedule:
 

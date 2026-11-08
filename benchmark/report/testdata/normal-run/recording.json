@@ -2,14 +2,14 @@
   "plan": {
     "trigger": "local",
     "mode": "full",
-    "ref": "main",
-    "commit": "4ae9ae22644305c1a01c4393127980e901a10965",
-    "benchmark_commit": "4ae9ae22644305c1a01c4393127980e901a10965",
+    "ref": "feature/response-batching",
+    "commit": "a43e547b3b1ff32bb8fd680a3423a43118f6f0ff",
+    "benchmark_commit": "a43e547b3b1ff32bb8fd680a3423a43118f6f0ff",
     "contenders": [
       {
         "id": "divisor",
         "name": "divisor",
-        "version": "main@4ae9ae2-dirty",
+        "version": "feature/response-batching@a43e547-dirty",
         "image": "divisor-benchmark/divisor:checkout",
         "image_from_checkout": true,
         "definition": "divisor",
@@ -43,7 +43,8 @@
       {
         "id": "throughput",
         "name": "Throughput",
-        "connections": 64
+        "connections": 64,
+        "reads_peak_memory": true
       },
       {
         "id": "fixed-rate-latency",
@@ -92,14 +93,14 @@
     }
   },
   "environment": {
-    "started_at": "2026-11-06T17:32:45.4271093Z",
+    "started_at": "2026-11-08T19:30:49.4875829Z",
     "runner_image": "local machine running Docker Desktop (containerized)",
     "architecture": "amd64",
     "cpu_model": "AMD Ryzen 5 5500",
     "load_generator": "oha 1.16.0",
     "contender_image_ids": {
       "caddy": "sha256:36c24ad91a7ff7bc4c87fe22bfa8df3c4b18da0773d73fc12ee2c52b98c0bb7e",
-      "divisor": "sha256:a31963c0fee2123c11eb92ef8b03142978817a95f822a5711eed0f35b4b6b799",
+      "divisor": "sha256:f090a2a27d6e72eea584be2e63123b097a130fab2da3ac1cae710079ff386c20",
       "nginx": "sha256:165ddde8751e75a1c907d24ef10d9f6deb08b57e0fe56caf67512486aff76d82",
       "traefik": "sha256:f4bb143d1135a579b630ed491e17ec50f6f7c9c6a30585ff3d385471d2a86f5a"
     }
@@ -109,7 +110,8 @@
       "round": 1,
       "contender": "divisor",
       "workload": "throughput",
-      "oha_output_file": "raw/round-1/divisor/throughput.json"
+      "oha_output_file": "raw/round-1/divisor/throughput.json",
+      "peak_memory_bytes": 11223040
     },
     {
       "round": 1,
@@ -121,7 +123,8 @@
       "round": 1,
       "contender": "caddy",
       "workload": "throughput",
-      "oha_output_file": "raw/round-1/caddy/throughput.json"
+      "oha_output_file": "raw/round-1/caddy/throughput.json",
+      "peak_memory_bytes": 23113728
     },
     {
       "round": 1,
@@ -133,7 +136,8 @@
       "round": 1,
       "contender": "nginx",
       "workload": "throughput",
-      "oha_output_file": "raw/round-1/nginx/throughput.json"
+      "oha_output_file": "raw/round-1/nginx/throughput.json",
+      "peak_memory_bytes": 6279168
     },
     {
       "round": 1,
@@ -145,7 +149,8 @@
       "round": 1,
       "contender": "traefik",
       "workload": "throughput",
-      "oha_output_file": "raw/round-1/traefik/throughput.json"
+      "oha_output_file": "raw/round-1/traefik/throughput.json",
+      "peak_memory_bytes": 40775680
     },
     {
       "round": 1,
@@ -157,7 +162,8 @@
       "round": 2,
       "contender": "divisor",
       "workload": "throughput",
-      "oha_output_file": "raw/round-2/divisor/throughput.json"
+      "oha_output_file": "raw/round-2/divisor/throughput.json",
+      "peak_memory_bytes": 11382784
     },
     {
       "round": 2,
@@ -169,7 +175,8 @@
       "round": 2,
       "contender": "caddy",
       "workload": "throughput",
-      "oha_output_file": "raw/round-2/caddy/throughput.json"
+      "oha_output_file": "raw/round-2/caddy/throughput.json",
+      "peak_memory_bytes": 22953984
     },
     {
       "round": 2,
@@ -181,7 +188,8 @@
       "round": 2,
       "contender": "nginx",
       "workload": "throughput",
-      "oha_output_file": "raw/round-2/nginx/throughput.json"
+      "oha_output_file": "raw/round-2/nginx/throughput.json",
+      "peak_memory_bytes": 5263360
     },
     {
       "round": 2,
@@ -193,7 +201,8 @@
       "round": 2,
       "contender": "traefik",
       "workload": "throughput",
-      "oha_output_file": "raw/round-2/traefik/throughput.json"
+      "oha_output_file": "raw/round-2/traefik/throughput.json",
+      "peak_memory_bytes": 41680896
     },
     {
       "round": 2,
@@ -205,7 +214,8 @@
       "round": 3,
       "contender": "divisor",
       "workload": "throughput",
-      "oha_output_file": "raw/round-3/divisor/throughput.json"
+      "oha_output_file": "raw/round-3/divisor/throughput.json",
+      "peak_memory_bytes": 10903552
     },
     {
       "round": 3,
@@ -217,7 +227,8 @@
       "round": 3,
       "contender": "caddy",
       "workload": "throughput",
-      "oha_output_file": "raw/round-3/caddy/throughput.json"
+      "oha_output_file": "raw/round-3/caddy/throughput.json",
+      "peak_memory_bytes": 23056384
     },
     {
       "round": 3,
@@ -229,7 +240,8 @@
       "round": 3,
       "contender": "nginx",
       "workload": "throughput",
-      "oha_output_file": "raw/round-3/nginx/throughput.json"
+      "oha_output_file": "raw/round-3/nginx/throughput.json",
+      "peak_memory_bytes": 5570560
     },
     {
       "round": 3,
@@ -241,7 +253,8 @@
       "round": 3,
       "contender": "traefik",
       "workload": "throughput",
-      "oha_output_file": "raw/round-3/traefik/throughput.json"
+      "oha_output_file": "raw/round-3/traefik/throughput.json",
+      "peak_memory_bytes": 39194624
     },
     {
       "round": 3,

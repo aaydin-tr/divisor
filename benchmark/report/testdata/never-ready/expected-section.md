@@ -6,9 +6,9 @@ Runner: local machine running Docker Desktop (containerized), amd64, AMD Ryzen 5
 
 64 keep-alive connections, each sending its next request as soon as the last one is answered.
 
-| Contender | Version | req/s | p50 | p99 |
-| --- | --- | ---: | ---: | ---: |
-| divisor | main@aa36fa6 | failed | failed | failed |
+| Contender | Version | req/s | p50 | p99 | peak memory |
+| --- | --- | ---: | ---: | ---: | ---: |
+| divisor | main@aa36fa6 | failed | failed | failed | failed |
 
 Failed:
 

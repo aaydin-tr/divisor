@@ -12,16 +12,30 @@ import (
 
 const methodDocumentationURL = "https://github.com/aaydin-tr/divisor/blob/%s/benchmark/README.md"
 
+const notAvailable = "n/a"
+
 type column struct {
 	heading string
 	value   func(Numbers) string
+	// notAvailableNote goes under the table when a row's value is notAvailable.
+	notAvailableNote string
 }
 
 var (
-	requestsPerSecondColumn = column{"req/s", func(numbers Numbers) string { return withThousandsSeparators(numbers.RequestsPerSecond) }}
-	p50Column               = column{"p50", func(numbers Numbers) string { return inMilliseconds(numbers.P50Milliseconds) }}
-	p99Column               = column{"p99", func(numbers Numbers) string { return inMilliseconds(numbers.P99Milliseconds) }}
-	p999Column              = column{"p99.9", func(numbers Numbers) string { return inMilliseconds(numbers.P999Milliseconds) }}
+	requestsPerSecondColumn = column{heading: "req/s", value: func(numbers Numbers) string { return withThousandsSeparators(numbers.RequestsPerSecond) }}
+	p50Column               = column{heading: "p50", value: func(numbers Numbers) string { return inMilliseconds(numbers.P50Milliseconds) }}
+	p99Column               = column{heading: "p99", value: func(numbers Numbers) string { return inMilliseconds(numbers.P99Milliseconds) }}
+	p999Column              = column{heading: "p99.9", value: func(numbers Numbers) string { return inMilliseconds(numbers.P999Milliseconds) }}
+	peakMemoryColumn        = column{
+		heading: "peak memory",
+		value: func(numbers Numbers) string {
+			if numbers.PeakMemoryMB == nil {
+				return notAvailable
+			}
+			return inMegabytes(*numbers.PeakMemoryMB)
+		},
+		notAvailableNote: "Peak memory n/a: the run could not read the proxy container's `memory.peak` file, which needs cgroup v2 and Linux 5.19 or later.",
+	}
 )
 
 type workloadTableLayout struct {
@@ -32,7 +46,7 @@ type workloadTableLayout struct {
 
 var workloadTableLayouts = map[string]workloadTableLayout{
 	plan.Throughput.ID: {
-		columns:    []column{requestsPerSecondColumn, p50Column, p99Column},
+		columns:    []column{requestsPerSecondColumn, p50Column, p99Column, peakMemoryColumn},
 		ranksAbove: func(contender, other Numbers) bool { return contender.RequestsPerSecond > other.RequestsPerSecond },
 	},
 	plan.FixedRateLatency.ID: {
@@ -101,15 +115,19 @@ func workloadTable(results *WorkloadResults) string {
 	}
 	lines = append(lines, tableLine(headings), tableLine(alignments))
 
-	var failures []string
+	var notes, failures []string
 	for _, row := range rowsInRankOrder(results.Rows, layout.ranksAbove) {
 		cells := []string{row.Contender.Name, row.Contender.Version}
 		for _, column := range columns {
 			if row.Failed() {
 				cells = append(cells, "failed")
-			} else {
-				cells = append(cells, column.value(row.Median))
+				continue
 			}
+			cell := column.value(row.Median)
+			if cell == notAvailable && !slices.Contains(notes, column.notAvailableNote) {
+				notes = append(notes, column.notAvailableNote)
+			}
+			cells = append(cells, cell)
 		}
 		lines = append(lines, tableLine(cells))
 		for _, failure := range row.Failures() {
@@ -117,6 +135,9 @@ func workloadTable(results *WorkloadResults) string {
 		}
 	}
 
+	for _, note := range notes {
+		lines = append(lines, "", note)
+	}
 	if len(failures) > 0 {
 		lines = append(lines, "", "Failed:", "")
 		lines = append(lines, failures...)
@@ -173,6 +194,10 @@ func cores(count int) string {
 
 func inMilliseconds(milliseconds float64) string {
 	return strconv.FormatFloat(milliseconds, 'f', 2, 64) + " ms"
+}
+
+func inMegabytes(megabytes float64) string {
+	return strconv.FormatFloat(megabytes, 'f', 1, 64) + " MB"
 }
 
 func withThousandsSeparators(value float64) string {

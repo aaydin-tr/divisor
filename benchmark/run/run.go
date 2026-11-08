@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/aaydin-tr/divisor/benchmark/oha"
@@ -50,6 +52,9 @@ func Execute(ctx context.Context, decidedPlan *plan.Plan, options Options) (*rec
 	if err := r.startBenchmarkBackends(ctx); err != nil {
 		return nil, err
 	}
+	if err := r.warmPageCache(ctx); err != nil {
+		return nil, err
+	}
 
 	var measurements []recording.Measurement
 	turns := decidedPlan.Turns()
@@ -89,15 +94,46 @@ func (r *runner) startBenchmarkBackends(ctx context.Context) error {
 	return nil
 }
 
+// warmPageCache starts and stops each Contender once before round 1: memory.peak counts the page cache a
+// container reads first, its own binary among it, so round 1 would otherwise read several times too high.
+func (r *runner) warmPageCache(ctx context.Context) error {
+	if !slices.ContainsFunc(r.plan.Workloads, func(workload plan.Workload) bool { return workload.ReadsPeakMemory }) {
+		return nil
+	}
+	for i := range r.plan.Contenders {
+		contender := &r.plan.Contenders[i]
+		if _, withoutImage := r.contendersWithoutImage[contender.ID]; withoutImage {
+			continue
+		}
+		r.logf("starting %s once, unmeasured, so its files are in the page cache before round 1", contender.Name)
+		if _, err := r.startContender(ctx, contender); err != nil {
+			return err
+		}
+		_, err := r.waitUntilReady(ctx, r.plan.Network.ContenderURL)
+		r.docker.removeContainers(contenderContainer)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// startContender returns the container's full ID, which docker run --detach prints.
+func (r *runner) startContender(ctx context.Context, contender *plan.Contender) (string, error) {
+	memoryLimit := r.plan.Resources.ContenderMemoryLimit()
+	arguments := append(dockerRunOnHostNetwork(detached, contenderContainer, r.plan.Resources.ContenderCPUs),
+		"--memory", memoryLimit, "--memory-swap", memoryLimit, contenderImage(contender))
+	containerID, err := r.docker.output(ctx, arguments...)
+	return strings.TrimSpace(string(containerID)), err
+}
+
 func (r *runner) runTurn(ctx context.Context, turn *plan.Turn) ([]recording.Measurement, error) {
 	if failure, withoutImage := r.contendersWithoutImage[turn.Contender.ID]; withoutImage {
 		return failedMeasurements(turn, failure), nil
 	}
 	r.logTurnf(turn, "starting %s", turn.Contender.Name)
-	memoryLimit := r.plan.Resources.ContenderMemoryLimit()
-	arguments := append(dockerRunOnHostNetwork(detached, contenderContainer, r.plan.Resources.ContenderCPUs),
-		"--memory", memoryLimit, "--memory-swap", memoryLimit, contenderImage(&turn.Contender))
-	if _, err := r.docker.output(ctx, arguments...); err != nil {
+	contenderContainerID, err := r.startContender(ctx, &turn.Contender)
+	if err != nil {
 		return nil, err
 	}
 	defer r.stopContender(turn)
@@ -122,6 +158,9 @@ func (r *runner) runTurn(ctx context.Context, turn *plan.Turn) ([]recording.Meas
 		measurement, err := r.measureWorkload(ctx, turn, workload)
 		if err != nil {
 			return nil, err
+		}
+		if workload.ReadsPeakMemory {
+			measurement.PeakMemoryBytes = r.readPeakMemory(ctx, turn, contenderContainerID)
 		}
 		measurements = append(measurements, measurement)
 	}
@@ -183,7 +222,7 @@ func failedMeasurements(turn *plan.Turn, failure string) []recording.Measurement
 }
 
 func (r *runner) containerNames() []string {
-	names := []string{contenderContainer, loadGeneratorContainer, equivalentSetupSamplerContainer}
+	names := []string{contenderContainer, loadGeneratorContainer, equivalentSetupSamplerContainer, peakMemoryReaderContainer}
 	for _, benchmarkBackend := range r.plan.Network.BenchmarkBackends {
 		names = append(names, benchmarkBackendContainer(benchmarkBackend))
 	}

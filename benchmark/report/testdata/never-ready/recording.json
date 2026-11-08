@@ -21,7 +21,8 @@
       {
         "id": "throughput",
         "name": "Throughput",
-        "connections": 64
+        "connections": 64,
+        "reads_peak_memory": true
       },
       {
         "id": "fixed-rate-latency",
@@ -92,7 +93,8 @@
       "round": 2,
       "contender": "divisor",
       "workload": "throughput",
-      "oha_output_file": "raw/round-2/divisor/throughput.json"
+      "oha_output_file": "raw/round-2/divisor/throughput.json",
+      "peak_memory_bytes": 22806528
     },
     {
       "round": 2,
@@ -104,7 +106,8 @@
       "round": 3,
       "contender": "divisor",
       "workload": "throughput",
-      "oha_output_file": "raw/round-3/divisor/throughput.json"
+      "oha_output_file": "raw/round-3/divisor/throughput.json",
+      "peak_memory_bytes": 23068672
     },
     {
       "round": 3,

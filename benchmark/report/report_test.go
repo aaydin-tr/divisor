@@ -72,3 +72,19 @@ func sameJSON(got, expected []byte) bool {
 	}
 	return reflect.DeepEqual(gotValue, expectedValue)
 }
+
+func TestPeakMemoryHasAMedianOnlyWhenEveryRoundReadIt(t *testing.T) {
+	roundThatRead := func(peakMemoryMB float64) RoundResult {
+		return RoundResult{Numbers: Numbers{PeakMemoryMB: &peakMemoryMB}}
+	}
+
+	median, spread := medianAndSpread([]RoundResult{roundThatRead(30), roundThatRead(10), roundThatRead(20)})
+	if median.PeakMemoryMB == nil || *median.PeakMemoryMB != 20 || spread.PeakMemory == nil || *spread.PeakMemory != 1 {
+		t.Errorf("every round read it: median %v, spread %v, want 20 and 1", median.PeakMemoryMB, spread.PeakMemory)
+	}
+
+	median, spread = medianAndSpread([]RoundResult{roundThatRead(30), {}, roundThatRead(20)})
+	if median.PeakMemoryMB != nil || spread.PeakMemory != nil {
+		t.Errorf("a round did not read it: median %v, spread %v, want neither (n/a)", median.PeakMemoryMB, spread.PeakMemory)
+	}
+}

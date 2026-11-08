@@ -47,7 +47,8 @@
               "requests_per_second": 23574.8,
               "p50_ms": 2.5375,
               "p99_ms": 5.269,
-              "p99_9_ms": 7.2141
+              "p99_9_ms": 7.2141,
+              "peak_memory_mb": 22.75
             },
             {
               "round": 2,
@@ -58,7 +59,8 @@
               "requests_per_second": 23772.2,
               "p50_ms": 2.5142,
               "p99_ms": 5.2387,
-              "p99_9_ms": 7.1298
+              "p99_9_ms": 7.1298,
+              "peak_memory_mb": 22.5
             }
           ],
           "median": null,

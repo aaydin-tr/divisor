@@ -6,9 +6,11 @@ Runner: GitHub-hosted ubuntu24 20261027.1, amd64, AMD EPYC 7763 64-Core Processo
 
 64 keep-alive connections, each sending its next request as soon as the last one is answered.
 
-| Contender | Version | req/s | p50 | p99 |
-| --- | --- | ---: | ---: | ---: |
-| divisor | v1.0.0 | 23,575 | 2.54 ms | 5.27 ms |
+| Contender | Version | req/s | p50 | p99 | peak memory |
+| --- | --- | ---: | ---: | ---: | ---: |
+| divisor | v1.0.0 | 23,575 | 2.54 ms | 5.27 ms | n/a |
+
+Peak memory n/a: the run could not read the proxy container's `memory.peak` file, which needs cgroup v2 and Linux 5.19 or later.
 
 ### Fixed-rate latency
 

@@ -65,7 +65,9 @@ go -C benchmark test -race ./...
 go -C benchmark run ./cmd/release-benchmark report --results results
 ```
 `benchmark/` (see its README): `plan` (pure: Contenders, Workloads, schedule,
-resources), `run` (Docker + oha, records `recording.json` and `raw/`),
+resources), `run` (Docker + oha, records `recording.json` and `raw/`;
+`peakmemory.go` reads the Contender's `memory.peak` after Throughput, n/a if unreadable;
+`warmPageCache` starts each Contender once, unmeasured, before round 1 so its files are cached),
 `report` (pure: medians, spread, failed rows, Markdown in `markdown.go`,
 `benchmark.json` in `benchmarkjson.go`; tested against `report/testdata/`
 recorded runs, `-update` rewrites them), `oha` (oha's flags and JSON fields),

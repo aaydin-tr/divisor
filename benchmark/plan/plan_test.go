@@ -90,13 +90,13 @@ func TestCheckoutVersionNamesTheRefAndCommit(t *testing.T) {
 func TestWorkloadsAreThroughputThenFixedRateLatency(t *testing.T) {
 	var described []string
 	for _, workload := range decideLocalRun(t, Inputs{}).Workloads {
-		described = append(described, fmt.Sprintf("%s: %d connections, %d req/s, coordinated-omission correction %v",
-			workload.Name, workload.Connections, workload.RequestsPerSecond, workload.CorrectCoordinatedOmission))
+		described = append(described, fmt.Sprintf("%s: %d connections, %d req/s, coordinated-omission correction %v, reads peak memory %v",
+			workload.Name, workload.Connections, workload.RequestsPerSecond, workload.CorrectCoordinatedOmission, workload.ReadsPeakMemory))
 	}
 
 	want := []string{
-		"Throughput: 64 connections, 0 req/s, coordinated-omission correction false",
-		"Fixed-rate latency: 64 connections, 5000 req/s, coordinated-omission correction true",
+		"Throughput: 64 connections, 0 req/s, coordinated-omission correction false, reads peak memory true",
+		"Fixed-rate latency: 64 connections, 5000 req/s, coordinated-omission correction true, reads peak memory false",
 	}
 	if strings.Join(described, "\n") != strings.Join(want, "\n") {
 		t.Errorf("Workloads:\n%s\nwant:\n%s", strings.Join(described, "\n"), strings.Join(want, "\n"))
