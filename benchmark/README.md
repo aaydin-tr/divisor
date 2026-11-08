@@ -134,6 +134,12 @@ benchmark config, [`contenders/divisor/config.yaml`](contenders/divisor/config.y
 - The access log off, no middlewares and no custom headers.
 - One worker: divisor is a Go program, and Go runs as many threads at once as
   the CPUs it may use, here one.
+- Response batching on, divisor's default on 2 CPUs or fewer
+  (`server.disable_response_batching` is not set): after each response divisor
+  lets the other ready requests run before it writes, so their responses go
+  out together. It is measured to raise requests per second for a load
+  generator holding every connection and for independent single-connection
+  clients alike ([`docs/configuration.md`](../docs/configuration.md#connections)).
 - Keep-alive to the backends and `X-Forwarded-For` are what divisor always
   does.
 - The monitoring server at its default (`localhost:8001`). divisor cannot turn

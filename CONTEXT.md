@@ -98,6 +98,10 @@ _Avoid_: admin server, metrics server, stats server
 A Backend response divisor forwards to the client as bytes arrive instead of buffering it whole — what Server-Sent Events and large downloads need. Opt-in (`server.streaming`); once on, a response streams when it is an event stream (`text/event-stream`) or declares no length, and every other response is still buffered. `OnResponse` sees its status and headers, never its body, and can still Short-circuit before the first body byte; a client disconnect aborts the Backend stream.
 _Avoid_: SSE mode, passthrough, chunked mode
 
+**Response batching**:
+The HTTP/1.1 handler yielding (`runtime.Gosched()`) after it serves a buffered response and before fasthttp writes it, so the other requests that are ready run first and the responses go out together. On by default when Go runs divisor on 2 CPUs or fewer (`GOMAXPROCS` at startup), never above; `server.disable_response_batching` turns it off. Measured to raise requests per second on 1 and 2 CPUs for fan-in and independent clients alike, with no cost found for a lone client (ADR 0010). A Streamed response never batches.
+_Avoid_: the yield, Gosched optimization, write coalescing
+
 **Reload**:
 Applying an edited config file to a running divisor without restart: only the Backend set and Probe settings may change; an edit touching any other key — or an invalid new config — is rejected as a whole, divisor keeps serving with the old config and logs why. An entry left as it was keeps its Backend (liveness, stats) even if it moved in the list; a changed entry is a new Backend, so the old one is removed and the new one added. Triggered by SIGHUP or by a change to the config file, including a ConfigMap update (which replaces the file rather than writing it); a burst of changes is one Reload.
 _Avoid_: hot reload, live update, refresh

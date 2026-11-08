@@ -25,8 +25,8 @@ func NewFasthttpHandler(balancer types.IBalancer, writeTimeout time.Duration, ba
 			return
 		}
 		if batchResponseWrites {
-			// The other requests of this netpoll batch finish first, so their responses go out back-to-back
-			// and each client is woken once per batch.
+			// The other ready requests run first and the responses go out together; fasthttp still writes
+			// once per response. Measured on 1-2 CPUs for fan-in and independent clients alike (ADR 0010).
 			runtime.Gosched()
 		}
 	}

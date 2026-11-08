@@ -161,7 +161,7 @@ when `Pick` returns nil.
 - Forwards headers as the client sent them: no default `Content-Type` or `User-Agent`; URI userinfo becomes `Authorization: Basic` in `preReq` (a client Authorization header wins)
 - Supports custom headers with special variables: `$remote_addr`, `$time`, `$uuid`, `$incremental`
 - Tracks metrics: total requests, average response time, last use time, Pending requests (an open stream counts until it ends)
-- Response batching (`server.disable_response_batching`, on by default): `NewFasthttpHandler` calls
+- Response batching (`server.disable_response_batching`, on by default; ADR 0010 holds the measurements): `NewFasthttpHandler` calls
   `runtime.Gosched()` before fasthttp writes a response that isn't streamed, so one netpoll batch's responses
   go out back-to-back (measured +41-48% req/s on one core, +19-28% at GOMAXPROCS 2 with a 2-core cpuset or a
   1- or 2-CPU quota). The config owns the CPU rule: `prepareServer` sets `DisableResponseBatching` to true
