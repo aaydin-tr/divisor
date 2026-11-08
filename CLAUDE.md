@@ -321,7 +321,8 @@ PRs touching release files (`.goreleaser.yaml`, `Dockerfile`, `main.go`, `charts
 `.github/scripts/`, the release workflows) run the "Release dry-run" job
 (`.github/workflows/release-dry-run.yml`): a goreleaser snapshot, the snapshot image's
 `--version` against `dist/metadata.json`, and `.github/scripts/helm-chart-smoke-test.sh`
-(helm lint, kubeconform `-strict`, the default image tag).
+(helm lint, kubeconform `-strict` on the default render and on one with `resources` set, the default
+image tag).
 
 ## Code style
 

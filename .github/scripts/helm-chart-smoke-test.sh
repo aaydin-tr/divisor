@@ -14,6 +14,13 @@ chart_package="$(bash "$scripts_dir/helm-package-chart.sh" "$release_tag" "$pack
 helm template divisor "$chart_package" > "$package_dir/rendered.yaml"
 kubeconform -strict -summary -kubernetes-version 1.36.0 "$package_dir/rendered.yaml"
 
+helm template divisor "$chart_package" --set resources.limits.cpu=1 --set resources.limits.memory=256Mi   > "$package_dir/rendered-with-resources.yaml"
+kubeconform -strict -summary -kubernetes-version 1.36.0 "$package_dir/rendered-with-resources.yaml"
+if ! grep -q "^ *cpu: 1$" "$package_dir/rendered-with-resources.yaml"; then
+  echo "The resources value does not reach the Deployment" >&2
+  exit 1
+fi
+
 expected_image="ghcr.io/aaydin-tr/divisor:$release_tag"
 rendered_images="$(sed -n 's/^ *image: *"\{0,1\}\([^"]*\)"\{0,1\} *$/\1/p' "$package_dir/rendered.yaml")"
 if [ "$rendered_images" != "$expected_image" ]; then
