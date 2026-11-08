@@ -279,6 +279,47 @@ func TestIPHashRoutesLikeAFreshBootAfterAReload(t *testing.T) {
 	}
 }
 
+// A Backend killed and restarted at its address while Down: the keep-alive
+// connections divisor pooled before the kill are dead, and a request retrying
+// on them ran out of attempts and got 502.
+func TestARestartedBackendAnswersTheFirstRequestAfterItRejoins(t *testing.T) {
+	const pooledConnectionCount = 8
+	var arrivedRequests atomic.Int64
+	releaseRequests := make(chan struct{})
+	backend := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		arrivedRequests.Add(1)
+		<-releaseRequests
+	}))
+	defer backend.Close()
+
+	var probeSucceeds atomic.Bool
+	probeSucceeds.Store(true)
+	probe := func(string, types.ExpectedProbeStatus) bool { return probeSucceeds.Load() }
+	b := NewBalancer(balancerConfig("round-robin", probe, backend.Listener.Addr().String()), nil, proxy.NewProxyClient)
+	defer b.Shutdown() //nolint:errcheck
+	serve := b.Serve()
+
+	var concurrentRequests sync.WaitGroup
+	for range pooledConnectionCount {
+		concurrentRequests.Go(func() { serve(mocks.RequestFrom("10.0.0.1")) })
+	}
+	require.Eventually(t, func() bool { return arrivedRequests.Load() == pooledConnectionCount },
+		5*time.Second, time.Millisecond, "every concurrent request holds its own Backend connection")
+	close(releaseRequests)
+	concurrentRequests.Wait()
+
+	backend.CloseClientConnections()
+	probeSucceeds.Store(false)
+	probeAllBackends(b)
+	probeSucceeds.Store(true)
+	probeAllBackends(b)
+	require.True(t, b.Stats()[0].IsHostAlive)
+
+	ctx := mocks.RequestFrom("10.0.0.1")
+	serve(ctx)
+	assert.Equal(t, fasthttp.StatusOK, ctx.Response.StatusCode(), "the Rejoined Backend is reached over a new connection")
+}
+
 // One failure scores a Backend at seconds, and least-response-time only
 // re-measures a Backend it picks: without a trial request it never came back.
 func TestLeastResponseTimePicksABackendAgainAfterOneFailure(t *testing.T) {

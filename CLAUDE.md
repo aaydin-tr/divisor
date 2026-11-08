@@ -358,7 +358,7 @@ var balancers = map[string]func(*config.Config) pool.Balancer{
 A new balancer is one package implementing `Join`/`Leave`/`Pick` plus a map entry; it never touches liveness.
 
 ### Backend Health Checking
-The Pool owns it: one Probe loop per process, stopped by closing a channel and drained on `Shutdown`. A Down Backend stays registered (and in `Stats()`) and Rejoins when a Probe succeeds.
+The Pool owns it: one Probe loop per process, stopped by closing a channel and drained on `Shutdown`. A Down Backend stays registered (and in `Stats()`) and Rejoins when a Probe succeeds, its pooled connections closed first (it may have restarted while Down).
 
 ### Consistent Hashing (IP-Hash)
 Uses `pkg/consistent` package implementing consistent hashing ring for stable IP-to-backend mapping.
