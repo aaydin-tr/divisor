@@ -76,7 +76,7 @@ type requestOutcome struct {
 
 func (o requestOutcome) String() string {
 	switch {
-	case o.status == 0:
+	case o.noAnswerArrived():
 		return fmt.Sprintf("%s failed after %s: %v", o.requestID, o.latency, o.err)
 	case o.err != nil:
 		return fmt.Sprintf("%s got status %d after %s: %v", o.requestID, o.status, o.latency, o.err)
@@ -90,6 +90,8 @@ func (o requestOutcome) String() string {
 func (o requestOutcome) echoedOK() bool {
 	return o.status == http.StatusOK && o.backend != "" && o.err == nil
 }
+
+func (o requestOutcome) noAnswerArrived() bool { return o.status == 0 }
 
 // newSingleConnectionClient is one client on one keep-alive connection, as a
 // browser tab or one SDK instance is.
@@ -238,7 +240,7 @@ func (l *burstLoad) sendOnEveryBurst(s *Scenario, clientIndex int, burstSignal <
 		l.outcomesMu.Lock()
 		l.outcomes = append(l.outcomes, outcome)
 		l.outcomesMu.Unlock()
-		if outcome.status == 0 {
+		if outcome.noAnswerArrived() {
 			return
 		}
 	}
@@ -276,12 +278,19 @@ func describeFirstOutcomes(outcomes []requestOutcome) string {
 // from an Echo backend, answering that very request.
 func requireEveryRequestEchoed(t *testing.T, outcomes []requestOutcome) {
 	t.Helper()
+	requireEveryRequestEchoedExcept(t, outcomes, func(requestOutcome) bool { return false })
+}
+
+// requireEveryRequestEchoedExcept is requireEveryRequestEchoed for a Scenario
+// in which some requests are expected to fail.
+func requireEveryRequestEchoedExcept(t *testing.T, outcomes []requestOutcome, expectedToFail func(requestOutcome) bool) {
+	t.Helper()
 	if len(outcomes) == 0 {
 		t.Fatalf("no request was sent")
 	}
 	var failed []requestOutcome
 	for _, o := range outcomes {
-		if !o.echoedOK() {
+		if !o.echoedOK() && !expectedToFail(o) {
 			failed = append(failed, o)
 		}
 	}

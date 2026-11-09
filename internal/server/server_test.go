@@ -61,6 +61,27 @@ func newNetHttpConfig(t *testing.T) *config.Config {
 	return newConfig(t, config.Http2)
 }
 
+type listenerStack struct {
+	name      string
+	newConfig func(t *testing.T) *config.Config
+	scheme    string
+}
+
+var (
+	fasthttpStack        = listenerStack{"fasthttp", newFasthttpConfig, "http"}
+	fasthttpOverTLSStack = listenerStack{"fasthttp over TLS", newFasthttpOverTLSConfig, "https"}
+	netHttpStack         = listenerStack{"net/http", newNetHttpConfig, "https"}
+)
+
+func (s listenerStack) url(address string) string { return s.scheme + "://" + address }
+
+func (s listenerStack) dial(address string) (net.Conn, error) {
+	if s.scheme == "https" {
+		return tls.Dial("tcp", address, &tls.Config{InsecureSkipVerify: true})
+	}
+	return net.Dial("tcp", address)
+}
+
 func enableHTTP1(protocols *http.Protocols) { protocols.SetHTTP1(true) }
 
 func enableHTTP2(protocols *http.Protocols) { protocols.SetHTTP2(true) }
@@ -284,15 +305,7 @@ func receiveWithin[T any](t *testing.T, ch <-chan T, awaited string) T {
 // A client that reuses the connection after such a response would find it closed; Connection: close sends it to
 // open a new one instead.
 func TestResponseWrittenDuringShutdownClosesTheConnection(t *testing.T) {
-	for _, stack := range []struct {
-		name      string
-		newConfig func(t *testing.T) *config.Config
-		scheme    string
-	}{
-		{"fasthttp", newFasthttpConfig, "http"},
-		{"fasthttp over TLS", newFasthttpOverTLSConfig, "https"},
-		{"net/http", newNetHttpConfig, "https"},
-	} {
+	for _, stack := range []listenerStack{fasthttpStack, fasthttpOverTLSStack, netHttpStack} {
 		t.Run(stack.name, func(t *testing.T) {
 			balancer := newHeldResponseBalancer()
 			ln := &closeReportingListener{Listener: localListener(t), closed: make(chan struct{})}
@@ -300,7 +313,7 @@ func TestResponseWrittenDuringShutdownClosesTheConnection(t *testing.T) {
 			require.NoError(t, err)
 
 			response := make(chan receivedResponse, 1)
-			go func() { response <- getOverHTTP1(stack.scheme + "://" + ln.Addr().String()) }()
+			go func() { response <- getOverHTTP1(stack.url(ln.Addr().String())) }()
 			receiveWithin(t, balancer.requestArrived, "the request to reach the balancer")
 
 			shutdownResult := make(chan error, 1)

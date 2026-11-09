@@ -142,6 +142,16 @@ drain before the kubelet sends `SIGKILL`. If you raise
 `graceful_shutdown_timeout`, raise the grace period with it (`terminationGracePeriodSeconds`
 in the chart's values).
 
+During the drain, every request divisor forwards to a Backend gets its full
+response, unless `graceful_shutdown_timeout` runs out first. divisor also tells
+clients to stop reusing their connections: each HTTP/1.1 response written
+during shutdown carries `Connection: close`, and an HTTP/2 client gets a
+`GOAWAY`. A client can still see a request fail, for example one sent on a
+keep-alive connection that divisor closes at that moment. A request that fails
+because divisor is shutting down never reached a Backend. A client can't tell
+this failure from a crashed pod, though, so retry a failed request only if
+repeating it is safe.
+
 ## CPU and memory
 
 Neither the chart nor the example manifest sets CPU or memory requests or
