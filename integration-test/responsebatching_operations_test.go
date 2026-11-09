@@ -127,8 +127,8 @@ func requireClientDisconnectClosesBackendStream(t *testing.T, s *Scenario) {
 	}
 }
 
-// A rolling update at peak traffic: on SIGTERM every request divisor is answering gets its answer (none is cut),
-// /ready flips to 503, and divisor exits 0.
+// A rolling update at peak traffic: the load keeps sending through SIGTERM, every request that reached a Backend
+// gets its answer (none is cut), /ready flips to 503, and divisor exits 0.
 func TestOneCPUGracefulShutdownUnderLoad(t *testing.T) {
 	t.Parallel()
 	onOneCPUWithBatchingOnAndOff(t, ScenarioSpec{
@@ -164,10 +164,7 @@ func TestOneCPUGracefulShutdownUnderLoad(t *testing.T) {
 			return nil
 		})
 
-		// A request arriving on an idle keep-alive connection as shutdown begins can lose its answer to fasthttp's
-		// idle-connection close, batching or not; the load stops sending first, its requests still Pending.
-		load.stopSending()
-		time.Sleep(50 * time.Millisecond)
+		terminationBegan := time.Now()
 		s.TerminateDivisor(t)
 		terminatedAt := time.Now()
 		eventually(t, 5*time.Second, "/ready flipped to 503 when graceful shutdown began", func() error {
@@ -189,7 +186,11 @@ func TestOneCPUGracefulShutdownUnderLoad(t *testing.T) {
 		if code := s.WaitDivisorExit(t, 35*time.Second); code != 0 {
 			t.Errorf("divisor exited with code %d after SIGTERM, want 0", code)
 		}
-		requireEveryRequestEchoed(t, append(slowOutcomes, outcomes...))
+		requireEveryRequestEchoed(t, slowOutcomes)
+		// A load client's request after the drain finds its connection closed and the listener gone.
+		requireEveryRequestEchoedExcept(t, outcomes, func(o requestOutcome) bool {
+			return o.noAnswerArrived() && !o.sentAt.Before(terminationBegan) && backendsCounted(t, s, o.requestID) == 0
+		})
 	})
 }
 

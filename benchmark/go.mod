@@ -2,7 +2,7 @@ module github.com/aaydin-tr/divisor/benchmark
 
 go 1.27.0
 
-require github.com/valyala/fasthttp v1.77.0
+require github.com/valyala/fasthttp v1.78.0
 
 require (
 	github.com/klauspost/compress v1.20.3 // indirect
