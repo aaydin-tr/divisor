@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aaydin-tr/divisor/core/types"
+	"github.com/aaydin-tr/divisor/internal/server"
 	"github.com/fasthttp/router"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -19,7 +20,6 @@ import (
 	gopsutilProcess "github.com/shirou/gopsutil/v4/process"
 	"github.com/valyala/fasthttp"
 	"github.com/valyala/fasthttp/fasthttpadaptor"
-	"github.com/valyala/fasthttp/reuseport"
 	"go.uber.org/zap"
 )
 
@@ -155,7 +155,7 @@ func Start(connections OpenConnectionsCounter, balancer types.IBalancer, addr st
 }
 
 func start(connections OpenConnectionsCounter, balancer types.IBalancer, addr string, readSystem systemStatsReader) (*Server, error) {
-	listener, err := reuseport.Listen("tcp4", addr)
+	listener, err := server.Listen(addr)
 	if err != nil {
 		return nil, fmt.Errorf("monitoring server listen on %s: %w", addr, err)
 	}

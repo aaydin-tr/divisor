@@ -197,8 +197,9 @@ when `Pick` returns nil.
 - YAML-based configuration with validation in `PrepareConfig()`; decoding is strict (`KnownFields`), so an unknown or removed key is a startup error
 - Auto-sets defaults if not specified (e.g., `health_checker_time: 30s`, `type: round-robin`)
 - Backend `url` is normalized to a dialable Backend address (`host:port`): optional `http://` and bare trailing slash stripped, missing port defaults to 80; path/query/userinfo and `https://` are rejected at startup (ADR 0004: backends are plaintext-only)
-- HTTP/2 requires TLS (cert_file + key_file must be provided)
-- Weighted round-robin with single backend auto-converts to regular round-robin
+- HTTP/2 requires TLS (cert_file + key_file must be provided); on any `http_version`, one of the two set without the other is a startup error naming the missing key
+- Backend `health_check_path` must start with `/` (startup error naming the Backend's index)
+- Weighted round-robin with a single Backend stays `w-round-robin` (its unset `weight` defaults to 1), so a Reload can cross one Backend in either direction
 - `PlanReload(running, newYAML)` is the pure Reload classifier (ADR 0006): it
   parses and prepares the new config, rejects it as invalid
   (`ErrReloadInvalidConfig`) or for changed restart-only keys
@@ -240,7 +241,7 @@ when `Pick` returns nil.
 3. Prepare/validate config → `config.PrepareConfig()`
 4. Create the Pool + balancer → `core.NewBalancer()` (first Probe round runs synchronously here)
 5. The Probe loop starts inside `NewBalancer` (`Pool.StartHealthChecker()`)
-6. Start the client-facing server via `internal/server.Start()` (fasthttp serving `proxy.NewFasthttpHandler` for HTTP/1.1, net/http serving `proxy.NetHttpAdapter` for HTTP/2); it returns a stack-agnostic `Server` plus a channel that reports a Serve failure
+6. Bind the client-facing address via `internal/server.Listen()` (the Monitoring server binds through it too: a port in use is fatal, never shared; an IPv4 `host` binds `tcp4`, so `0.0.0.0` stays IPv4-only; `config.GetAddr()` brackets an IPv6 `host`) and start the server via `internal/server.Start()` (fasthttp serving `proxy.NewFasthttpHandler` for HTTP/1.1, net/http serving `proxy.NetHttpAdapter` for HTTP/2); it returns a stack-agnostic `Server` plus a channel that reports a Serve failure
 7. Start the monitoring server via `monitoring.Start()` (binds synchronously; a bind failure is fatal; the Prometheus poller starts only after the bind)
 8. Create the `reload.Reloader` (`internal/reload`), route SIGHUP to it (`reloadOnEverySignal`) and hand it to the config file watch (`ConfigFileWatch.StartReloading`)
 9. Select on SIGINT/SIGTERM (graceful shutdown, `server.graceful_shutdown_timeout`, default 30s) vs a Serve failure (fatal, non-zero exit)

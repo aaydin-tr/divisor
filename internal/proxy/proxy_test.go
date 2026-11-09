@@ -287,6 +287,54 @@ func TestOnResponseSeesACleanResponseAfterABackendFailure(t *testing.T) {
 	})
 }
 
+func TestNonIdempotentRequestTimingOutMidBodyGets504(t *testing.T) {
+	onBothStreamingValues(t, func(t *testing.T, streaming bool) {
+		onEveryListenerStack(t, func(t *testing.T, startFrontend func(*testing.T, *ProxyClient) frontend) {
+			proxyFrontend := startFrontend(t, newProxyClientTimingOutOn(newBackendStallingAfterItsHeaders(t), streaming))
+
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, proxyFrontend.url, strings.NewReader("order=1"))
+			require.NoError(t, err)
+			res, err := within(t, waitLimit, func() (*http.Response, error) { return proxyFrontend.client.Do(req) })
+			require.NoError(t, err)
+			defer res.Body.Close()
+			body, err := io.ReadAll(res.Body)
+			require.NoError(t, err)
+
+			assert.Equal(t, http.StatusGatewayTimeout, res.StatusCode)
+			assert.JSONEq(t, `{"message":"gateway timeout"}`, string(body))
+		})
+	})
+}
+
+func TestTimeoutReachingTheBackendStays502(t *testing.T) {
+	_, fasthttpDialTimeout := (&fasthttp.TCPDialer{DisableDNSResolution: true}).DialTimeout("127.0.0.1:1", -time.Second)
+	require.ErrorIs(t, fasthttpDialTimeout, fasthttp.ErrDialTimeout)
+
+	timeoutsBeforeTheBackendIsReached := map[string]error{
+		"fasthttp's dial deadline": fasthttpDialTimeout,
+		"the connect's deadline":   &net.OpError{Op: "dial", Net: "tcp", Err: os.ErrDeadlineExceeded},
+		"the DNS lookup":           &net.DNSError{Err: "i/o timeout", Name: "backend.internal", IsTimeout: true},
+	}
+	for name, dialError := range timeoutsBeforeTheBackendIsReached {
+		t.Run(name, func(t *testing.T) {
+			onBothStreamingValues(t, func(t *testing.T, streaming bool) {
+				for _, method := range []string{fasthttp.MethodGet, fasthttp.MethodPost} {
+					proxyClient := newProxyClientTimingOutOn("backend.internal:80", streaming)
+					proxyClient.proxy.Dial = func(string) (net.Conn, error) { return nil, dialError }
+					ctx := newTestRequestCtx()
+					ctx.Request.Header.SetMethod(method)
+
+					err := proxyClient.ReverseProxyHandler(ctx)
+
+					assert.NotErrorIs(t, err, fasthttp.ErrTimeout, method)
+					assert.Equal(t, fasthttp.StatusBadGateway, ctx.Response.StatusCode(), method)
+					assert.JSONEq(t, `{"message":"bad gateway"}`, string(ctx.Response.Body()), method)
+				}
+			})
+		})
+	}
+}
+
 func TestServerErrorStatusMapping(t *testing.T) {
 	p := &ProxyClient{}
 

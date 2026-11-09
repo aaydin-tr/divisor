@@ -53,9 +53,9 @@ Building
 - [ ] [Build from source with Go 1.27](#building-from-source-needs-go-127)
 
 To test a config before you switch, run the 1.0 binary against a copy of it.
-In the copy, change `port` and `monitoring.port` to free ports, so the test
-instance does not take live traffic: divisor binds the client port with
-`SO_REUSEPORT` and would share it with the running instance.
+In the copy, change `port` and `monitoring.port` to free ports: divisor
+exits at startup when a port is already in use. (1.0.0 itself bound its ports
+with `SO_REUSEPORT` and would share them with the running instance.)
 
 ```bash
 divisor --config /absolute/path/to/config.copy.yaml

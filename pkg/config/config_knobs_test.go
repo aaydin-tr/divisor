@@ -275,6 +275,33 @@ func TestHealthCheckStatus(t *testing.T) {
 	})
 }
 
+func TestHealthCheckPath(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unset probes the root path", func(t *testing.T) {
+		config := oneBackendConfig()
+		assert.NoError(t, config.PrepareConfig())
+		assert.Equal(t, "http://localhost:8080/", config.Backends[0].GetHealthCheckURL())
+	})
+
+	t.Run("accepts a path starting with a slash", func(t *testing.T) {
+		config := oneBackendConfig()
+		config.Backends[0].HealthCheckPath = "/health"
+		assert.NoError(t, config.PrepareConfig())
+		assert.Equal(t, "http://localhost:8080/health", config.Backends[0].GetHealthCheckURL())
+	})
+
+	t.Run("rejects a path without a leading slash naming the key and the backend index", func(t *testing.T) {
+		config := oneBackendConfig()
+		config.Backends = append(config.Backends, Backend{Url: "localhost:8081", HealthCheckPath: "health"})
+		err := config.PrepareConfig()
+		assert.ErrorIs(t, err, ErrInvalidHealthCheckPath)
+		assert.Contains(t, err.Error(), "health_check_path")
+		assert.Contains(t, err.Error(), "index 1")
+		assert.Contains(t, err.Error(), `got "health"`)
+	})
+}
+
 func TestStreaming(t *testing.T) {
 	t.Parallel()
 

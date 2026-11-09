@@ -196,7 +196,7 @@ func (h *ProxyClient) ReverseProxyHandler(ctx *fasthttp.RequestCtx) error {
 // fasthttp treats DoTimeout(0) as already expired, not "no deadline".
 func (h *ProxyClient) doWithProxyTimeout(req *fasthttp.Request, res *fasthttp.Response) error {
 	if h.proxyTimeout > 0 {
-		return h.proxy.DoTimeout(req, res, h.proxyTimeout)
+		return asGatewayTimeout(h.proxy.DoTimeout(req, res, h.proxyTimeout))
 	}
 	return h.proxy.Do(req, res)
 }

@@ -27,7 +27,7 @@ custom_headers: # Headers set on every request sent to a Backend, replacing a sa
   x-uuid: $uuid # A new UUID per request
 server:
   http_version: http1 # http1 (HTTP/1.1) or http2; http2 requires cert_file and key_file and also answers HTTP/1.1 clients over TLS. Default: http1
-  cert_file: "" # TLS certificate file; divisor serves TLS when both cert_file and key_file are set. Default: empty
+  cert_file: "" # TLS certificate file; divisor serves TLS when both cert_file and key_file are set; one without the other is a startup error. Default: empty
   key_file: "" # TLS private key file for cert_file. Default: empty
   max_idle_worker_duration: 10s # How long an idle worker of the connection worker pool is kept. HTTP/1.1 path only. 0 or negative means the default. Default: 10 seconds
   tcp_keepalive_period: 15s # TCP keep-alive period for accepted client connections, on both paths. 0 or negative keeps Go's default. Default: 15 seconds (Go's default)

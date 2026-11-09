@@ -30,6 +30,8 @@ var (
 	ErrInvalidHttpVersion               = errors.New("server.http_version must be http1 or http2")
 	ErrConfigFileEmpty                  = errors.New("Config file is empty")
 	ErrInvalidTLSKeyPair                = errors.New("cert_file/key_file could not be loaded as a TLS key pair")
+	ErrCertFileWithoutKeyFile           = errors.New("server.cert_file is set but server.key_file is missing, TLS needs both")
+	ErrKeyFileWithoutCertFile           = errors.New("server.key_file is set but server.cert_file is missing, TLS needs both")
 	ErrBackendUrlEmpty                  = errors.New("Backend url must not be empty")
 	ErrBackendUrlInvalid                = errors.New("Backend url is not valid")
 	ErrBackendUrlHttps                  = errors.New("Backend url must not use https, divisor terminates TLS and always speaks plain HTTP to backends")
@@ -47,6 +49,7 @@ var (
 	ErrInvalidDNSCacheDuration          = errors.New("server.dns_cache_duration must not be negative")
 	ErrInvalidHTTP2MaxConcurrentStreams = errors.New("server.http2.max_concurrent_streams must not exceed 2147483647")
 	ErrInvalidHealthCheckerTimeout      = errors.New("health_checker_timeout must not be negative")
+	ErrInvalidHealthCheckPath           = errors.New("health_check_path must start with /")
 	ErrInvalidHealthCheckStatus         = errors.New("health_check_status must be a final HTTP status (200-599)")
 	ErrInvalidStreamIdleTimeout         = errors.New("server.stream_idle_timeout must not be negative")
 )
@@ -219,11 +222,16 @@ type Config struct {
 }
 
 func (c *Config) GetAddr() string {
-	return c.Host + ":" + c.Port
+	return listenAddress(c.Host, c.Port)
 }
 
 func (c *Config) GetMonitoringAddr() string {
-	return c.Monitoring.Host + ":" + c.Monitoring.Port
+	return listenAddress(c.Monitoring.Host, c.Monitoring.Port)
+}
+
+// An IPv6 host is accepted bare (`::1`) or bracketed (`[::1]`).
+func listenAddress(host, port string) string {
+	return net.JoinHostPort(strings.TrimSuffix(strings.TrimPrefix(host, "["), "]"), port)
 }
 
 func (c *Config) GetURL() string {
@@ -231,7 +239,7 @@ func (c *Config) GetURL() string {
 	if c.Server.KeyFile != "" && c.Server.CertFile != "" {
 		schema = "https"
 	}
-	return schema + "://" + c.Host + ":" + c.Port
+	return schema + "://" + c.GetAddr()
 }
 
 func ParseConfigFile(path string) (*Config, error) {
@@ -283,10 +291,6 @@ func (c *Config) PrepareConfig() error {
 
 	if !helper.Contains(ValidTypes, c.Type) {
 		return fmt.Errorf("Please choose valid load balancing type e.g %v", ValidTypes)
-	}
-
-	if c.Type == WeightedRoundRobinType && len(c.Backends) == 1 {
-		c.Type = RoundRobinType
 	}
 
 	if c.HealthCheckerTime <= 0 {
@@ -345,12 +349,18 @@ func (c *Config) prepareBackends() error {
 		}
 		b.Url = addr
 
-		if c.Type == WeightedRoundRobinType && b.Weight <= 0 {
-			return ErrInvalidWeight
+		if c.Type == WeightedRoundRobinType && b.Weight == 0 {
+			if len(c.Backends) > 1 {
+				return ErrInvalidWeight
+			}
+			b.Weight = 1
 		}
 
 		if b.HealthCheckPath == "" {
 			b.HealthCheckPath = "/"
+		}
+		if !strings.HasPrefix(b.HealthCheckPath, "/") {
+			return fmt.Errorf("%w: backend at index %d, got %q", ErrInvalidHealthCheckPath, i, b.HealthCheckPath)
 		}
 
 		if b.HealthCheckStatus != types.AnySuccessOrRedirect && !isFinalHTTPStatus(int(b.HealthCheckStatus)) {
@@ -490,6 +500,13 @@ func (s *Server) prepareTLS() error {
 
 	if err := helper.IsFileExist(s.KeyFile); err != nil && s.KeyFile != "" {
 		return err
+	}
+
+	if s.CertFile != "" && s.KeyFile == "" {
+		return ErrCertFileWithoutKeyFile
+	}
+	if s.KeyFile != "" && s.CertFile == "" {
+		return ErrKeyFileWithoutCertFile
 	}
 
 	// Parse the pair now: an unloadable pair would otherwise only surface

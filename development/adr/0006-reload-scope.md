@@ -19,7 +19,7 @@ Two triggers call the one entry point, `reload.Reloader.Reload`, which serialize
 ## Consequences
 
 - `backend_hash` equals the config index only until the first Reload that adds a Backend.
-- `w-round-robin` with a single Backend runs as `round-robin` (`PrepareConfig`); a Reload that crosses one Backend in either direction would change the running Balancer, so it is rejected naming `type`.
+- `w-round-robin` with a single Backend stays `w-round-robin` (`PrepareConfig` defaults its unset `weight` to 1), so a Reload may cross one Backend in either direction.
 - An added Backend's first Probe runs inside the Reload, all added Backends at once, so a Reload adding unreachable Backends takes up to one `health_checker_timeout` however many there are; Probe rounds, and a shutdown that begins meanwhile, wait for it.
 - A Reload is judged on the config alone, never on whether its Backends answer: one that leaves no Backend Alive (every entry replaced by an unreachable host) is applied, and divisor answers 503 until a Probe succeeds or the file is fixed — the same served state as zero Alive Backends at boot.
 - The ip-hash Balancer keeps a reference to every Backend it ever Joined (a `Pick` may resolve a ring snapshot from before a `Leave`); a removed Backend costs one small struct for the life of the process. (Amended 2026-11-03, ADR 0008: a Pick now resolves its Backend from its own ring snapshot, so ip-hash keeps no removed Backend.)

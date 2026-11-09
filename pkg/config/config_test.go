@@ -77,12 +77,21 @@ func TestPrepareConfig(t *testing.T) {
 		assert.EqualError(t, err, fmt.Sprintf("Please choose valid load balancing type e.g %v", ValidTypes))
 	})
 
-	t.Run("w-round-robin to round-robin", func(t *testing.T) {
+	t.Run("w-round-robin with a single Backend stays w-round-robin, its unset weight defaulting to 1", func(t *testing.T) {
 		config := Config{Backends: []Backend{{Url: "localhost:8080"}}, Type: "w-round-robin", Port: "8000"}
 		err := config.PrepareConfig()
 
 		assert.Nil(t, err)
-		assert.Equal(t, "round-robin", config.Type)
+		assert.Equal(t, "w-round-robin", config.Type)
+		assert.Equal(t, uint(1), config.Backends[0].Weight)
+	})
+
+	t.Run("w-round-robin with a single Backend keeps the weight it sets", func(t *testing.T) {
+		config := Config{Backends: []Backend{{Url: "localhost:8080", Weight: 4}}, Type: "w-round-robin", Port: "8000"}
+		err := config.PrepareConfig()
+
+		assert.Nil(t, err)
+		assert.Equal(t, uint(4), config.Backends[0].Weight)
 	})
 
 	t.Run("default HealthCheckerTime", func(t *testing.T) {
@@ -180,11 +189,11 @@ func TestPrepareBackends(t *testing.T) {
 		}
 	})
 
-	t.Run("w-round-robin", func(t *testing.T) {
-		config := Config{Backends: []Backend{{
-			Url:    "localhost:8080",
-			Weight: 0,
-		}}, Type: "w-round-robin", Port: "8000"}
+	t.Run("w-round-robin with several Backends requires a weight on each", func(t *testing.T) {
+		config := Config{Backends: []Backend{
+			{Url: "localhost:8080", Weight: 2},
+			{Url: "localhost:8081", Weight: 0},
+		}, Type: "w-round-robin", Port: "8000"}
 
 		err := config.prepareBackends()
 		assert.EqualError(t, err, ErrInvalidWeight.Error())
@@ -404,6 +413,25 @@ func TestPrepareServerParsesTLSKeyPair(t *testing.T) {
 		assert.NoError(t, err)
 		server := Server{CertFile: certPath, KeyFile: otherKey}
 		assert.ErrorIs(t, server.prepareServer(), ErrInvalidTLSKeyPair)
+	})
+}
+
+func TestPrepareConfigRejectsHalfATLSKeyPair(t *testing.T) {
+	certPath, keyPath, err := testcert.Write(t.TempDir())
+	assert.NoError(t, err)
+
+	t.Run("cert_file without key_file names the missing key_file", func(t *testing.T) {
+		config := Config{Backends: []Backend{{Url: "localhost:8080"}}, Port: "8000", Server: Server{CertFile: certPath}}
+		err := config.PrepareConfig()
+		assert.ErrorIs(t, err, ErrCertFileWithoutKeyFile)
+		assert.ErrorContains(t, err, "server.key_file is missing")
+	})
+
+	t.Run("key_file without cert_file names the missing cert_file", func(t *testing.T) {
+		config := Config{Backends: []Backend{{Url: "localhost:8080"}}, Port: "8000", Server: Server{KeyFile: keyPath}}
+		err := config.PrepareConfig()
+		assert.ErrorIs(t, err, ErrKeyFileWithoutCertFile)
+		assert.ErrorContains(t, err, "server.cert_file is missing")
 	})
 }
 
