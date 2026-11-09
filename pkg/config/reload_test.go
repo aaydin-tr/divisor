@@ -156,6 +156,46 @@ backends:
 `,
 			kept: []KeptBackend{{RunningPosition: 0, NextPosition: 0}, {RunningPosition: 1, NextPosition: 1}},
 		},
+		{
+			name: "w-round-robin grows from one Backend to several",
+			running: `
+port: 8000
+type: w-round-robin
+backends:
+  - url: a:8080
+`,
+			next: `
+port: 8000
+type: w-round-robin
+backends:
+  - url: a:8080
+    weight: 1
+  - url: b:8080
+    weight: 2
+`,
+			kept:  []KeptBackend{{RunningPosition: 0, NextPosition: 0}},
+			added: []int{1},
+		},
+		{
+			name: "w-round-robin shrinks from several Backends to one",
+			running: `
+port: 8000
+type: w-round-robin
+backends:
+  - url: a:8080
+    weight: 1
+  - url: b:8080
+    weight: 2
+`,
+			next: `
+port: 8000
+type: w-round-robin
+backends:
+  - url: a:8080
+`,
+			kept:    []KeptBackend{{RunningPosition: 0, NextPosition: 0}},
+			removed: []int{1},
+		},
 	}
 
 	for _, tt := range tests {
@@ -256,26 +296,6 @@ backends:
 `,
 			changedKeys: []string{"port"},
 		},
-		{
-			name: "w-round-robin growing past one Backend changes the running Balancer",
-			running: `
-port: 8000
-type: w-round-robin
-backends:
-  - url: a:8080
-    weight: 1
-`,
-			next: `
-port: 8000
-type: w-round-robin
-backends:
-  - url: a:8080
-    weight: 1
-  - url: b:8080
-    weight: 2
-`,
-			changedKeys: []string{"type"},
-		},
 	}
 
 	for _, tt := range tests {
@@ -312,6 +332,7 @@ func TestPlanReloadRejectsInvalidConfig(t *testing.T) {
 		{name: "no backends", next: "port: 8000\nbackends: []\n"},
 		{name: "invalid backend url", next: "port: 8000\nbackends:\n  - url: https://a:8443\n"},
 		{name: "invalid Probe setting", next: "port: 8000\nhealth_checker_timeout: -1s\nbackends:\n  - url: a:8080\n"},
+		{name: "health_check_path without a leading slash", next: "port: 8000\nbackends:\n  - url: a:8080\n    health_check_path: health\n"},
 	}
 
 	for _, tt := range tests {

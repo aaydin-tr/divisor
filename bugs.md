@@ -22,11 +22,11 @@ High
 - [x] [B4 — 502/504 responses carry the failed Backend's headers](#b4)
 
 Medium
-- [ ] [B5 — A non-idempotent request timing out mid-body gets 502, not 504](#b5)
-- [ ] [B6 — w-round-robin cannot Reload between one and several Backends](#b6)
-- [ ] [B7 — health_check_path without a leading slash keeps a Backend Down forever](#b7)
-- [ ] [B8 — cert_file without key_file (or the reverse) serves plain HTTP](#b8)
-- [ ] [B9 — Listeners share their port silently and cannot bind IPv6](#b9)
+- [x] [B5 — A non-idempotent request timing out mid-body gets 502, not 504](#b5)
+- [x] [B6 — w-round-robin cannot Reload between one and several Backends](#b6)
+- [x] [B7 — health_check_path without a leading slash keeps a Backend Down forever](#b7)
+- [x] [B8 — cert_file without key_file (or the reverse) serves plain HTTP](#b8)
+- [x] [B9 — Listeners share their port silently and cannot bind IPv6](#b9)
 
 Low
 - [ ] [B10 — process_cpu_percent is a lifetime average](#b10)

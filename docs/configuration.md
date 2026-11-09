@@ -34,8 +34,8 @@ little more than that.
 | Key | Type | Default | Since | Reload | Description |
 | --- | --- | --- | --- | --- | --- |
 | `port` | string | required | 0.1.0 | no | Port divisor listens on for clients. A number such as `8000` is fine |
-| `host` | string | `0.0.0.0` | 0.1.0 | no | Address divisor listens on for clients. The default accepts traffic from other hosts; the Monitoring server stays on `localhost` |
-| `type` | string | `round-robin` | 0.1.0 | no | The Balancer: `round-robin`, `w-round-robin`, `ip-hash`, `random`, `least-connection` or `least-response-time`; any other value is a startup error. `w-round-robin` with a single Backend runs as `round-robin` |
+| `host` | string | `0.0.0.0` | 0.1.0 | no | Address divisor listens on for clients. The default accepts IPv4 traffic from other hosts; the Monitoring server stays on `localhost`. An IPv6 address works too, bare or in brackets (`"::1"` or `"[::1]"`). divisor exits at startup when the port is already in use |
+| `type` | string | `round-robin` | 0.1.0 | no | The Balancer: `round-robin`, `w-round-robin`, `ip-hash`, `random`, `least-connection` or `least-response-time`; any other value is a startup error |
 | `health_checker_time` | duration | `30s` | 0.1.0 | yes | Interval between Probe rounds; each round Probes every Backend, Alive and Down. `0` or negative means the default |
 | `health_checker_timeout` | duration | `5s` | 1.0.0 | yes | Bound on each Probe as a whole (connect, send, answer); a slower answer is a failed Probe. `0` means the default; negative is a startup error |
 
@@ -51,9 +51,9 @@ stats row.
 | --- | --- | --- | --- | --- | --- |
 | `backends` | list | required | 0.1.0 | yes | The Backends; at least one |
 | `backends[].url` | string | required | 0.1.0 | yes | The Backend address, `host:port`; see [Validation rules](#validation-rules) for what is accepted |
-| `backends[].health_check_path` | string | `/` | 0.1.0 | yes | Path each Probe requests with a `GET`. Redirects are not followed |
+| `backends[].health_check_path` | string | `/` | 0.1.0 | yes | Path each Probe requests with a `GET`; it must start with `/`, anything else is a startup error. Redirects are not followed |
 | `backends[].health_check_status` | int | any 2xx or 3xx | 1.0.0 | yes | The exact status a Probe must answer (e.g. `204`); any other status is a failed Probe. Must be 200-599; `0` means unset |
-| `backends[].weight` | int | - | 0.1.0 | yes | Share of traffic under `w-round-robin`, which requires a positive weight on every Backend; other Balancers ignore it |
+| `backends[].weight` | int | - | 0.1.0 | yes | Share of traffic under `w-round-robin`, which requires a positive weight on every Backend (a single Backend may leave it unset: it defaults to `1`); other Balancers ignore it |
 | `backends[].max_conn` | int | `512` | 0.1.0 | yes | Max connections divisor opens to this Backend; an open Streamed response holds one. `0` or negative means the default |
 | `backends[].max_conn_timeout` | duration | `30s` | 0.1.0 | yes | How long a request waits for a free connection when all `max_conn` are busy. `0` or negative means the default |
 | `backends[].max_conn_duration` | duration | `10s` | 0.1.0 | yes | A connection to the Backend is closed once it has been open this long. `0` or negative means the default |
@@ -67,7 +67,7 @@ Backend, while a changed entry is a new Backend.
 
 | Key | Type | Default | Since | Reload | Description |
 | --- | --- | --- | --- | --- | --- |
-| `monitoring.host` | string | `localhost` | 0.1.0 | no | Address the Monitoring server listens on. Set `0.0.0.0` when an orchestrator probes `/healthz` and `/ready` from outside the host |
+| `monitoring.host` | string | `localhost` | 0.1.0 | no | Address the Monitoring server listens on. Set `0.0.0.0` when an orchestrator probes `/healthz` and `/ready` from outside the host. Takes an IPv6 address like `host`, and a port already in use is a startup error too |
 | `monitoring.port` | string | `8001` | 0.1.0 | no | Port the Monitoring server listens on |
 
 What the Monitoring server serves is in [Observability](observability.md).
@@ -94,7 +94,7 @@ no effect under `http_version: http2`.
 | Key | Type | Default | Since | Reload | Description |
 | --- | --- | --- | --- | --- | --- |
 | `server.http_version` | string | `http1` | 0.3.0 | no | `http1` (HTTP/1.1; `http1.1` is accepted too) or `http2`; any other value is a startup error. `http2` requires `cert_file` and `key_file`, and also answers HTTP/1.1 clients over TLS |
-| `server.cert_file` | string | - | 0.3.0 | no | TLS certificate file. Divisor serves TLS when both `cert_file` and `key_file` are set; a missing file, or a pair that does not load, is a startup error |
+| `server.cert_file` | string | - | 0.3.0 | no | TLS certificate file. Divisor serves TLS when both `cert_file` and `key_file` are set; one set without the other, a missing file, or a pair that does not load, is a startup error |
 | `server.key_file` | string | - | 0.3.0 | no | TLS private key file for `cert_file` |
 | `server.tls_min_version` | string | runtime default | 1.0.0 | no | Minimum accepted TLS version: `"1.2"` or `"1.3"` (quote it); any other value is a startup error. Only matters when TLS is served |
 | `server.http2.max_concurrent_streams` | int | `250` | 1.0.0 | no | Max concurrent streams a client may open per HTTP/2 connection. HTTP/2 path only. `0` or negative means the default; above `2147483647` is a startup error |
@@ -196,7 +196,7 @@ error, naming it. A Reload applies the same rules and is rejected on any error.
 - **HTTP/2 requires TLS**: `server.http_version: http2` requires both
   `cert_file` and `key_file`; there is no cleartext HTTP/2
 - **Weighted round-robin**: every Backend needs a positive `weight`, except
-  that a single Backend runs as `round-robin`
+  that a single Backend's unset `weight` defaults to `1`
 - **Middlewares**: each needs a `name`, and either `code` or `file` (not both)
   unless `disabled: true`
 - **Custom headers**: values accept only the four special variables

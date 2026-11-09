@@ -93,11 +93,11 @@ func moveWholeResponse(backendRes, res *fasthttp.Response) error {
 	return nil
 }
 
-// asGatewayTimeout maps a read deadline expiring mid-body to ErrTimeout, which
-// is what fasthttp reports when the deadline expires inside Do.
+// asGatewayTimeout maps a Backend read deadline expiring mid-body to ErrTimeout (504), as fasthttp
+// does for one expiring on the headers. A connect or DNS lookup timing out stays a 502.
 func asGatewayTimeout(err error) error {
-	var netErr net.Error
-	if errors.As(err, &netErr) && netErr.Timeout() {
+	var backendReadError *net.OpError
+	if errors.As(err, &backendReadError) && backendReadError.Op == "read" && backendReadError.Timeout() {
 		return fasthttp.ErrTimeout
 	}
 	return err

@@ -18,7 +18,6 @@ import (
 	cfg "github.com/aaydin-tr/divisor/pkg/config"
 	"github.com/aaydin-tr/divisor/pkg/logger"
 	"github.com/aaydin-tr/divisor/pkg/middleware"
-	"github.com/valyala/fasthttp/reuseport"
 	"go.uber.org/zap"
 )
 
@@ -86,7 +85,7 @@ func main() {
 	}
 	zap.S().Infof("All proxies are ready, divisor will use `%s` algorithm health checker func will trigger every %v", config.Type, config.HealthCheckerTime)
 
-	ln, err := reuseport.Listen("tcp4", config.GetAddr())
+	ln, err := server.Listen(config.GetAddr())
 	if err != nil {
 		zap.S().Fatalf("Error while starting divisor server %s", err)
 	}
