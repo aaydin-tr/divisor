@@ -9,7 +9,7 @@ require (
 	github.com/prometheus/client_golang v1.25.0
 	github.com/shirou/gopsutil/v4 v4.26.9
 	github.com/stretchr/testify v1.12.1
-	github.com/traefik/yaegi v0.16.1
+	github.com/traefik/yaegi v0.16.3
 	github.com/valyala/fasthttp v1.77.0
 	go.uber.org/zap v1.28.0
 	gopkg.in/yaml.v3 v3.0.1
