@@ -1,5 +1,13 @@
 package monitoring
 
+import _ "embed"
+
+// chartJS is Chart.js 4.1.2's chart.umd.js, served by the Monitoring server
+// so the dashboard works without internet access.
+//
+//go:embed assets/chart.umd.js
+var chartJS []byte
+
 var index = `
 <!DOCTYPE html>
 <html lang="en">
@@ -8,14 +16,11 @@ var index = `
   <meta charset="UTF-8" />
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=PT+Serif&display=swap" rel="stylesheet" />
   <title>Monitor</title>
 </head>
 <style>
   * {
-    font-family: "PT Serif", serif;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   }
 
   body {
@@ -95,7 +100,7 @@ var index = `
     ">
   </div>
 </body>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.1.2/chart.umd.js"></script>
+<script src="/assets/chart.umd.js"></script>
 <script>
   const dateFormatter = (date) => {
     const hours = date.getHours();

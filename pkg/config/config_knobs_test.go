@@ -318,6 +318,30 @@ func TestHealthCheckPath(t *testing.T) {
 	})
 }
 
+func TestBackendWeight(t *testing.T) {
+	t.Parallel()
+
+	t.Run("accepts the bound", func(t *testing.T) {
+		config := Config{Backends: []Backend{
+			{Url: "localhost:8080", Weight: 1},
+			{Url: "localhost:8081", Weight: 1000},
+		}, Type: WeightedRoundRobinType, Port: "8000"}
+		assert.NoError(t, config.PrepareConfig())
+	})
+
+	t.Run("rejects a weight above the bound naming the key and the backend index", func(t *testing.T) {
+		config := Config{Backends: []Backend{
+			{Url: "localhost:8080", Weight: 1},
+			{Url: "localhost:8081", Weight: 1000000000},
+		}, Type: WeightedRoundRobinType, Port: "8000"}
+		err := config.PrepareConfig()
+		assert.ErrorIs(t, err, ErrBackendWeightTooLarge)
+		assert.Contains(t, err.Error(), "weight must not exceed 1000")
+		assert.Contains(t, err.Error(), "index 1")
+		assert.Contains(t, err.Error(), "got 1000000000")
+	})
+}
+
 func TestStreaming(t *testing.T) {
 	t.Parallel()
 
@@ -369,6 +393,46 @@ func TestStreamIdleTimeout(t *testing.T) {
 		assert.NoError(t, config.PrepareConfig())
 		for _, b := range config.Backends {
 			assert.Equal(t, 45*time.Second, b.StreamIdleTimeout)
+		}
+	})
+}
+
+// A client that sends its headers slowly, or idles on a keep-alive connection, must not hold it
+// forever on defaults; a slow upload still may, since read_timeout stays unlimited.
+func TestClientConnectionTimeoutsAreBoundedByDefault(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unset means 10s for headers, 120s idle, an unlimited request read", func(t *testing.T) {
+		config, err := ParseConfig([]byte("port: 8000\nbackends:\n  - url: localhost:8080\n"))
+		assert.NoError(t, err)
+		assert.NoError(t, config.PrepareConfig())
+		assert.Equal(t, 10*time.Second, config.Server.ReadHeaderTimeout)
+		assert.Equal(t, 120*time.Second, config.Server.IdleTimeout)
+		assert.Zero(t, config.Server.ReadTimeout)
+	})
+
+	t.Run("set values pass unchanged", func(t *testing.T) {
+		config, err := ParseConfig([]byte("port: 8000\nbackends:\n  - url: localhost:8080\nserver:\n  read_header_timeout: 3s\n  idle_timeout: 30s\n"))
+		assert.NoError(t, err)
+		assert.NoError(t, config.PrepareConfig())
+		assert.Equal(t, 3*time.Second, config.Server.ReadHeaderTimeout)
+		assert.Equal(t, 30*time.Second, config.Server.IdleTimeout)
+	})
+
+	t.Run("idle_timeout no longer follows read_timeout", func(t *testing.T) {
+		server := Server{ReadTimeout: 5 * time.Second}
+		assert.NoError(t, server.prepareServer())
+		assert.Equal(t, 120*time.Second, server.IdleTimeout)
+	})
+
+	t.Run("a negative value fails naming the key", func(t *testing.T) {
+		for key, server := range map[string]Server{
+			"server.read_header_timeout": {ReadHeaderTimeout: -time.Second},
+			"server.idle_timeout":        {IdleTimeout: -time.Second},
+		} {
+			err := server.prepareServer()
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), key)
 		}
 	})
 }

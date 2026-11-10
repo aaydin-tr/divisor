@@ -97,7 +97,7 @@ off, probe endpoints included.
 
 | Path | Serves |
 | --- | --- |
-| `/` | A dashboard: CPU and RAM usage, goroutines, open connections, and a row per Backend |
+| `/` | A dashboard: CPU and RAM usage, goroutines, open connections, and a row per Backend. It needs no internet access: divisor serves everything it loads |
 | `/stats` | The same data as JSON, read at request time |
 | `/metrics` | Prometheus metrics, refreshed every 5 seconds |
 | `/healthz` | Liveness: `200` whenever the process runs |
@@ -126,7 +126,9 @@ probes.
 the fields mean the same as the `backend_*` metrics below. `backend_hash` is
 the Backend's Index: its config position at boot, a number never used before
 for a Backend a Reload added. `last_use_time` is the last time divisor used a
-connection to the Backend.
+connection to the Backend. `cpu.process_percent` is the CPU the divisor process
+used since the previous reading (at least one second ago; for the first reading,
+since divisor started), in percent of one CPU.
 
 ### Prometheus metrics
 
@@ -141,7 +143,7 @@ so scraping more often only repeats samples:
 | `backend_connection_count` | `address`, `index` | Open connections from divisor to the Backend, busy and idle |
 | `open_conn_count` | | Open client connections on the HTTP/1.1 listener; always `0` with `server.http_version: http2` |
 | `total_goroutine` | | Goroutines in the divisor process |
-| `process_cpu_percent` | | CPU usage of the divisor process, in percent |
+| `process_cpu_percent` | | CPU usage of the divisor process over the last 1 to 5 seconds, in percent of one CPU, so above `100` when it uses more than one |
 | `total_cpu_percent` | | CPU usage of the whole host, in percent |
 | `process_memory_mb` | | Memory used by the divisor process, in MB |
 | `process_memory_percent` | | Memory used by the divisor process, in percent of the host's |

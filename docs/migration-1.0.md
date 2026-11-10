@@ -24,6 +24,7 @@ Traffic
 
 - [ ] [Raise `server.proxy_timeout` for Backends slower than 60s](#backend-requests-time-out-after-60s)
 - [ ] [Raise `server.max_request_body_size` for uploads over 4MB](#request-bodies-are-capped-at-4mb-on-both-stacks)
+- [ ] [Raise `server.idle_timeout` or `server.read_header_timeout` for clients that idle long or send headers slowly](#slow-and-idle-client-connections-are-closed)
 - [ ] [Update clients and alerts that expect 500 for a failed proxy](#error-status-codes-changed)
 - [ ] [Check what your Backends read from the request headers](#what-backends-receive-changed)
 
@@ -244,6 +245,32 @@ clients that treat the old `400` as "too large".
 ```yaml
 server:
   max_request_body_size: 52428800 # 50MB
+```
+
+### Slow and idle client connections are closed
+
+**What changed:** since 1.2.0, divisor disconnects an HTTP/1.1 client whose
+request headers take longer than `server.read_header_timeout` (default `10s`)
+to arrive, and closes a keep-alive connection that waits longer than
+`server.idle_timeout` (now `120s` by default) for its next request, an HTTP/2
+one still waiting for a request's headers included. Earlier releases kept both
+open forever unless `server.read_timeout` was set, and `idle_timeout` followed
+`read_timeout`. Under `http_version: http1`, `read_timeout` now times only the
+request body, once its headers are in. It stays unlimited by default, so slow
+large uploads keep working.
+
+**Who is affected:** clients that keep a connection idle for over 120s and
+expect it to stay open (most clients open a new one by themselves), HTTP/1.1
+clients on links slow enough to need over 10s for their headers, and configs
+that set `read_timeout` and relied on `idle_timeout` following it.
+
+**What to do:** set the bounds your clients need. `0` means the default; there
+is no unlimited setting:
+
+```yaml
+server:
+  read_header_timeout: 30s
+  idle_timeout: 10m
 ```
 
 ### Error status codes changed
@@ -521,6 +548,10 @@ upgrade:
 - `server.tcp_keepalive_period` now takes effect on both stacks. In 0.x it
   did nothing.
 - `/stats` lists every Backend in config order, Down ones included.
+- `/stats` `cpu.process_percent` and the `process_cpu_percent` metric report
+  the CPU the process used over the last few seconds. Earlier releases,
+  1.0.0 included, averaged it over the whole time since startup, so a spike
+  barely moved them.
 
 ## New in 1.0, nothing to migrate
 

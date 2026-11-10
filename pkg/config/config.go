@@ -26,6 +26,7 @@ var (
 	ErrAtLeastOneBackend                = errors.New("At least one backend must be set")
 	ErrInvalidPort                      = errors.New("Please choose valid port")
 	ErrInvalidWeight                    = errors.New("When using the weighted-round-robin algorithm, a weight must be specified for each backend")
+	ErrBackendWeightTooLarge            = fmt.Errorf("weight must not exceed %d", MaxBackendWeight)
 	ErrHttp2WithoutTls                  = errors.New("The HTTP/2 connection can be only established if the server is using TLS. Please provide cert and key file")
 	ErrInvalidHttpVersion               = errors.New("server.http_version must be http1 or http2")
 	ErrConfigFileEmpty                  = errors.New("Config file is empty")
@@ -45,6 +46,8 @@ var (
 	ErrInvalidLoggingFormat             = errors.New("logging.format must be json or console")
 	ErrInvalidLoggingLevel              = errors.New("logging.level must be a zap level (debug, info, warn, error, dpanic, panic, fatal)")
 	ErrInvalidGracefulShutdownTimeout   = errors.New("server.graceful_shutdown_timeout must not be negative")
+	ErrInvalidReadHeaderTimeout         = errors.New("server.read_header_timeout must not be negative")
+	ErrInvalidIdleTimeout               = errors.New("server.idle_timeout must not be negative")
 	ErrInvalidTLSMinVersion             = errors.New("server.tls_min_version must be 1.2 or 1.3")
 	ErrInvalidDNSCacheDuration          = errors.New("server.dns_cache_duration must not be negative")
 	ErrInvalidHTTP2MaxConcurrentStreams = errors.New("server.http2.max_concurrent_streams must not exceed 2147483647")
@@ -85,6 +88,10 @@ const (
 	DefaultMaxRequestBodySize = fasthttp.DefaultMaxRequestBodySize
 
 	DefaultGracefulShutdownTimeout = time.Second * 30
+
+	// Bound a client that sends its headers slowly, or idles on keep-alive, holding a connection.
+	DefaultReadHeaderTimeout = time.Second * 10
+	DefaultIdleTimeout       = time.Second * 120
 
 	// fasthttp's per-connection buffer defaults (it keeps them unexported).
 	DefaultReadBufferSize  = 4096
@@ -171,6 +178,7 @@ type Server struct {
 	MaxIdleWorkerDuration time.Duration `yaml:"max_idle_worker_duration"`
 	TCPKeepalivePeriod    time.Duration `yaml:"tcp_keepalive_period"`
 	Concurrency           int           `yaml:"concurrency"`
+	ReadHeaderTimeout     time.Duration `yaml:"read_header_timeout"`
 	ReadTimeout           time.Duration `yaml:"read_timeout"`
 	WriteTimeout          time.Duration `yaml:"write_timeout"`
 	IdleTimeout           time.Duration `yaml:"idle_timeout"`
@@ -340,6 +348,9 @@ func (c *Config) PrepareConfig() error {
 	return c.prepareBackends()
 }
 
+// w-round-robin holds up to weight slots per Alive Backend, so the bound caps its memory.
+const MaxBackendWeight = 1000
+
 func (c *Config) prepareBackends() error {
 	for i := 0; i < len(c.Backends); i++ {
 		b := &c.Backends[i]
@@ -355,6 +366,9 @@ func (c *Config) prepareBackends() error {
 				return ErrInvalidWeight
 			}
 			b.Weight = 1
+		}
+		if b.Weight > MaxBackendWeight {
+			return fmt.Errorf("%w: backend at index %d, got %d", ErrBackendWeightTooLarge, i, b.Weight)
 		}
 
 		if b.HealthCheckPath == "" {
@@ -539,6 +553,20 @@ func (s *Server) applyServerDefaults() error {
 	// Zero means the default, not unlimited (ADR 0003).
 	if s.ProxyTimeout <= 0 {
 		s.ProxyTimeout = DefaultProxyTimeout
+	}
+
+	if s.ReadHeaderTimeout < 0 {
+		return fmt.Errorf("%w, got %v", ErrInvalidReadHeaderTimeout, s.ReadHeaderTimeout)
+	}
+	if s.ReadHeaderTimeout == 0 {
+		s.ReadHeaderTimeout = DefaultReadHeaderTimeout
+	}
+
+	if s.IdleTimeout < 0 {
+		return fmt.Errorf("%w, got %v", ErrInvalidIdleTimeout, s.IdleTimeout)
+	}
+	if s.IdleTimeout == 0 {
+		s.IdleTimeout = DefaultIdleTimeout
 	}
 
 	if s.StreamIdleTimeout < 0 {

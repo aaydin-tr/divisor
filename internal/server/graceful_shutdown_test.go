@@ -251,7 +251,7 @@ func TestGracefulShutdownUnderLoadAnswersEveryRequestTheBackendServed(t *testing
 // fasthttp holds an answer back while the next pipelined request is already read; a Graceful shutdown still
 // sends it.
 func TestGracefulShutdownAnswersEveryPipelinedRequestTheBackendServed(t *testing.T) {
-	for _, stack := range []listenerStack{fasthttpStack, fasthttpOverTLSStack} {
+	for _, stack := range fasthttpListenerStacks {
 		t.Run(stack.name, func(t *testing.T) {
 			requireNoServedRequestGoesUnanswered(t, stack, func(address string, newRequestID func() string) []sentRequest {
 				return sendPipelinedPOSTsUntilOneFails(stack, address, newRequestID)

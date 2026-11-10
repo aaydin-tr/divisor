@@ -200,6 +200,7 @@ when `Pick` returns nil.
 - HTTP/2 requires TLS (cert_file + key_file must be provided); on any `http_version`, one of the two set without the other is a startup error naming the missing key
 - Backend `health_check_path` must start with `/` (startup error naming the Backend's index)
 - Weighted round-robin with a single Backend stays `w-round-robin` (its unset `weight` defaults to 1), so a Reload can cross one Backend in either direction
+- Backend `weight` must not exceed 1000 under any Balancer (startup error naming the Backend's index); w-round-robin gives each Alive Backend weight/gcd slots in its shuffled rotation (gcd over the Alive weights), so every Join/Leave rebuilds every Backend's slots
 - `PlanReload(running, newYAML)` is the pure Reload classifier (ADR 0006): it
   parses and prepares the new config, rejects it as invalid
   (`ErrReloadInvalidConfig`) or for changed restart-only keys
@@ -222,7 +223,7 @@ when `Pick` returns nil.
 ### Monitoring
 
 `internal/monitoring`:
-- Separate HTTP server for metrics (default: localhost:8001); `monitoring.disabled: true` (restart-only) never starts it: `main.go` keeps a nil `*monitoring.Server` and graceful shutdown skips its steps
+- Separate HTTP server for metrics (default: localhost:8001); the dashboard (`index.go`) loads only what it serves itself: Chart.js is vendored at `assets/chart.umd.js` (`go:embed`, served at `/assets/chart.umd.js`), system fonts; `monitoring.disabled: true` (restart-only) never starts it: `main.go` keeps a nil `*monitoring.Server` and graceful shutdown skips its steps
 - Provides real-time stats: CPU, RAM, goroutines, open connections
 - Prometheus metrics endpoint at `/metrics`
 - Probe endpoints for orchestrators: `/healthz` (liveness) answers 200

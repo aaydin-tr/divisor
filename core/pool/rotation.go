@@ -21,7 +21,6 @@ func (r *Rotation) Join(b *Backend) {
 	r.aliveBackends.Store(&next)
 }
 
-// Leave removes every copy of b, so a weighted rotation empties out too.
 func (r *Rotation) Leave(b *Backend) {
 	next := helper.RemoveByValue(r.AliveBackends(), b)
 	r.SetAliveBackends(next)

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/aaydin-tr/divisor/core/types"
 	"github.com/aaydin-tr/divisor/internal/proxy"
@@ -45,7 +46,8 @@ func startFasthttp(cfg *config.Config, balancer types.IBalancer, ln net.Listener
 		Handler:               proxy.NewFasthttpHandler(balancer, cfg.Server.WriteTimeout, !cfg.Server.DisableResponseBatching),
 		MaxIdleWorkerDuration: cfg.Server.MaxIdleWorkerDuration,
 		Concurrency:           cfg.Server.Concurrency,
-		ReadTimeout:           cfg.Server.ReadTimeout,
+		ReadTimeout:           cfg.Server.ReadHeaderTimeout,
+		HeaderReceived:        readBodyWithin(cfg.Server.ReadTimeout),
 		WriteTimeout:          cfg.Server.WriteTimeout,
 		IdleTimeout:           cfg.Server.IdleTimeout,
 		DisableKeepalive:      cfg.Server.DisableKeepalive,
@@ -69,6 +71,21 @@ func startFasthttp(cfg *config.Config, balancer types.IBalancer, ln net.Listener
 	return fasthttpServer{srv}, serveInBackground(cfg, serve), nil
 }
 
+// fasthttp reads a zero RequestConfig.ReadTimeout as "keep the header deadline", so an unlimited
+// read_timeout needs a deadline that never comes.
+const noRequestBodyReadDeadline = 100 * 365 * 24 * time.Hour
+
+// fasthttp has one ReadTimeout, armed when a connection opens (after the TLS handshake) and at a keep-alive request's
+// first byte: read_header_timeout takes it, and readBodyWithin moves the deadline to read_timeout for the body.
+func readBodyWithin(readTimeout time.Duration) func(*fasthttp.RequestHeader) fasthttp.RequestConfig {
+	if readTimeout <= 0 {
+		readTimeout = noRequestBodyReadDeadline
+	}
+	return func(*fasthttp.RequestHeader) fasthttp.RequestConfig {
+		return fasthttp.RequestConfig{ReadTimeout: readTimeout}
+	}
+}
+
 type netHttpServer struct{ *http.Server }
 
 func (s netHttpServer) Shutdown(ctx context.Context) error { return s.Server.Shutdown(ctx) }
@@ -83,14 +100,15 @@ func startNetHttp(cfg *config.Config, balancer types.IBalancer, ln net.Listener)
 	protocols.SetHTTP2(true)
 
 	srv := &http.Server{
-		Addr:         cfg.GetAddr(),
-		Handler:      proxy.NewNetHttpAdapter(balancer, cfg.Server.MaxRequestBodySize),
-		ReadTimeout:  cfg.Server.ReadTimeout,
-		WriteTimeout: cfg.Server.WriteTimeout,
-		IdleTimeout:  cfg.Server.IdleTimeout,
-		TLSConfig:    tlsConfig(cfg),
-		Protocols:    &protocols,
-		HTTP2:        &http.HTTP2Config{MaxConcurrentStreams: cfg.Server.HTTP2.MaxConcurrentStreams},
+		Addr:              cfg.GetAddr(),
+		Handler:           proxy.NewNetHttpAdapter(balancer, cfg.Server.MaxRequestBodySize),
+		ReadHeaderTimeout: cfg.Server.ReadHeaderTimeout,
+		ReadTimeout:       cfg.Server.ReadTimeout,
+		WriteTimeout:      cfg.Server.WriteTimeout,
+		IdleTimeout:       cfg.Server.IdleTimeout,
+		TLSConfig:         tlsConfig(cfg),
+		Protocols:         &protocols,
+		HTTP2:             &http.HTTP2Config{MaxConcurrentStreams: cfg.Server.HTTP2.MaxConcurrentStreams},
 	}
 	srv.SetKeepAlivesEnabled(!cfg.Server.DisableKeepalive)
 
