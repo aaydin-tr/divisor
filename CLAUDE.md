@@ -201,7 +201,7 @@ when `Pick` returns nil.
 - HTTP/2 requires TLS (cert_file + key_file must be provided); on any `http_version`, one of the two set without the other is a startup error naming the missing key
 - Backend `health_check_path` must start with `/` (startup error naming the Backend's index)
 - Weighted round-robin with a single Backend stays `w-round-robin` (its unset `weight` defaults to 1), so a Reload can cross one Backend in either direction
-- Under w-round-robin, a Backend `weight` above 1000 is a startup error naming the Backend's index; other Balancers ignore `weight`, so it is not bounded there
+- Under w-round-robin, a Backend `weight` above 1000 once divided by the gcd of every configured weight is a startup error naming the Backend's index (that bounds its slots under any Alive subset); other Balancers ignore `weight`, so it is not bounded there
 - w-round-robin gives each Alive Backend weight/gcd slots (gcd over the Alive weights), so every Join/Leave rebuilds every Backend's slots
 - `PlanReload(running, newYAML)` is the pure Reload classifier (ADR 0006): it
   parses and prepares the new config, rejects it as invalid

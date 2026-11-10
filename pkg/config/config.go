@@ -108,7 +108,7 @@ const (
 	// net/http's HTTP/2 server default (it keeps it unexported).
 	DefaultHTTP2MaxConcurrentStreams = 250
 
-	// w-round-robin holds up to weight slots per Alive Backend, so the bound caps its memory.
+	// w-round-robin holds weight/gcd slots per Alive Backend, so bounding that caps its memory.
 	MaxBackendWeight = 1000
 
 	TLSMinVersion12 = "1.2"
@@ -368,9 +368,6 @@ func (c *Config) prepareBackends() error {
 				}
 				b.Weight = 1
 			}
-			if b.Weight > MaxBackendWeight {
-				return fmt.Errorf("%w: backend at index %d, got %d", ErrBackendWeightTooLarge, i, b.Weight)
-			}
 		}
 
 		if b.HealthCheckPath == "" {
@@ -410,6 +407,29 @@ func (c *Config) prepareBackends() error {
 		b.StreamIdleTimeout = c.Server.StreamIdleTimeout
 	}
 
+	if c.Type == WeightedRoundRobinType {
+		return c.checkWeightedRoundRobinSlots()
+	}
+	return nil
+}
+
+// The gcd of every configured weight divides the gcd of any Alive subset, so weight/gcd bounds a Backend's slots.
+func (c *Config) checkWeightedRoundRobinSlots() error {
+	weightGreatestCommonDivisor := uint(0)
+	for _, b := range c.Backends {
+		weightGreatestCommonDivisor = helper.GreatestCommonDivisor(weightGreatestCommonDivisor, b.Weight)
+	}
+	for i, b := range c.Backends {
+		slots := b.Weight / weightGreatestCommonDivisor
+		if slots <= MaxBackendWeight {
+			continue
+		}
+		if weightGreatestCommonDivisor == 1 {
+			return fmt.Errorf("%w: backend at index %d, got %d", ErrBackendWeightTooLarge, i, b.Weight)
+		}
+		return fmt.Errorf("%w: backend at index %d, got %d, %d after dividing every weight by their greatest common divisor %d",
+			ErrBackendWeightTooLarge, i, b.Weight, slots, weightGreatestCommonDivisor)
+	}
 	return nil
 }
 

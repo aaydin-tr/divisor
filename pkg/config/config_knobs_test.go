@@ -341,6 +341,24 @@ func TestBackendWeight(t *testing.T) {
 		assert.Contains(t, err.Error(), "got 1000000000")
 	})
 
+	t.Run("bounds the weight once every weight is divided by their greatest common divisor", func(t *testing.T) {
+		config := Config{Backends: []Backend{
+			{Url: "localhost:8080", Weight: 5000},
+			{Url: "localhost:8081", Weight: 10000},
+		}, Type: WeightedRoundRobinType, Port: "8000"}
+		assert.NoError(t, config.PrepareConfig())
+
+		config = Config{Backends: []Backend{
+			{Url: "localhost:8080", Weight: 2},
+			{Url: "localhost:8081", Weight: 2002},
+		}, Type: WeightedRoundRobinType, Port: "8000"}
+		err := config.PrepareConfig()
+		assert.ErrorIs(t, err, ErrBackendWeightTooLarge)
+		assert.Contains(t, err.Error(), "index 1")
+		assert.Contains(t, err.Error(), "got 2002")
+		assert.Contains(t, err.Error(), "1001 after dividing every weight by their greatest common divisor 2")
+	})
+
 	t.Run("is not bounded under a Balancer that ignores weight", func(t *testing.T) {
 		for _, balancerType := range []string{RoundRobinType, RandomType, IPHashType, LeastConnectionType, LeastResponseTimeType} {
 			config := Config{Backends: []Backend{

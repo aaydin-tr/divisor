@@ -30,6 +30,13 @@ func HashFunc(b []byte) uint32 {
 	return crc32.ChecksumIEEE(b)
 }
 
+func GreatestCommonDivisor(a, b uint) uint {
+	for b != 0 {
+		a, b = b, a%b
+	}
+	return a
+}
+
 func RemoveByValue[T comparable](s []T, value T) []T {
 	temp := make([]T, 0, len(s))
 	for _, elem := range s {

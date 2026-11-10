@@ -7,7 +7,7 @@ backends:
   - url: localhost:8080 # Backend address, host:port; an optional http:// is stripped, https://, a path or a query is a startup error
     health_check_path: /health # Path each Probe requests with a GET; redirects are not followed. Default: /
     # health_check_status: 204 # Exact status a Probe must answer (200-599); any other status is a failed Probe. Default: unset, any 2xx or 3xx keeps the Backend Alive
-    weight: 2 # Share of traffic under w-round-robin, which requires a positive weight on every Backend; only the ratio counts (100 and 200 share like 1 and 2). Above 1000 is a startup error. Other Balancers ignore it
+    weight: 2 # Share of traffic under w-round-robin, which requires a positive weight on every Backend; only the ratio counts (100 and 200 share like 1 and 2). Above 1000 once every weight is divided by their greatest common divisor is a startup error. Other Balancers ignore it
     max_conn: 512 # Max connections divisor opens to this Backend; an open Streamed response holds one. 0 or negative means the default. Default: 512
     max_conn_timeout: 30s # How long a request waits for a free connection when all max_conn are busy. 0 or negative means the default. Default: 30 seconds
     max_conn_duration: 10s # A connection to the Backend is closed once it has been open this long. 0 or negative means the default. Default: 10 seconds

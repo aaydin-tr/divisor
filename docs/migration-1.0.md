@@ -13,6 +13,7 @@ Config file
 - [ ] [Remove unknown and removed config keys](#unknown-config-keys-fail-startup) (**startup**)
 - [ ] [Fix Backend URLs with `https://`, a path, a query or userinfo](#backend-urls-are-validated) (**startup**)
 - [ ] [Use `http1` or `http2` for `server.http_version`](#serverhttp_version-is-validated) (**startup**)
+- [ ] [Keep `w-round-robin` weight ratios within 1000](#w-round-robin-weights-are-bounded) (**startup**)
 - [ ] [Set `host: localhost` if divisor must stay loopback-only](#the-client-listener-binds-0000-by-default)
 
 Logs
@@ -139,6 +140,23 @@ only `http1` (or `http1.1`) and `http2`. Leaving the key unset still means
 
 **What to do:** set `http1` or `http2`. If you meant `http2`, the listener now
 really serves HTTP/2, which requires `cert_file` and `key_file`.
+
+### `w-round-robin` weights are bounded
+
+**What changed:** since 1.2.0, under `type: w-round-robin`, divisor divides
+every `weight` by their greatest common divisor, and none may exceed `1000`
+after that. Earlier releases accepted any weight and held that many entries per
+Backend in memory, so a typo such as `weight: 1000000000` took gigabytes.
+A larger weight fails startup, and a Reload with one is rejected:
+`weight must not exceed 1000: backend at index 1, got 5000`. Other Balancers
+ignore `weight` and do not check it.
+
+**Who is affected:** `w-round-robin` configs whose weights keep a ratio above
+1000 to 1, such as `1` and `5000`. Weights `5000` and `10000` are fine: they
+divide down to `1` and `2`.
+
+**What to do:** scale the weights down to the ratio you mean; only the ratio
+counts.
 
 ### The client listener binds 0.0.0.0 by default
 

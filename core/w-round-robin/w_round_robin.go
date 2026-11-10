@@ -7,6 +7,7 @@ import (
 
 	"github.com/aaydin-tr/divisor/core/pool"
 	"github.com/aaydin-tr/divisor/pkg/config"
+	"github.com/aaydin-tr/divisor/pkg/helper"
 	"github.com/valyala/fasthttp"
 )
 
@@ -50,16 +51,9 @@ func (w *wRoundRobin) rebuildSlots() {
 func greatestCommonDivisorOfWeights(backends []*pool.Backend) uint {
 	greatestCommonDivisorSoFar := uint(0)
 	for _, backend := range backends {
-		greatestCommonDivisorSoFar = greatestCommonDivisor(greatestCommonDivisorSoFar, backend.Weight)
+		greatestCommonDivisorSoFar = helper.GreatestCommonDivisor(greatestCommonDivisorSoFar, backend.Weight)
 	}
 	return max(greatestCommonDivisorSoFar, 1)
-}
-
-func greatestCommonDivisor(a, b uint) uint {
-	for b != 0 {
-		a, b = b, a%b
-	}
-	return a
 }
 
 func (w *wRoundRobin) Pick(*fasthttp.RequestCtx) *pool.Backend {

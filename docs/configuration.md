@@ -53,7 +53,7 @@ stats row.
 | `backends[].url` | string | required | 0.1.0 | yes | The Backend address, `host:port`; see [Validation rules](#validation-rules) for what is accepted |
 | `backends[].health_check_path` | string | `/` | 0.1.0 | yes | Path each Probe requests with a `GET`; it must start with `/`, anything else is a startup error. Redirects are not followed |
 | `backends[].health_check_status` | int | any 2xx or 3xx | 1.0.0 | yes | The exact status a Probe must answer (e.g. `204`); any other status is a failed Probe. Must be 200-599; `0` means unset |
-| `backends[].weight` | int | - | 0.1.0 | yes | Share of traffic under `w-round-robin`, which requires a positive weight on every Backend (a single Backend may leave it unset: it defaults to `1`); only the ratio counts, so `100` and `200` share traffic like `1` and `2`. Above `1000` is a startup error. Other Balancers ignore it |
+| `backends[].weight` | int | - | 0.1.0 | yes | Share of traffic under `w-round-robin`, which requires a positive weight on every Backend (a single Backend may leave it unset: it defaults to `1`); only the ratio counts, so `100` and `200` share traffic like `1` and `2`. Above `1000` once every weight is divided by their greatest common divisor is a startup error. Other Balancers ignore it |
 | `backends[].max_conn` | int | `512` | 0.1.0 | yes | Max connections divisor opens to this Backend; an open Streamed response holds one. `0` or negative means the default |
 | `backends[].max_conn_timeout` | duration | `30s` | 0.1.0 | yes | How long a request waits for a free connection when all `max_conn` are busy. `0` or negative means the default |
 | `backends[].max_conn_duration` | duration | `10s` | 0.1.0 | yes | A connection to the Backend is closed once it has been open this long. `0` or negative means the default |
@@ -199,7 +199,7 @@ error, naming it. A Reload applies the same rules and is rejected on any error.
   `cert_file` and `key_file`; there is no cleartext HTTP/2
 - **Weighted round-robin**: every Backend needs a positive `weight`, except
   that a single Backend's unset `weight` defaults to `1`, and no `weight` may
-  exceed `1000`
+  exceed `1000` once every weight is divided by their greatest common divisor
 - **Middlewares**: each needs a `name`, and either `code` or `file` (not both)
   unless `disabled: true`
 - **Custom headers**: values accept only the four special variables
