@@ -92,7 +92,8 @@ A separate HTTP server, `localhost:8001` by default (`monitoring.host`,
 `monitoring.port`; see [Configuration](configuration.md#monitoring-settings)).
 In a container, `localhost` is unreachable from outside: bind `0.0.0.0` and
 publish the port only where it should be reachable, since none of these
-endpoints is authenticated.
+endpoints is authenticated. `monitoring.disabled: true` turns the whole server
+off, probe endpoints included.
 
 | Path | Serves |
 | --- | --- |

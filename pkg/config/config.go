@@ -144,8 +144,9 @@ func (b *Backend) GetHealthCheckURL() string {
 }
 
 type Monitoring struct {
-	Host string `yaml:"host"`
-	Port string `yaml:"port"`
+	Host     string `yaml:"host"`
+	Port     string `yaml:"port"`
+	Disabled bool   `yaml:"disabled"`
 }
 
 // Logging is deliberately a section, not top-level keys: future logging
