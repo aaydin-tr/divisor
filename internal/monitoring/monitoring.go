@@ -98,16 +98,28 @@ func (c *statsCollector) Snapshot() Monitoring {
 
 var processID = os.Getpid()
 
-func readSystemStatsFromOS() (systemStats, error) {
-	process, err := gopsutilProcess.NewProcess(int32(processID))
-	if err != nil {
-		return systemStats{}, fmt.Errorf("process %d: %w", processID, err)
+// minimumProcessCPUWindow keeps a read right after another from dividing one CPU accounting tick by a
+// near-empty window.
+const minimumProcessCPUWindow = time.Second
+
+// osSystemStatsReader keeps one gopsutil Process, whose Percent(0) measures
+// the CPU the process used since the previous measurement.
+type osSystemStatsReader struct {
+	mu                   sync.Mutex
+	process              *gopsutilProcess.Process
+	processCPUPercent    float64
+	processCPUMeasuredAt time.Time
+}
+
+func (r *osSystemStatsReader) ReadSystemStats() (systemStats, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.measureProcessCPU(); err != nil {
+		return systemStats{}, err
 	}
 
 	var stats systemStats
-	if stats.Cpu.ProcessPercent, err = process.CPUPercent(); err != nil {
-		return systemStats{}, fmt.Errorf("process cpu percent: %w", err)
-	}
+	stats.Cpu.ProcessPercent = r.processCPUPercent
 
 	totalCpuUsage, err := cpu.Percent(0, false)
 	if err != nil {
@@ -122,7 +134,7 @@ func readSystemStatsFromOS() (systemStats, error) {
 	if err != nil {
 		return systemStats{}, fmt.Errorf("virtual memory: %w", err)
 	}
-	processMemoryPercent, err := process.MemoryPercent()
+	processMemoryPercent, err := r.process.MemoryPercent()
 	if err != nil {
 		return systemStats{}, fmt.Errorf("process memory percent: %w", err)
 	}
@@ -131,6 +143,42 @@ func readSystemStatsFromOS() (systemStats, error) {
 	stats.Memory.ProcessPercent = processMemoryPercent
 	stats.Memory.TotalPercent = virtualMemory.UsedPercent
 	return stats, nil
+}
+
+func (r *osSystemStatsReader) measureProcessCPU() error {
+	if r.process == nil {
+		return r.startMeasuringProcessCPU()
+	}
+	if time.Since(r.processCPUMeasuredAt) < minimumProcessCPUWindow {
+		return nil
+	}
+	processCPUPercent, err := r.process.Percent(0)
+	if err != nil {
+		return fmt.Errorf("process cpu percent: %w", err)
+	}
+	r.processCPUPercent = processCPUPercent
+	r.processCPUMeasuredAt = time.Now()
+	return nil
+}
+
+// startMeasuringProcessCPU primes Percent(0), which answers 0 on its first call, and reports the average
+// since the process started until a first window is measured.
+func (r *osSystemStatsReader) startMeasuringProcessCPU() error {
+	process, err := gopsutilProcess.NewProcess(int32(processID))
+	if err != nil {
+		return fmt.Errorf("process %d: %w", processID, err)
+	}
+	averageSinceProcessStart, err := process.CPUPercent()
+	if err != nil {
+		return fmt.Errorf("process cpu percent: %w", err)
+	}
+	if _, err := process.Percent(0); err != nil {
+		return fmt.Errorf("process cpu percent: %w", err)
+	}
+	r.process = process
+	r.processCPUPercent = averageSinceProcessStart
+	r.processCPUMeasuredAt = time.Now()
+	return nil
 }
 
 // Server is the monitoring HTTP server (dashboard, /stats, /metrics, probe
@@ -151,7 +199,7 @@ type Server struct {
 // caller instead of being logged from a goroutine; nothing polls before the
 // bind succeeds.
 func Start(connections OpenConnectionsCounter, balancer types.IBalancer, addr string) (*Server, error) {
-	return start(connections, balancer, addr, readSystemStatsFromOS)
+	return start(connections, balancer, addr, (&osSystemStatsReader{}).ReadSystemStats)
 }
 
 func start(connections OpenConnectionsCounter, balancer types.IBalancer, addr string, readSystem systemStatsReader) (*Server, error) {
@@ -183,6 +231,11 @@ func newMonitoringHTTPServer(collector *statsCollector, ready *atomic.Bool) *fas
 	r.GET("/", func(ctx *fasthttp.RequestCtx) {
 		ctx.Response.Header.Set("Content-Type", "text/html")
 		ctx.Response.SetBodyString(index)
+	})
+
+	r.GET("/assets/chart.umd.js", func(ctx *fasthttp.RequestCtx) {
+		ctx.Response.Header.Set("Content-Type", "text/javascript; charset=utf-8")
+		ctx.Response.SetBodyRaw(chartJS)
 	})
 
 	r.GET("/healthz", func(ctx *fasthttp.RequestCtx) {

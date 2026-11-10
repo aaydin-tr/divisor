@@ -71,6 +71,9 @@ var (
 	fasthttpStack        = listenerStack{"fasthttp", newFasthttpConfig, "http"}
 	fasthttpOverTLSStack = listenerStack{"fasthttp over TLS", newFasthttpOverTLSConfig, "https"}
 	netHttpStack         = listenerStack{"net/http", newNetHttpConfig, "https"}
+
+	everyListenerStack     = []listenerStack{fasthttpStack, fasthttpOverTLSStack, netHttpStack}
+	fasthttpListenerStacks = []listenerStack{fasthttpStack, fasthttpOverTLSStack}
 )
 
 func (s listenerStack) url(address string) string { return s.scheme + "://" + address }
@@ -305,7 +308,7 @@ func receiveWithin[T any](t *testing.T, ch <-chan T, awaited string) T {
 // A client that reuses the connection after such a response would find it closed; Connection: close sends it to
 // open a new one instead.
 func TestResponseWrittenDuringShutdownClosesTheConnection(t *testing.T) {
-	for _, stack := range []listenerStack{fasthttpStack, fasthttpOverTLSStack, netHttpStack} {
+	for _, stack := range everyListenerStack {
 		t.Run(stack.name, func(t *testing.T) {
 			balancer := newHeldResponseBalancer()
 			ln := &closeReportingListener{Listener: localListener(t), closed: make(chan struct{})}

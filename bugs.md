@@ -29,10 +29,10 @@ Medium
 - [x] [B9 — Listeners share their port silently and cannot bind IPv6](#b9)
 
 Low
-- [ ] [B10 — process_cpu_percent is a lifetime average](#b10)
-- [ ] [B11 — No read or idle timeout by default on the client listeners](#b11)
-- [ ] [B12 — backends[].weight has no upper bound](#b12)
-- [ ] [B13 — The monitoring dashboard needs the internet](#b13)
+- [x] [B10 — process_cpu_percent is a lifetime average](#b10)
+- [x] [B11 — No read or idle timeout by default on the client listeners](#b11)
+- [x] [B12 — backends[].weight has no upper bound](#b12)
+- [x] [B13 — The monitoring dashboard needs the internet](#b13)
 - [x] [B14 — ip-hash keeps every Backend it ever Joined](#b14)
 
 Docs

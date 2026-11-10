@@ -2,17 +2,21 @@ package w_round_robin
 
 import (
 	"math/rand/v2"
+	"slices"
 	"sync/atomic"
 
 	"github.com/aaydin-tr/divisor/core/pool"
 	"github.com/aaydin-tr/divisor/pkg/config"
+	"github.com/aaydin-tr/divisor/pkg/helper"
 	"github.com/valyala/fasthttp"
 )
 
-// wRoundRobin holds Weight copies of each Alive Backend in a shuffled
-// rotation, so shares follow weight without bursts to one Backend.
+// wRoundRobin shuffles its slots so a heavy Backend's share is spread out, not sent in one burst.
 type wRoundRobin struct {
-	pool.Rotation
+	// Copy-on-write: the Pool replaces it on Join/Leave, request goroutines only read it.
+	slots atomic.Pointer[[]*pool.Backend]
+	// One entry per Alive Backend; only the Pool (single writer) touches it.
+	aliveBackends  []*pool.Backend
 	requestCounter atomic.Uint64
 }
 
@@ -21,20 +25,41 @@ func New(*config.Config) pool.Balancer {
 }
 
 func (w *wRoundRobin) Join(b *pool.Backend) {
-	current := w.AliveBackends()
-	next := make([]*pool.Backend, 0, len(current)+int(b.Weight))
-	next = append(next, current...)
-	for range int(b.Weight) {
-		next = append(next, b)
+	w.aliveBackends = append(w.aliveBackends, b)
+	w.rebuildSlots()
+}
+
+func (w *wRoundRobin) Leave(b *pool.Backend) {
+	w.aliveBackends = slices.DeleteFunc(w.aliveBackends, func(alive *pool.Backend) bool { return alive == b })
+	w.rebuildSlots()
+}
+
+// rebuildSlots recomputes every Alive Backend's slot count, since a Join
+// or Leave can change the greatest common divisor of the Alive weights.
+func (w *wRoundRobin) rebuildSlots() {
+	weightGreatestCommonDivisor := greatestCommonDivisorOfWeights(w.aliveBackends)
+	var slots []*pool.Backend
+	for _, backend := range w.aliveBackends {
+		for range backend.Weight / weightGreatestCommonDivisor {
+			slots = append(slots, backend)
+		}
 	}
-	rand.Shuffle(len(next), func(i, j int) { next[i], next[j] = next[j], next[i] }) //nolint:gosec
-	w.SetAliveBackends(next)
+	rand.Shuffle(len(slots), func(i, j int) { slots[i], slots[j] = slots[j], slots[i] }) //nolint:gosec
+	w.slots.Store(&slots)
+}
+
+func greatestCommonDivisorOfWeights(backends []*pool.Backend) uint {
+	greatestCommonDivisorSoFar := uint(0)
+	for _, backend := range backends {
+		greatestCommonDivisorSoFar = helper.GreatestCommonDivisor(greatestCommonDivisorSoFar, backend.Weight)
+	}
+	return max(greatestCommonDivisorSoFar, 1)
 }
 
 func (w *wRoundRobin) Pick(*fasthttp.RequestCtx) *pool.Backend {
-	aliveBackends := w.AliveBackends()
-	if len(aliveBackends) == 0 {
+	slots := w.slots.Load()
+	if slots == nil || len(*slots) == 0 {
 		return nil
 	}
-	return aliveBackends[w.requestCounter.Add(1)%uint64(len(aliveBackends))]
+	return (*slots)[w.requestCounter.Add(1)%uint64(len(*slots))]
 }

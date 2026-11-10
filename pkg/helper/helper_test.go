@@ -120,3 +120,18 @@ func TestIsClosed(t *testing.T) {
 		t.Error("IsClosed consumed the close signal")
 	}
 }
+
+func TestGreatestCommonDivisor(t *testing.T) {
+	testCases := []struct{ a, b, want uint }{
+		{0, 7, 7},
+		{7, 0, 7},
+		{5000, 10000, 5000},
+		{2, 2002, 2},
+		{1, 1001, 1},
+	}
+	for _, tc := range testCases {
+		if got := helper.GreatestCommonDivisor(tc.a, tc.b); got != tc.want {
+			t.Errorf("GreatestCommonDivisor(%d, %d) = %d, want %d", tc.a, tc.b, got, tc.want)
+		}
+	}
+}

@@ -128,8 +128,9 @@ helm install divisor oci://ghcr.io/aaydin-tr/charts/divisor -f values.yaml
   pool.Balancer`; `pool.Balancer` is `Join(*Backend)` / `Leave(*Backend)`,
   called by the Pool (single writer) on liveness transitions and Reloads, and
   `Pick(ctx)`, which runs on request goroutines and returns nil when nothing
-  is Alive. The slice-based ones embed `pool.Rotation` (copy-on-write Alive
-  slice); ip-hash (a `pool.RingBalancer`) places each Backend on the ring
+  is Alive. round-robin, random, least-connection and least-response-time
+  embed `pool.Rotation` (copy-on-write Alive slice); w-round-robin keeps its
+  own copy-on-write slot slice, rebuilt on every Join/Leave; ip-hash (a `pool.RingBalancer`) places each Backend on the ring
   (`pkg/consistent`, generic over the position's owner) by its address and
   `AddressOccurrence`, never its Index, so divisor instances sharing a config
   agree whatever their Reload history (ADR 0008); a Backend Joining under a
@@ -200,6 +201,8 @@ when `Pick` returns nil.
 - HTTP/2 requires TLS (cert_file + key_file must be provided); on any `http_version`, one of the two set without the other is a startup error naming the missing key
 - Backend `health_check_path` must start with `/` (startup error naming the Backend's index)
 - Weighted round-robin with a single Backend stays `w-round-robin` (its unset `weight` defaults to 1), so a Reload can cross one Backend in either direction
+- Under w-round-robin, a Backend `weight` above 1000 once divided by the gcd of every configured weight is a startup error naming the Backend's index (that bounds its slots under any Alive subset); other Balancers ignore `weight`, so it is not bounded there
+- w-round-robin gives each Alive Backend weight/gcd slots (gcd over the Alive weights), so every Join/Leave rebuilds every Backend's slots
 - `PlanReload(running, newYAML)` is the pure Reload classifier (ADR 0006): it
   parses and prepares the new config, rejects it as invalid
   (`ErrReloadInvalidConfig`) or for changed restart-only keys
@@ -222,7 +225,7 @@ when `Pick` returns nil.
 ### Monitoring
 
 `internal/monitoring`:
-- Separate HTTP server for metrics (default: localhost:8001); `monitoring.disabled: true` (restart-only) never starts it: `main.go` keeps a nil `*monitoring.Server` and graceful shutdown skips its steps
+- Separate HTTP server for metrics (default: localhost:8001); the dashboard (`index.go`) loads only what it serves itself: Chart.js is vendored at `assets/chart.umd.js` (`go:embed`, served at `/assets/chart.umd.js`), system fonts; `monitoring.disabled: true` (restart-only) never starts it: `main.go` keeps a nil `*monitoring.Server` and graceful shutdown skips its steps
 - Provides real-time stats: CPU, RAM, goroutines, open connections
 - Prometheus metrics endpoint at `/metrics`
 - Probe endpoints for orchestrators: `/healthz` (liveness) answers 200
