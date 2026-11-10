@@ -96,6 +96,21 @@ func TestAClientSendingItsHeadersSlowlyIsDisconnectedAtReadHeaderTimeout(t *test
 	}
 }
 
+// Before read_header_timeout existed, read_timeout bounded the headers too; a shorter one still does.
+func TestAReadTimeoutShorterThanReadHeaderTimeoutBoundsTheHeaders(t *testing.T) {
+	for _, stack := range everyListenerStack {
+		t.Run(stack.name, func(t *testing.T) {
+			address := startServingWithClientTimeouts(t, stack, func(s *config.Server) { s.ReadTimeout = shortClientTimeout })
+			conn := dialClient(t, stack, address)
+
+			slowHeaders := "GET / HTTP/1.1\r\nHost: divisor\r\nX-Slow: " + strings.Repeat("a", 60) + "\r\n\r\n"
+			go func() { _ = writeSlowly(conn, slowHeaders) }()
+
+			requireClosedByDivisorWithin(t, conn, disconnectedPromptly)
+		})
+	}
+}
+
 func TestAnIdleKeepAliveConnectionIsClosedAtIdleTimeout(t *testing.T) {
 	for _, stack := range everyListenerStack {
 		t.Run(stack.name, func(t *testing.T) {

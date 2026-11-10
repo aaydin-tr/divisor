@@ -7,7 +7,7 @@ backends:
   - url: localhost:8080 # Backend address, host:port; an optional http:// is stripped, https://, a path or a query is a startup error
     health_check_path: /health # Path each Probe requests with a GET; redirects are not followed. Default: /
     # health_check_status: 204 # Exact status a Probe must answer (200-599); any other status is a failed Probe. Default: unset, any 2xx or 3xx keeps the Backend Alive
-    weight: 2 # Share of traffic under w-round-robin, which requires a positive weight on every Backend; only the ratio counts (100 and 200 share like 1 and 2). Above 1000 is a startup error under any Balancer; other Balancers ignore it otherwise
+    weight: 2 # Share of traffic under w-round-robin, which requires a positive weight on every Backend; only the ratio counts (100 and 200 share like 1 and 2). Above 1000 is a startup error. Other Balancers ignore it
     max_conn: 512 # Max connections divisor opens to this Backend; an open Streamed response holds one. 0 or negative means the default. Default: 512
     max_conn_timeout: 30s # How long a request waits for a free connection when all max_conn are busy. 0 or negative means the default. Default: 30 seconds
     max_conn_duration: 10s # A connection to the Backend is closed once it has been open this long. 0 or negative means the default. Default: 10 seconds
@@ -33,7 +33,7 @@ server:
   max_idle_worker_duration: 10s # How long an idle worker of the connection worker pool is kept. HTTP/1.1 path only. 0 or negative means the default. Default: 10 seconds
   tcp_keepalive_period: 15s # TCP keep-alive period for accepted client connections, on both paths. 0 or negative keeps Go's default. Default: 15 seconds (Go's default)
   concurrency: 262144 # Max client connections served at once. HTTP/1.1 path only. 0 or negative means the default. Default: 262144
-  read_header_timeout: 10s # Time allowed to read an HTTP/1.1 request's headers: on a new connection from when it opens (after the TLS handshake, which gets a window of its own, this long at most), on a keep-alive one from the request's first byte; a slower client is disconnected. HTTP/2 clients are bounded by idle_timeout instead. 0 means the default; negative is a startup error. Default: 10 seconds
+  read_header_timeout: 10s # Time allowed to read an HTTP/1.1 request's headers, from when the connection opens or, on a keep-alive connection, from the request's first byte; a slower client is disconnected. A shorter read_timeout lowers it to that value. HTTP/2 clients are bounded by idle_timeout instead. 0 means the default; negative is a startup error. Default: 10 seconds
   read_timeout: 0s # Time allowed to read a request body once its headers are in; for an HTTP/1.1 client under http_version: http2, the whole request, headers included, from where read_header_timeout starts. Unlimited by default, so slow large uploads keep working. 0 means unlimited. Default: unlimited
   write_timeout: 0s # Time allowed to write a response; a non-zero value also caps a whole Streamed response. 0 means unlimited. Default: unlimited
   idle_timeout: 120s # How long a keep-alive connection waits for its next request before divisor closes it; an HTTP/2 connection waits until a request's headers are all in, so this also bounds an HTTP/2 client that sends its headers slowly. 0 means the default; negative is a startup error. Default: 120 seconds

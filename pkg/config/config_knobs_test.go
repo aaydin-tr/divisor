@@ -340,6 +340,15 @@ func TestBackendWeight(t *testing.T) {
 		assert.Contains(t, err.Error(), "index 1")
 		assert.Contains(t, err.Error(), "got 1000000000")
 	})
+
+	t.Run("is not bounded under a Balancer that ignores weight", func(t *testing.T) {
+		for _, balancerType := range []string{RoundRobinType, RandomType, IPHashType, LeastConnectionType, LeastResponseTimeType} {
+			config := Config{Backends: []Backend{
+				{Url: "localhost:8080", Weight: 5000},
+			}, Type: balancerType, Port: "8000"}
+			assert.NoError(t, config.PrepareConfig(), balancerType)
+		}
+	})
 }
 
 func TestStreaming(t *testing.T) {
@@ -417,6 +426,20 @@ func TestClientConnectionTimeoutsAreBoundedByDefault(t *testing.T) {
 		assert.NoError(t, config.PrepareConfig())
 		assert.Equal(t, 3*time.Second, config.Server.ReadHeaderTimeout)
 		assert.Equal(t, 30*time.Second, config.Server.IdleTimeout)
+	})
+
+	t.Run("a shorter read_timeout bounds the headers too", func(t *testing.T) {
+		server := Server{ReadTimeout: 2 * time.Second}
+		assert.NoError(t, server.prepareServer())
+		assert.Equal(t, 2*time.Second, server.ReadHeaderTimeout)
+
+		server = Server{ReadTimeout: 5 * time.Second, ReadHeaderTimeout: 30 * time.Second}
+		assert.NoError(t, server.prepareServer())
+		assert.Equal(t, 5*time.Second, server.ReadHeaderTimeout)
+
+		server = Server{ReadTimeout: time.Minute}
+		assert.NoError(t, server.prepareServer())
+		assert.Equal(t, 10*time.Second, server.ReadHeaderTimeout)
 	})
 
 	t.Run("idle_timeout no longer follows read_timeout", func(t *testing.T) {

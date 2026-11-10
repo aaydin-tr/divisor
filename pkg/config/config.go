@@ -108,6 +108,9 @@ const (
 	// net/http's HTTP/2 server default (it keeps it unexported).
 	DefaultHTTP2MaxConcurrentStreams = 250
 
+	// w-round-robin holds up to weight slots per Alive Backend, so the bound caps its memory.
+	MaxBackendWeight = 1000
+
 	TLSMinVersion12 = "1.2"
 	TLSMinVersion13 = "1.3"
 
@@ -348,9 +351,6 @@ func (c *Config) PrepareConfig() error {
 	return c.prepareBackends()
 }
 
-// w-round-robin holds up to weight slots per Alive Backend, so the bound caps its memory.
-const MaxBackendWeight = 1000
-
 func (c *Config) prepareBackends() error {
 	for i := 0; i < len(c.Backends); i++ {
 		b := &c.Backends[i]
@@ -361,14 +361,16 @@ func (c *Config) prepareBackends() error {
 		}
 		b.Url = addr
 
-		if c.Type == WeightedRoundRobinType && b.Weight == 0 {
-			if len(c.Backends) > 1 {
-				return ErrInvalidWeight
+		if c.Type == WeightedRoundRobinType {
+			if b.Weight == 0 {
+				if len(c.Backends) > 1 {
+					return ErrInvalidWeight
+				}
+				b.Weight = 1
 			}
-			b.Weight = 1
-		}
-		if b.Weight > MaxBackendWeight {
-			return fmt.Errorf("%w: backend at index %d, got %d", ErrBackendWeightTooLarge, i, b.Weight)
+			if b.Weight > MaxBackendWeight {
+				return fmt.Errorf("%w: backend at index %d, got %d", ErrBackendWeightTooLarge, i, b.Weight)
+			}
 		}
 
 		if b.HealthCheckPath == "" {
@@ -560,6 +562,10 @@ func (s *Server) applyServerDefaults() error {
 	}
 	if s.ReadHeaderTimeout == 0 {
 		s.ReadHeaderTimeout = DefaultReadHeaderTimeout
+	}
+	// read_timeout bounded the headers before read_header_timeout existed; a shorter one still does.
+	if s.ReadTimeout > 0 {
+		s.ReadHeaderTimeout = min(s.ReadHeaderTimeout, s.ReadTimeout)
 	}
 
 	if s.IdleTimeout < 0 {

@@ -257,7 +257,8 @@ one still waiting for a request's headers included. Earlier releases kept both
 open forever unless `server.read_timeout` was set, and `idle_timeout` followed
 `read_timeout`. Under `http_version: http1`, `read_timeout` now times only the
 request body, once its headers are in. It stays unlimited by default, so slow
-large uploads keep working.
+large uploads keep working. A `read_timeout` shorter than `read_header_timeout`
+still bounds the headers too, as it did before.
 
 **Who is affected:** clients that keep a connection idle for over 120s and
 expect it to stay open (most clients open a new one by themselves), HTTP/1.1

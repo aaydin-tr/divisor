@@ -53,7 +53,7 @@ stats row.
 | `backends[].url` | string | required | 0.1.0 | yes | The Backend address, `host:port`; see [Validation rules](#validation-rules) for what is accepted |
 | `backends[].health_check_path` | string | `/` | 0.1.0 | yes | Path each Probe requests with a `GET`; it must start with `/`, anything else is a startup error. Redirects are not followed |
 | `backends[].health_check_status` | int | any 2xx or 3xx | 1.0.0 | yes | The exact status a Probe must answer (e.g. `204`); any other status is a failed Probe. Must be 200-599; `0` means unset |
-| `backends[].weight` | int | - | 0.1.0 | yes | Share of traffic under `w-round-robin`, which requires a positive weight on every Backend (a single Backend may leave it unset: it defaults to `1`); only the ratio counts, so `100` and `200` share traffic like `1` and `2`. Above `1000` is a startup error under any Balancer; other Balancers ignore it otherwise |
+| `backends[].weight` | int | - | 0.1.0 | yes | Share of traffic under `w-round-robin`, which requires a positive weight on every Backend (a single Backend may leave it unset: it defaults to `1`); only the ratio counts, so `100` and `200` share traffic like `1` and `2`. Above `1000` is a startup error. Other Balancers ignore it |
 | `backends[].max_conn` | int | `512` | 0.1.0 | yes | Max connections divisor opens to this Backend; an open Streamed response holds one. `0` or negative means the default |
 | `backends[].max_conn_timeout` | duration | `30s` | 0.1.0 | yes | How long a request waits for a free connection when all `max_conn` are busy. `0` or negative means the default |
 | `backends[].max_conn_duration` | duration | `10s` | 0.1.0 | yes | A connection to the Backend is closed once it has been open this long. `0` or negative means the default |
@@ -118,7 +118,7 @@ no effect under `http_version: http2`.
 
 | Key | Type | Default | Since | Reload | Description |
 | --- | --- | --- | --- | --- | --- |
-| `server.read_header_timeout` | duration | `10s` | 1.2.0 | no | Time allowed to read an HTTP/1.1 request's headers: on a new connection from when it opens (after the TLS handshake, which gets a window of its own, this long at most), on a keep-alive one from the request's first byte. A slower client is disconnected, so clients that send headers slowly cannot pile up connections. HTTP/2 clients are bounded by `idle_timeout` instead. `0` means the default; negative is a startup error |
+| `server.read_header_timeout` | duration | `10s` | 1.2.0 | no | Time allowed to read an HTTP/1.1 request's headers, from when the connection opens or, on a keep-alive connection, from the request's first byte. A slower client is disconnected, so clients that send headers slowly cannot pile up connections. A shorter `read_timeout` lowers it to that value. HTTP/2 clients are bounded by `idle_timeout` instead. `0` means the default; negative is a startup error |
 | `server.read_timeout` | duration | unlimited | 0.3.0 | no | Time allowed to read a request body once its headers are in. For an HTTP/1.1 client under `http_version: http2` it bounds the whole request instead, headers included, from where `read_header_timeout` starts. The default leaves it unlimited, so slow large uploads keep working. `0` means unlimited |
 | `server.write_timeout` | duration | unlimited | 0.3.0 | no | Time allowed to write a response. A non-zero value also caps a whole [Streamed response](#streamed-responses). `0` means unlimited |
 | `server.idle_timeout` | duration | `120s` | 0.3.0 | no | How long a keep-alive connection waits for its next request before divisor closes it. An HTTP/2 connection waits whenever no request is in progress on it, and a request is in progress only once all its headers are in, so this also bounds an HTTP/2 client that sends its headers slowly. `0` means the default; negative is a startup error |
@@ -198,8 +198,8 @@ error, naming it. A Reload applies the same rules and is rejected on any error.
 - **HTTP/2 requires TLS**: `server.http_version: http2` requires both
   `cert_file` and `key_file`; there is no cleartext HTTP/2
 - **Weighted round-robin**: every Backend needs a positive `weight`, except
-  that a single Backend's unset `weight` defaults to `1`
-- **Backend weight**: `backends[].weight` must not exceed `1000`
+  that a single Backend's unset `weight` defaults to `1`, and no `weight` may
+  exceed `1000`
 - **Middlewares**: each needs a `name`, and either `code` or `file` (not both)
   unless `disabled: true`
 - **Custom headers**: values accept only the four special variables
