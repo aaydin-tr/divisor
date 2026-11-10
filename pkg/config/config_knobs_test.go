@@ -27,6 +27,22 @@ func TestDefaultBindAddresses(t *testing.T) {
 	assert.Equal(t, "localhost", config.Monitoring.Host)
 }
 
+func TestMonitoringServerRunsUnlessDisabled(t *testing.T) {
+	t.Parallel()
+
+	const requiredKeys = "port: 8000\nbackends:\n  - url: localhost:8080\n"
+
+	byDefault, err := ParseConfig([]byte(requiredKeys))
+	assert.NoError(t, err)
+	assert.NoError(t, byDefault.PrepareConfig())
+	assert.False(t, byDefault.Monitoring.Disabled)
+
+	disabled, err := ParseConfig([]byte(requiredKeys + "monitoring:\n  disabled: true\n"))
+	assert.NoError(t, err)
+	assert.NoError(t, disabled.PrepareConfig())
+	assert.True(t, disabled.Monitoring.Disabled)
+}
+
 func TestGracefulShutdownTimeout(t *testing.T) {
 	t.Parallel()
 

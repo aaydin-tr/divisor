@@ -69,6 +69,7 @@ Backend, while a changed entry is a new Backend.
 | --- | --- | --- | --- | --- | --- |
 | `monitoring.host` | string | `localhost` | 0.1.0 | no | Address the Monitoring server listens on. Set `0.0.0.0` when an orchestrator probes `/healthz` and `/ready` from outside the host. Takes an IPv6 address like `host`, and a port already in use is a startup error too |
 | `monitoring.port` | string | `8001` | 0.1.0 | no | Port the Monitoring server listens on |
+| `monitoring.disabled` | bool | `false` | 1.2.0 | no | `true` turns the Monitoring server off: nothing listens on `monitoring.host`/`monitoring.port`, so there is no dashboard, `/stats`, `/metrics`, `/healthz` or `/ready`. Leave it on where an orchestrator probes divisor (the Helm chart and the Kubernetes example do) |
 
 What the Monitoring server serves is in [Observability](observability.md).
 

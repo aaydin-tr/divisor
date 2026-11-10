@@ -142,8 +142,9 @@ benchmark config, [`contenders/divisor/config.yaml`](contenders/divisor/config.y
   clients alike ([`docs/configuration.md`](../docs/configuration.md#connections)).
 - Keep-alive to the backends and `X-Forwarded-For` are what divisor always
   does.
-- The monitoring server at its default (`localhost:8001`). divisor cannot turn
-  it off, so it runs, as in production.
+- `monitoring.disabled: true`: divisor opens no monitoring server
+  (`localhost:8001` by default), which is not proxying, like Caddy's admin
+  endpoint and Traefik's API, both off.
 
 ### Caddy
 

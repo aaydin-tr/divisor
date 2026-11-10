@@ -222,7 +222,7 @@ when `Pick` returns nil.
 ### Monitoring
 
 `internal/monitoring`:
-- Separate HTTP server for metrics (default: localhost:8001)
+- Separate HTTP server for metrics (default: localhost:8001); `monitoring.disabled: true` (restart-only) never starts it: `main.go` keeps a nil `*monitoring.Server` and graceful shutdown skips its steps
 - Provides real-time stats: CPU, RAM, goroutines, open connections
 - Prometheus metrics endpoint at `/metrics`
 - Probe endpoints for orchestrators: `/healthz` (liveness) answers 200
@@ -242,7 +242,7 @@ when `Pick` returns nil.
 4. Create the Pool + balancer → `core.NewBalancer()` (first Probe round runs synchronously here)
 5. The Probe loop starts inside `NewBalancer` (`Pool.StartHealthChecker()`)
 6. Bind the client-facing address via `internal/server.Listen()` (the Monitoring server binds through it too: a port in use is fatal, never shared; an IPv4 `host` binds `tcp4`, so `0.0.0.0` stays IPv4-only; `config.GetAddr()` brackets an IPv6 `host`) and start the server via `internal/server.Start()` (fasthttp serving `proxy.NewFasthttpHandler` for HTTP/1.1, net/http serving `proxy.NetHttpAdapter` for HTTP/2); it returns a stack-agnostic `Server` plus a channel that reports a Serve failure
-7. Start the monitoring server via `monitoring.Start()` (binds synchronously; a bind failure is fatal; the Prometheus poller starts only after the bind)
+7. Unless `monitoring.disabled`, start the monitoring server via `monitoring.Start()` (binds synchronously; a bind failure is fatal; the Prometheus poller starts only after the bind)
 8. Create the `reload.Reloader` (`internal/reload`), route SIGHUP to it (`reloadOnEverySignal`) and hand it to the config file watch (`ConfigFileWatch.StartReloading`)
 9. Select on SIGINT/SIGTERM (graceful shutdown, `server.graceful_shutdown_timeout`, default 30s) vs a Serve failure (fatal, non-zero exit)
 

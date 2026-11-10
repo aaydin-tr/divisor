@@ -101,9 +101,15 @@ func main() {
 		zap.S().Fatalf("Error while starting divisor server %s", err)
 	}
 
-	monitoringServer, err := monitoring.Start(srv, proxies, config.GetMonitoringAddr())
-	if err != nil {
-		zap.S().Fatalf("Error while starting monitoring server %s", err)
+	// Stays nil when monitoring.disabled is set.
+	var monitoringServer *monitoring.Server
+	if config.Monitoring.Disabled {
+		zap.S().Info("Monitoring server is disabled by monitoring.disabled: no dashboard, /stats, /metrics, /healthz or /ready")
+	} else {
+		monitoringServer, err = monitoring.Start(srv, proxies, config.GetMonitoringAddr())
+		if err != nil {
+			zap.S().Fatalf("Error while starting monitoring server %s", err)
+		}
 	}
 
 	reloader := reload.NewReloader(*configFile, config, proxies)
@@ -146,14 +152,17 @@ func stopReloading(configFileWatch *reload.ConfigFileWatch, reloader *reload.Rel
 }
 
 // Order matters: Reloads stop before the Pool does, and the monitoring server
-// polls balancer.Stats(), so it stops before the balancer does.
+// polls balancer.Stats(), so it stops before the balancer does. monitoringServer
+// is nil when monitoring.disabled is set.
 func performGracefulShutdown(srv server.Server, monitoringServer *monitoring.Server, stopReloads func(), balancer types.IBalancer, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	// /ready flips to 503 before anything waits, so orchestrator readiness
 	// probes stop routing new traffic while requests already being served complete.
-	monitoringServer.MarkNotReady()
+	if monitoringServer != nil {
+		monitoringServer.MarkNotReady()
+	}
 
 	shutdownComplete := make(chan error, 1)
 
@@ -167,12 +176,14 @@ func performGracefulShutdown(srv server.Server, monitoringServer *monitoring.Ser
 		}
 		zap.S().Info("HTTP server shutdown completed")
 
-		zap.S().Info("Shutting down monitoring server...")
-		if err := monitoringServer.Shutdown(ctx); err != nil {
-			shutdownComplete <- err
-			return
+		if monitoringServer != nil {
+			zap.S().Info("Shutting down monitoring server...")
+			if err := monitoringServer.Shutdown(ctx); err != nil {
+				shutdownComplete <- err
+				return
+			}
+			zap.S().Info("Monitoring server shutdown completed")
 		}
-		zap.S().Info("Monitoring server shutdown completed")
 
 		// Shutdown the balancer (stop health checkers, close connections)
 		zap.S().Info("Shutting down load balancer...")

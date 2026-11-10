@@ -1,7 +1,9 @@
 # divisor in the Equivalent setup every Contender states in its own config
-# language (benchmark/README.md). The Monitoring server stays at its default.
+# language (benchmark/README.md).
 type: round-robin
 port: 8080
+monitoring:
+  disabled: true
 backends:
   - url: 127.0.0.1:9001
   - url: 127.0.0.1:9002

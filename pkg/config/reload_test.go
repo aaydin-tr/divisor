@@ -275,6 +275,7 @@ logging:
   level: debug
 monitoring:
   port: "9001"
+  disabled: true
 custom_headers:
   X-Client: $remote_addr
 middlewares:
@@ -284,7 +285,7 @@ backends:
   - url: a:8080
   - url: b:8080
 `,
-			changedKeys: []string{"custom_headers", "logging.level", "middlewares", "monitoring.port"},
+			changedKeys: []string{"custom_headers", "logging.level", "middlewares", "monitoring.disabled", "monitoring.port"},
 		},
 		{
 			name: "a restart-only key rejects the Backend changes made alongside it",

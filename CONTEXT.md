@@ -91,7 +91,7 @@ What divisor logs about itself — startup, Backends going Down and Rejoining, R
 _Avoid_: app log, error log, system log
 
 **Monitoring server**:
-The separate HTTP listener (`monitoring.host`/`monitoring.port`, `localhost:8001` by default) serving the stats dashboard, `/stats`, Prometheus `/metrics`, and the `/healthz` and `/ready` probe endpoints. Neither probe endpoint depends on Backend liveness.
+The separate HTTP listener (`monitoring.host`/`monitoring.port`, `localhost:8001` by default) serving the stats dashboard, `/stats`, Prometheus `/metrics`, and the `/healthz` and `/ready` probe endpoints. Neither probe endpoint depends on Backend liveness. `monitoring.disabled: true` turns it off, probe endpoints included.
 _Avoid_: admin server, metrics server, stats server
 
 **Streamed response**:
