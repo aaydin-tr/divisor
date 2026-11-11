@@ -141,9 +141,15 @@ Now stop a Backend:
 docker stop whoami-2
 ```
 
-Within one Probe interval divisor logs `Backend is Down, leaving rotation`
-and every request goes to `whoami-1` (one sent before the Probe notices may
-get a `502`). Start it again:
+Until the next Probe notices, divisor keeps sending `whoami-2` its share of
+requests, every other one here, and each of them gets a `502`: divisor does
+not retry a failed request on another Backend. That lasts until the next
+Probe round reaches `whoami-2`: at most `health_checker_time` plus
+`health_checker_timeout`, the bound on one Probe, so 10 seconds with this
+config. A round Probes one Backend after another, so with more Backends each
+one that is slow to answer before it adds its own wait. Then divisor logs
+`Backend is Down, leaving rotation` and every request goes to `whoami-1`.
+Start it again:
 
 ```bash
 docker start whoami-2

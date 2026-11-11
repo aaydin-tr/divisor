@@ -36,9 +36,9 @@ Low
 - [x] [B14 — ip-hash keeps every Backend it ever Joined](#b14)
 
 Docs
-- [ ] [D1 — The Balancer guide recommends ip-hash and least-response-time without caveats](#d1)
-- [ ] [D2 — Getting started understates the 502s before a Probe notices a Down Backend](#d2)
-- [ ] [D3 — The benchmark is from 0.x](#d3)
+- [x] [D1 — The Balancer guide recommends ip-hash and least-response-time without caveats](#d1)
+- [x] [D2 — Getting started understates the 502s before a Probe notices a Down Backend](#d2)
+- [x] [D3 — The benchmark is from 0.x](#d3)
 
 ---
 
@@ -329,3 +329,10 @@ Docs
 - **Fix:** rerun on Linux for 1.0 with an open-loop tool (wrk2 or k6),
   reporting p50/p99/p999 latency and CPU per 10k req/s, with nginx and HAProxy
   as baselines; or label the current page as 0.x results.
+- **Resolved by:** the Release benchmark ([benchmark/README.md](benchmark/README.md)),
+  first published on v1.1.0's release page, which README.md now links. It
+  departs from the fix above in three ways: oha at a fixed rate instead of
+  wrk2 or k6, Caddy, nginx and Traefik as baselines (Caddy replaced HAProxy),
+  and no CPU per 10k req/s (each Contender gets one pinned core, so req/s
+  reads per core). The Backends still share the machine, on their own pinned
+  CPU.

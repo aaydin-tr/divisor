@@ -70,7 +70,8 @@ Docs
   (`$incremental` is per Backend) for the picked Backend, so each attempt
   re-prepares the request. Does `OnRequest` run once or per attempt? The
   Access log `backend` names the Backend that answered.
-- **Fixes:** [bugs.md D2](bugs.md#d2) once shipped.
+- **Docs:** shrink the 502 window in docs/getting-started.md
+  ([bugs.md D2](bugs.md#d2)) once shipped.
 
 <a id="f2"></a>
 ### F2. TLS certificate reload without a restart
@@ -279,11 +280,11 @@ Docs
 - **Shape:** one user-facing page in `docs/` covering each limitation and what
   to do meanwhile: Probe-only failure detection and no retry ([F1](#f1)),
   certificate rotation needs a restart ([F2](#f2)), `Host` rewritten and no
-  `X-Forwarded-Proto` ([F3](#f3)), ip-hash behind NAT and across replicas
-  ([F8](#f8), [bugs.md B1](bugs.md#b1)), no WebSockets ([F10](#f10)), buffered
-  uploads, one Pool per process ([F13](#f13)). Remove each line as its feature
-  ships.
-- **Fixes:** [bugs.md D1](bugs.md#d1).
+  `X-Forwarded-Proto` ([F3](#f3)), ip-hash behind NAT ([F8](#f8)), no
+  WebSockets ([F10](#f10)), buffered uploads, one Pool per process
+  ([F13](#f13)). Remove each line as its feature ships.
+- **Docs:** move the ip-hash and least-response-time caveats here from
+  examples/README.md ([bugs.md D1](bugs.md#d1)).
 
 <a id="fd2"></a>
 ### FD2. A hardening guide

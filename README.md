@@ -93,8 +93,11 @@ The full index is
 
 ## Benchmark
 
-See the [benchmark folder](benchmark/) for how divisor is measured and how to
-run the benchmark yourself.
+Stable releases are measured against Caddy, nginx and Traefik on one machine,
+and a release's page can carry the results, as
+[v1.1.0](https://github.com/aaydin-tr/divisor/releases/tag/v1.1.0)'s does. See the
+[benchmark folder](benchmark/) for how divisor is measured and how to run the
+benchmark yourself.
 
 ## Contributing
 

@@ -1,6 +1,8 @@
 # IP-Hash Configuration
-# Use Case: Session affinity - same client always routes to same backend
-# Perfect for stateful applications with session data stored on backend servers
+# Use Case: Client affinity - each client IP routes to one backend while the
+# set of healthy backends stays the same. A client loses state kept on its
+# backend when that backend goes down; see "Choosing the Right Algorithm" in
+# examples/README.md
 
 type: ip-hash
 port: 8000

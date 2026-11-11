@@ -20,7 +20,7 @@ This directory contains example configurations for different use cases and deplo
 - [`w-round-robin.config.yaml`](w-round-robin.config.yaml) - Weight-based distribution
 
 **IP Hash** - Session affinity (same client → same backend):
-- [`ip-hash.config.yaml`](ip-hash.config.yaml) - Perfect for stateful applications
+- [`ip-hash.config.yaml`](ip-hash.config.yaml) - Each Client IP stays on one Backend while the Alive Backends stay the same ([limits](#choosing-the-right-algorithm))
 
 **Least Connection** - Dynamic balancing to least busy backend:
 - [`least-connection.config.yaml`](least-connection.config.yaml) - Optimal for mixed workloads
@@ -63,10 +63,33 @@ This directory contains example configurations for different use cases and deplo
 |-----------|----------|-------------|
 | `round-robin` | Simple load distribution | Backends have similar capacity, stateless apps |
 | `w-round-robin` | Uneven backend capacity | Different server specs (e.g., 2x CPU, 4x CPU) |
-| `ip-hash` | Session persistence | Shopping carts, user sessions on backend |
+| `ip-hash` | Client affinity | Per-Backend caches or warm state, clients with distinct IPs |
 | `least-connection` | Variable request durations | Mixed workloads (fast + slow requests) |
 | `least-response-time` | Performance optimization | Backends with varying performance |
 | `random` | Simple randomization | Testing, development environments |
+
+Read these limits before choosing `ip-hash` or `least-response-time`:
+
+- **`ip-hash`** picks the Backend by the Client IP, the address the TCP
+  connection comes from, never `X-Forwarded-For`. Every client behind one NAT,
+  proxy or load balancer in front of divisor (a Kubernetes Service that does
+  not preserve the client address, for example) shares that address, so all
+  of them go to one Backend. Affinity also lasts only while the set of Alive
+  Backends stays the same: a Backend that goes Down hands its clients to the
+  others until it is Alive again, and a Backend added to the config takes a
+  share of the clients. Keep session state somewhere every Backend can read
+  it, or expect clients to lose it then. Several divisor instances running the
+  same config send a Client IP to the same Backend while the same Backends
+  are Alive on each.
+- **`least-response-time`** compares two Backends drawn at random by their
+  recent response times, weighted by the requests each has in flight. Those
+  times mix every path, so with fast and slow endpoints a Backend that served
+  the slow ones looks slow for a while. A failed request (a timeout, a refused
+  or reset connection) counts as a response of at least 10 seconds, so that
+  Backend gets almost no requests until divisor sends it one request to
+  measure it again. That happens once requests have gone only to other
+  Backends for three full Probe rounds, one every `health_checker_time`: 90
+  to 120 seconds with the default `30s`.
 
 ### Common Patterns
 
